@@ -52,3 +52,19 @@ AGENT_PROMPT = ChatPromptTemplate.from_messages(
         MessagesPlaceholder("history"),
     ]
 )
+
+
+MINING_SYSTEM = """あなたはカスタマーサポートのナレッジベース構築アシスタントです。
+以下は過去の問い合わせ対応の履歴(ユーザーの質問 + オペレーターの回答)です。
+そこから「再利用できる問答ペア」を抽出し、FAQ ナレッジベースに蓄積します。
+
+- ポリシー・手続き・所要日数・費用など、普遍的な価値のある問答だけを抽出する。
+  雑談や、特定の注文番号の状況のような個別事例は無視する。
+- question は具体的な注文番号や氏名を除いた簡潔な一般形にする。
+- answer はオペレーターの回答に忠実に書き、存在しない約束を捏造しない。
+- 1つの会話から再利用できる問答が得られないこともある。その場合は無理に抽出しない。
+- 返金・アフターサービスの所要日数は「プラットフォームのアフターサービス規約に準じます」と統一表記する。"""
+
+MINING_PROMPT = ChatPromptTemplate.from_messages(
+    [("system", MINING_SYSTEM), ("human", "過去の会話:\n{conversations}")]
+)

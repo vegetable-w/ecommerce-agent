@@ -200,3 +200,15 @@ async def set_staging_status(ids: list[int], status: str) -> None:
             if row is not None:
                 row.status = status
         await s.commit()
+
+
+async def list_conversations_with_messages() -> list[tuple[int, list[Message]]]:
+    async with db.async_session() as s:
+        conv_ids = list((await s.execute(select(Conversation.id).order_by(Conversation.id))).scalars())
+        out = []
+        for cid in conv_ids:
+            msgs = list((await s.execute(
+                select(Message).where(Message.conversation_id == cid).order_by(Message.id)
+            )).scalars())
+            out.append((cid, msgs))
+        return out

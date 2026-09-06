@@ -44,6 +44,20 @@ def test_token_budgetは1なら許可される(monkeypatch):
     monkeypatch.setenv("TOKEN_BUDGET", "1")
     assert Settings(_env_file=None).token_budget == 1
 
+def test_request_timeoutはゼロ以下だとエラー(monkeypatch):
+    for k, v in {"CHAT_MODEL": "m", "CHAT_BASE_URL": "u", "CHAT_API_KEY": "k"}.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setenv("REQUEST_TIMEOUT", "0")
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+
+def test_request_timeoutは負数だとエラー(monkeypatch):
+    for k, v in {"CHAT_MODEL": "m", "CHAT_BASE_URL": "u", "CHAT_API_KEY": "k"}.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setenv("REQUEST_TIMEOUT", "-1")
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+
 def test_env_fileから読み込まれる(tmp_path, monkeypatch):
     for k in ("CHAT_MODEL", "CHAT_BASE_URL", "CHAT_API_KEY", "TOKEN_BUDGET"):
         monkeypatch.delenv(k, raising=False)

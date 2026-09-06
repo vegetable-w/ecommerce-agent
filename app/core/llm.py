@@ -11,4 +11,5 @@ def get_chat_model(streaming: bool = False) -> ChatOpenAI:
         api_key=settings.chat_api_key,
         streaming=streaming,
         temperature=0.3,
+        request_timeout=settings.request_timeout,
     )

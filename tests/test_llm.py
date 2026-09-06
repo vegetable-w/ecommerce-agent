@@ -2,11 +2,21 @@ from app.config import settings
 from app.core.llm import get_chat_model
 
 
-def test_factory_points_to_chat_upstream():
+def test_factory_points_to_chat_upstream(monkeypatch):
+    # ハードコードされた値でも偶然一致してしまわないよう、settingsの値を実在しそうにない
+    # マーカー文字列に差し替えてから、factoryが本当にsettingsを読んでいることを検証する
+    monkeypatch.setattr(settings, "chat_model", "distinct-test-marker-model")
+    monkeypatch.setattr(settings, "chat_base_url", "http://distinct-test-marker-url/v1")
     m = get_chat_model()
-    assert m.model_name == settings.chat_model      # 設定値に追従し、モデル名をハードコードしない
+    assert m.model_name == settings.chat_model
     assert str(m.openai_api_base) == settings.chat_base_url
 
 
 def test_factory_streaming_flag():
     assert get_chat_model(streaming=True).streaming is True
+
+
+def test_factory_uses_configured_request_timeout(monkeypatch):
+    monkeypatch.setattr(settings, "request_timeout", 12.5)
+    m = get_chat_model()
+    assert m.request_timeout == settings.request_timeout

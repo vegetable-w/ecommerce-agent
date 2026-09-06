@@ -1,0 +1,75 @@
+"""ツール実行基盤。
+
+registry からツールを引き、会話主キーを注入し、タイムアウトを掛け、
+一時的な失敗を retry する。例外は一切外へ漏らさず、モデルが読める
+ToolMessage(status="error") を含む ToolRun として返す。
+
+タイムアウトは attempt(試行)ごとに掛かる。デフォルトの
+timeout=5.0, max_retries=2 では、全て失敗した場合の最悪ケースの壁時計時間は
+おおよそ (max_retries+1) * timeout + backoff sleep の合計
+= 3 * 5.0 + (0.2*1 + 0.2*2) = 15.0 + 0.6 = 15.6 秒。
+"""
+
+import asyncio
+import json
+import logging
+from dataclasses import dataclass
+
+from langchain_core.messages import ToolMessage
+
+from app.tools import registry
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ToolRun:
+    tool_call_id: str
+    name: str
+    ok: bool
+    tool_message: ToolMessage
+
+
+def _error_run(tc_id: str, name: str, msg: str) -> ToolRun:
+    return ToolRun(
+        tool_call_id=tc_id,
+        name=name,
+        ok=False,
+        tool_message=ToolMessage(
+            content=f"ツール実行失敗: {msg}", tool_call_id=tc_id, name=name, status="error"
+        ),
+    )
+
+
+async def execute_tool_call(
+    tool_call: dict, conversation_id: int, timeout: float = 5.0, max_retries: int = 2
+) -> ToolRun:
+    name = tool_call["name"]
+    tc_id = tool_call["id"]
+    args = dict(tool_call.get("args") or {})
+
+    tool = registry.get_tool(name)
+    if tool is None:
+        return _error_run(tc_id, name, f"不明なツール {name}")
+
+    if name in registry.INJECT_CONVERSATION:
+        args["conversation_id"] = conversation_id
+
+    retries = 0 if name in registry.NO_RETRY else max_retries
+    attempt = 0
+    while True:
+        try:
+            result = await asyncio.wait_for(tool.ainvoke(args), timeout=timeout)
+            content = json.dumps(result, ensure_ascii=False, default=str)
+            return ToolRun(
+                tool_call_id=tc_id,
+                name=name,
+                ok=True,
+                tool_message=ToolMessage(content=content, tool_call_id=tc_id, name=name),
+            )
+        except Exception as e:  # noqa: BLE001 - すべて捕捉してエラー結果としてモデルへ返す
+            attempt += 1
+            if attempt > retries:
+                logger.exception("ツール実行失敗 name=%s", name)
+                return _error_run(tc_id, name, type(e).__name__)
+            await asyncio.sleep(0.2 * attempt)

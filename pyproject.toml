@@ -3,10 +3,13 @@ name = "ecommerce-agent"
 version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = [
+    "asyncmy>=0.2.9",
+    "cryptography>=50.0.1",
     "fastapi>=0.141.1",
     "langchain>=1.4.0",
     "langchain-openai>=1.6.0",
     "pydantic-settings>=2.15.0",
+    "sqlalchemy[asyncio]>=2.0.0",
     "uvicorn[standard]>=0.52.4",
 ]
 
@@ -20,3 +23,9 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# DBテストではセッション全体で使い回すengine(_test_engine, scope="session")を
+# 複数のfixture/テストがまたいで利用するため、loop scopeもsessionに揃える。
+# 揃えないとasyncmyのコネクションが異なるイベントループに紐付き、
+# "Future attached to a different loop" のRuntimeErrorになる。
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"

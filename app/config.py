@@ -20,5 +20,7 @@ class Settings(BaseSettings):
     # 下げない)。DeepSeekやOllamaなどOpenAI互換だが json_schema 未対応の上流に切り替える場合は、
     # 通常function_callingを選ぶ必要がある。移植性は設定で担保し、デフォルトは弱めない
     extract_method: Literal["json_schema", "function_calling", "json_mode"] = "json_schema"
+    database_url: str = "mysql+asyncmy://root:root@localhost:3306/support"
+    test_database_url: str = "mysql+asyncmy://root:root@localhost:3306/support_test"
 
 settings = Settings()

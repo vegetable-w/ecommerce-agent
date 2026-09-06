@@ -1,3 +1,5 @@
+import re
+
 from langchain_core.messages import HumanMessage
 
 from app.core.prompts import CUSTOMER_SERVICE_PROMPT, EXTRACT_PROMPT, AGENT_SYSTEM, AGENT_PROMPT
@@ -41,3 +43,27 @@ def test_agent_prompt_has_history_placeholder():
     """Test that AGENT_PROMPT has the history placeholder."""
     assert any(getattr(m, "variable_name", None) == "history"
                for m in AGENT_PROMPT.messages)
+
+def test_agent_system_names_match_registry():
+    """Verify that tool names hardcoded in AGENT_SYSTEM match registry.
+
+    AGENT_SYSTEM mentions tool names by string (e.g. "query_order").
+    If a tool is renamed in the registry, the prompt name must stay in sync
+    or the model will be told to call a tool that no longer exists under
+    that name. This test catches that desync.
+    """
+    from app.tools.registry import get_all_tools
+
+    # Get actual tool names from registry
+    registry_names = {t.name for t in get_all_tools()}
+
+    # Extract tool names mentioned in AGENT_SYSTEM (query_* or create_* pattern)
+    mentioned_names = set(re.findall(r'\b(?:query|create)_[a-z_]+\b', AGENT_SYSTEM))
+
+    # Forward: all registry tools should be mentioned in the prompt
+    for name in registry_names:
+        assert name in mentioned_names, f"Tool '{name}' in registry but not mentioned in AGENT_SYSTEM"
+
+    # Reverse: all mentioned names should correspond to real tools in registry
+    for name in mentioned_names:
+        assert name in registry_names, f"Tool '{name}' mentioned in AGENT_SYSTEM but not in registry"

@@ -24,6 +24,7 @@ Thumbs.db
 
 # logs & local artifacts
 *.log
+log/
 
 # 本地文档，不上传远端（设计稿、实现计划、开发追记）
 docs/

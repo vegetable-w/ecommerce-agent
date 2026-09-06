@@ -23,4 +23,15 @@ class Settings(BaseSettings):
     database_url: str = "mysql+asyncmy://root:root@localhost:3306/support"
     test_database_url: str = "mysql+asyncmy://root:root@localhost:3306/support_test"
 
+    # 埋め込み上流。OpenAI 互換なので openai SDK の base_url を差し替えるだけで話せる。
+    embed_base_url: str = "https://api.siliconflow.cn/v1"
+    embed_api_key: SecretStr                # アカウント依存なので既定値を持たせない
+    embed_model: str = "BAAI/bge-m3"        # 上流の実名。別名レイヤーは設けない
+    # Milvus は docker-compose の standalone(ポート 19530)へ接続する。
+    # Milvus Lite(埋め込みファイル DB)は sys_platform != 'win32' の marker で
+    # Windows を除外しているため、このマシンでは使えない(実測で確認済み)。
+    milvus_uri: str = "http://localhost:19530"
+    retrieval_top_k: int = Field(default=3, gt=0)
+    retrieval_min_score: float = 0.4
+
 settings = Settings()

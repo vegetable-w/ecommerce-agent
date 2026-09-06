@@ -48,3 +48,21 @@ def test_trim_budget_exactly_equal_to_history_tokens_keeps_all():
     msgs = [HumanMessage("hi"), AIMessage("hello")]
     exact_budget = count_tokens_approximately(msgs)
     assert trim_history(msgs, max_tokens=exact_budget) == msgs
+
+
+def test_store_clear_one_session():
+    store = SessionStore()
+    store.append("a", HumanMessage("hi"))
+    store.append("b", HumanMessage("hello"))
+    store.clear("a")
+    assert store.get("a") == []
+    assert len(store.get("b")) == 1
+
+
+def test_store_clear_all_sessions():
+    store = SessionStore()
+    store.append("a", HumanMessage("hi"))
+    store.append("b", HumanMessage("hello"))
+    store.clear()
+    assert store.get("a") == []
+    assert store.get("b") == []

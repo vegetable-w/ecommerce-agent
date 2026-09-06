@@ -2,14 +2,49 @@ import json
 
 from fastapi.testclient import TestClient
 from langchain_core.language_models import FakeListChatModel
+from langchain_core.messages import AIMessageChunk
 
 from app.api import chat as chat_api
 from app.main import app
 
 
+class _FakeBlockContentModel:
+    """.contentがブロック形式(list[dict])のチャンクを返す簡易フェイク。
+    新しめのLLMプロバイダが返すcontent-block形式を模し、
+    isinstance(.content, str)判定が無音で空文字列を返す回帰を検出する。"""
+
+    def __init__(self, text: str) -> None:
+        self._text = text
+
+    async def astream(self, messages):
+        for ch in self._text:
+            yield AIMessageChunk(content=[{"type": "text", "text": ch}])
+
+
+class _FakeEmptyModel:
+    """1文字も生成しないフェイク(空応答)。"""
+
+    async def astream(self, messages):
+        return
+        yield  # noqa: unreachable - astreamを非同期ジェネレータにするためだけの行
+
+
+class _FakeRaisingModel:
+    """astream中に例外を送出するフェイク。"""
+
+    async def astream(self, messages):
+        raise RuntimeError("上流モデル呼び出し失敗(テスト用)")
+        yield  # noqa: unreachable - astreamを非同期ジェネレータにするためだけの行
+
+
 def make_client(responses: list[str]) -> TestClient:
     fake = FakeListChatModel(responses=responses)
     app.dependency_overrides[chat_api.get_model] = lambda: fake
+    return TestClient(app)
+
+
+def make_client_with_model(model) -> TestClient:
+    app.dependency_overrides[chat_api.get_model] = lambda: model
     return TestClient(app)
 
 
@@ -29,7 +64,7 @@ def collect_sse(resp) -> tuple[list[str], str]:
 
 def teardown_function():
     app.dependency_overrides.clear()
-    chat_api.store._sessions.clear()
+    chat_api.store.clear()
 
 
 def test_chat_streams_tokens_and_done():
@@ -113,3 +148,43 @@ def test_chat_no_trim_log_when_under_budget(caplog):
         ) as r:
             collect_sse(r)
     assert not any("s6" in rec.message for rec in caplog.records)
+
+
+def test_chat_streams_block_style_content():
+    # レビュー指摘1の回帰テスト: .contentがブロック形式(list[dict])でも
+    # デルタが届き、履歴にも保存されることを確認する
+    client = make_client_with_model(_FakeBlockContentModel("こんにちは！"))
+    with client.stream(
+        "POST", "/api/chat", json={"session_id": "s7", "message": "質問"}
+    ) as resp:
+        assert resp.status_code == 200
+        deltas, last = collect_sse(resp)
+    assert "".join(deltas) == "こんにちは！"
+    assert len(deltas) > 0
+    assert last == "[DONE]"
+    history = chat_api.store.get("s7")
+    assert [m.content for m in history] == ["質問", "こんにちは！"]
+
+
+def test_chat_does_not_store_empty_reply():
+    client = make_client_with_model(_FakeEmptyModel())
+    with client.stream(
+        "POST", "/api/chat", json={"session_id": "s8", "message": "質問"}
+    ) as resp:
+        assert resp.status_code == 200
+        deltas, last = collect_sse(resp)
+    assert deltas == []
+    assert last == "[DONE]"
+    assert chat_api.store.get("s8") == []
+
+
+def test_chat_error_stream_ends_with_done():
+    client = make_client_with_model(_FakeRaisingModel())
+    with client.stream(
+        "POST", "/api/chat", json={"session_id": "s9", "message": "質問"}
+    ) as resp:
+        assert resp.status_code == 200
+        raw = list(resp.iter_lines())
+    assert any(line == "event: error" for line in raw)
+    data_lines = [line[len("data: "):] for line in raw if line.startswith("data: ")]
+    assert data_lines[-1] == "[DONE]"

@@ -42,7 +42,9 @@ async def chat(req: ChatRequest, model: BaseChatModel = Depends(get_model)):
         chunks: list[str] = []
         try:
             async for chunk in model.astream(messages):
-                text = chunk.content if isinstance(chunk.content, str) else ""
+                # .contentは文字列/ブロック形式のどちらもあり得るため、両対応の.textプロパティを使う
+                # (メソッドではない。isinstance(.content, str)判定はブロック形式を無音で捨てるため不可)
+                text = chunk.text
                 if not text:
                     continue
                 chunks.append(text)
@@ -51,8 +53,16 @@ async def chat(req: ChatRequest, model: BaseChatModel = Depends(get_model)):
             logger.exception("上流LLMのストリーミング呼び出しに失敗 session_id=%s", req.session_id)
             yield "event: error\n"
             yield f"data: {json.dumps({'message': '上流モデルは一時的に利用できません。しばらくしてから再試行してください'}, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
             return
-        store.append(req.session_id, HumanMessage(req.message), AIMessage("".join(chunks)))
+        reply = "".join(chunks)
+        if reply:
+            # 空の応答を履歴に残すと、次ターンのプロンプトに内容のないAIターンが混入するため保存しない
+            store.append(req.session_id, HumanMessage(req.message), AIMessage(reply))
         yield "data: [DONE]\n\n"
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

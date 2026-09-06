@@ -14,6 +14,13 @@ class SessionStore:
     def append(self, session_id: str, *messages: BaseMessage) -> None:
         self._sessions.setdefault(session_id, []).extend(messages)
 
+    def clear(self, session_id: str | None = None) -> None:
+        """session_idを指定した場合はそのセッションのみ、指定しない場合は全セッションを消去する。"""
+        if session_id is None:
+            self._sessions.clear()
+        else:
+            self._sessions.pop(session_id, None)
+
 
 def trim_history(messages: list[BaseMessage], max_tokens: int) -> list[BaseMessage]:
     """max_tokensは正の値であること。trim_messagesは0以下だと例外を投げず履歴を無音で全消去するため、

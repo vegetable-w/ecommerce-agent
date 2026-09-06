@@ -37,6 +37,36 @@ _UPSTREAM_MSG = "上流モデルを一時的に利用できません。しばら
 # 到達不能なポート。ここへの接続は即座に拒否され、SQLAlchemyError(OperationalError)になる。
 _DEAD_DB_URL = "mysql+asyncmy://root:root@127.0.0.1:59999/nonexistent_db"
 
+# 空白のみと見なすべき入力。ASCII 空白だけでは不十分で、U+3000(全角スペース)は
+# 日本語 IME が出す「ありがちな空入力」そのもの。bare な .strip() はこれらを全て
+# 落とすが、.strip(" ") のような「明示化」に書き換えると ASCII 空白しか落ちなくなる。
+_BLANK_VARIANTS = [
+    pytest.param("   ", id="ascii-space"),
+    pytest.param("　　", id="ideographic-space-u3000"),
+    pytest.param("\t", id="tab"),
+    pytest.param("\n", id="newline"),
+    pytest.param(" ", id="nbsp"),
+]
+
+
+class _MustNotBeUsedModel:
+    """組み立てはできるが、使われたら失敗するモデル。
+
+    テスト対象ではなく安全網。run_agent_turn は `model or get_chat_model()` を
+    _prepare_turn より前に実行するので、構築時点で例外を投げるフェイクにすると
+    DB 障害より先に落ちてしまい 503 を検証できない。使用時にだけ落とす。
+    """
+
+    def bind_tools(self, tools):
+        raise AssertionError("上流モデルが呼ばれた(ガードが壊れている)")
+
+    async def ainvoke(self, messages):
+        raise AssertionError("上流モデルが呼ばれた(ガードが壊れている)")
+
+    async def astream(self, messages):
+        raise AssertionError("上流モデルが呼ばれた(ガードが壊れている)")
+        yield  # noqa: unreachable - astream を非同期ジェネレータにするためだけの行
+
 
 def _dead_session_factory():
     """本番相当の DB が落ちている状況を作る session factory。
@@ -181,8 +211,11 @@ async def test_stream_endpoint_rejects_empty_message_before_stream_starts(
 
 
 @session_loop
-async def test_stream_endpoint_rejects_whitespace_only_input(db_session_factory, db_clean):
-    """min_length=1 は "   " を通してしまう。空白のみの user 行を一度 DB に作ると、
+@pytest.mark.parametrize("blank", _BLANK_VARIANTS)
+async def test_stream_endpoint_rejects_whitespace_only_input(
+    blank, db_session_factory, db_clean
+):
+    """min_length=1 は空白のみの値を通してしまう。空白のみの user 行を一度 DB に作ると、
     _build_history が user 行を無条件に拾うため以後のターンで永久に再生される
     (chapter 1 の SessionStore と違い MySQL に残るので、より高くつく)。"""
     _use_model(FakeModel([AIMessage(content="hi")]))
@@ -190,10 +223,10 @@ async def test_stream_endpoint_rejects_whitespace_only_input(db_session_factory,
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         blank_msg = await client.post(
-            "/api/agent/stream", json={"user_id": "u1", "message": "   "}
+            "/api/agent/stream", json={"user_id": "u1", "message": blank}
         )
         blank_user = await client.post(
-            "/api/agent/stream", json={"user_id": "  ", "message": "hi"}
+            "/api/agent/stream", json={"user_id": blank, "message": "hi"}
         )
 
     assert blank_msg.status_code == 422
@@ -455,6 +488,14 @@ def test_agent_endpoint_503_when_database_is_down(monkeypatch):
     (SQLAlchemyError 分岐の削除)を検出する。リトライ判断が変わるため、
     この 503 と 502 の区別は利用者にも自動リトライにも意味がある。"""
     monkeypatch.setattr("app.db.base.async_session", _dead_session_factory())
+    # 安全網: この新規テスト群で唯一、本物の run_agent_turn を呼ぶ。DB ガードと
+    # SQLAlchemyError 分岐が同時に退行した場合、ここは本物の上流を叩いて実際に
+    # 1ターン消費してしまう(support への書き込みはできないが、課金は発生する)。
+    # 兄弟テストが must_not_run を仕込んでいるのと同じ理由。/api/agent は model を
+    # Depends で取らないので dependency_overrides では塞げず、core 側を差し替える。
+    monkeypatch.setattr(
+        "app.core.agent.get_chat_model", lambda *a, **k: _MustNotBeUsedModel()
+    )
 
     client = TestClient(app)
     r = client.post("/api/agent", json={"user_id": "u1", "message": "hi"})
@@ -462,15 +503,16 @@ def test_agent_endpoint_503_when_database_is_down(monkeypatch):
     assert r.json()["detail"] == _DB_DOWN_MSG
 
 
-def test_agent_endpoint_rejects_whitespace_only_input(monkeypatch):
+@pytest.mark.parametrize("blank", _BLANK_VARIANTS)
+def test_agent_endpoint_rejects_whitespace_only_input(blank, monkeypatch):
     async def must_not_run(*a, **k):
         raise AssertionError("バリデーションで弾かれるべきリクエストが本体まで到達した")
 
     monkeypatch.setattr(agent, "run_agent_turn", must_not_run)
     client = TestClient(app)
     assert (
-        client.post("/api/agent", json={"user_id": "u1", "message": "   "}).status_code == 422
+        client.post("/api/agent", json={"user_id": "u1", "message": blank}).status_code == 422
     )
     assert (
-        client.post("/api/agent", json={"user_id": "  ", "message": "hi"}).status_code == 422
+        client.post("/api/agent", json={"user_id": blank, "message": "hi"}).status_code == 422
     )

@@ -17,8 +17,13 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import settings
 
-_DDL = pathlib.Path(__file__).resolve().parent.parent / "sql" / "02-ddl.sql"
-_TABLES = ["messages", "tickets", "conversations", "faq"]  # 子 → 親の順
+_DDL_FILES = [
+    pathlib.Path(__file__).resolve().parent.parent / "sql" / "02-ddl.sql",
+    pathlib.Path(__file__).resolve().parent.parent / "sql" / "03-ddl.sql",
+]
+# 削除順: 子 → 親。knowledge_chunks の自己参照 FK は FOREIGN_KEY_CHECKS=0 で吸収する
+_TABLES = ["messages", "tickets", "conversations", "faq",
+           "qa_extraction_staging", "knowledge_chunks"]
 
 
 def _split_sql_statements(sql: str) -> list[str]:
@@ -73,7 +78,9 @@ async def _test_engine():
     await admin.dispose()
 
     engine = create_async_engine(settings.test_database_url, pool_pre_ping=True)
-    stmts = _split_sql_statements(_DDL.read_text(encoding="utf-8"))
+    stmts = []
+    for ddl in _DDL_FILES:
+        stmts += _split_sql_statements(ddl.read_text(encoding="utf-8"))
     async with engine.begin() as conn:
         for s in stmts:
             if s.lstrip().upper().startswith("CREATE TABLE"):
@@ -84,7 +91,7 @@ async def _test_engine():
 
 @pytest_asyncio.fixture(loop_scope="session")
 async def db_clean(_test_engine):
-    """各テストの前後に4テーブルを空にする。
+    """各テストの前後に _TABLES の全テーブルを空にする。
 
     後片付け(yield 後)だけだと、db_clean を要求しなかった直前のテストが書き込みを
     残した場合に、db_clean を正しく要求した次のテストがその汚れをテスト開始時点で

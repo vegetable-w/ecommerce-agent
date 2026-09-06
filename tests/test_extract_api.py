@@ -72,18 +72,25 @@ def test_invalid_extract_method_rejected(monkeypatch):
 def test_get_extractor_binds_configured_method(monkeypatch):
     # get_extractor()は常にテストで差し替えられるため、実際の構成
     # (EXTRACT_PROMPT | model.with_structured_output(...))はどのテストでも
-    # 構築されない。ここではオフラインで直接構築し、Runnableであること、
-    # かつsettings.extract_methodが実際にモデルのバインドまで届いていることを検証する
+    # 構築されない。ここではget_chat_model()をスタブに差し替え、
+    # with_structured_output()へ渡されるkwargsを直接捕捉することで、
+    # settings.extract_methodとinclude_raw=Trueが実際にモデル呼び出しまで
+    # 届いていることを検証する。langchain_openaiの内部実装(RunnableParallel/
+    # RunnableBindingの内部属性名)には一切依存しない
     monkeypatch.setattr(settings, "extract_method", "function_calling")
+
+    captured: dict = {}
+
+    class StubModel:
+        def with_structured_output(self, schema, **kwargs):
+            captured["schema"] = schema
+            captured.update(kwargs)
+            return RunnableLambda(lambda x: x)
+
+    monkeypatch.setattr(extract_api, "get_chat_model", lambda: StubModel())
 
     extractor = extract_api.get_extractor()
 
     assert isinstance(extractor, Runnable)
-
-    # RunnableSequence(ChatPromptTemplate, RunnableParallel(raw=...), RunnableWithFallbacks)
-    # に展開される。raw分岐にbindされたChatModelのkwargsに、method情報が
-    # ls_structured_output_format経由で載っていることを直接確認する
-    parallel = extractor.steps[1]
-    raw_binding = parallel.steps__["raw"]
-    bound_method = raw_binding.kwargs["ls_structured_output_format"]["kwargs"]["method"]
-    assert bound_method == "function_calling"
+    assert captured["method"] == settings.extract_method
+    assert captured["include_raw"] is True

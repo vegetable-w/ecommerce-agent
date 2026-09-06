@@ -1,7 +1,11 @@
 .PHONY: dev test eval seed seed-conv kb-preview kb-build kb-vectorize kb-mine kb-reset eval-retrieval eval-mining
 
+# --reload は付けない。この環境では watchfiles が入っていても変更を検知せず
+# (実測: 起動後の app/tools/business.py の更新で reload されなかった)、
+# 「直したのに反映されない」まま気づかない事故になる。さらに reloader の親を
+# 止めても子プロセスがポートを掴んだまま残る。コードを変えたら手で起動し直す。
 dev:
-	uv run --env-file .env uvicorn app.main:app --port 8000 --reload
+	uv run --env-file .env uvicorn app.main:app --port 8000
 
 test:
 	uv run pytest -v

@@ -37,6 +37,16 @@ class _FakeRaisingModel:
         yield  # noqa: unreachable - astreamを非同期ジェネレータにするためだけの行
 
 
+class _FakeRaisingAfterYieldModel:
+    """いくつかチャンクを送出した後に例外を送出するフェイク。
+    部分応答が既にクライアントへ届いた後の中断を模す。"""
+
+    async def astream(self, messages):
+        for ch in ["部", "分", "応答"]:
+            yield AIMessageChunk(content=ch)
+        raise RuntimeError("上流モデル呼び出し失敗(部分応答後・テスト用)")
+
+
 def make_client(responses: list[str]) -> TestClient:
     fake = FakeListChatModel(responses=responses)
     app.dependency_overrides[chat_api.get_model] = lambda: fake
@@ -188,3 +198,22 @@ def test_chat_error_stream_ends_with_done():
     assert any(line == "event: error" for line in raw)
     data_lines = [line[len("data: "):] for line in raw if line.startswith("data: ")]
     assert data_lines[-1] == "[DONE]"
+
+
+def test_chat_mid_stream_failure_does_not_persist_partial_reply():
+    # 部分応答を送出した後に例外が起きた場合、クライアントは既に届いたデルタと
+    # エラーイベント・[DONE]を受け取るが、その部分応答は履歴に保存されない
+    # (中断された応答をアシスタントの発言として記憶してはならないという設計判断)。
+    client = make_client_with_model(_FakeRaisingAfterYieldModel())
+    with client.stream(
+        "POST", "/api/chat", json={"session_id": "s10", "message": "質問"}
+    ) as resp:
+        assert resp.status_code == 200
+        raw = list(resp.iter_lines())
+    assert any(line == "event: error" for line in raw)
+    data_lines = [line[len("data: "):] for line in raw if line.startswith("data: ")]
+    payloads = [json.loads(p) for p in data_lines if p != "[DONE]"]
+    deltas = [p["delta"] for p in payloads if "delta" in p]
+    assert deltas == ["部", "分", "応答"]
+    assert data_lines[-1] == "[DONE]"
+    assert chat_api.store.get("s10") == []

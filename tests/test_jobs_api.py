@@ -95,8 +95,11 @@ def test_unknown_job_names_are_rejected_before_spawning(sandbox, client):
         assert name not in jobs.JOBS
         with pytest.raises(jobs.UnknownJob):
             jobs.start(name)
-    assert sandbox == [], "拒否されるべき名前でプロセスが起動した"
-    assert jobs._runs == {}
+        # 名前ごとにその場で確認する。ループの最後にまとめて見ると、途中の名前が
+        # 起動まで進んだ場合に別の例外(不正なファイル名など)で先に落ち、
+        # 「プロセスが起きた」という本題が報告されなくなる
+        assert sandbox == [], f"{name!r} でプロセスが起動した"
+        assert jobs._runs == {}, f"{name!r} が実行中として登録された"
 
     # HTTP 経由でも同じ。URL に載る形の名前で確認する
     for name in ("kb-buildx", "clean", "kb-build%20--always-make", "kb-build;kb-reset"):

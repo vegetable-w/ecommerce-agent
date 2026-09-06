@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 from langchain_core.tools import InjectedToolArg, tool
 from pydantic import BaseModel, Field, field_validator
 
-from app.core import labels
+from app.core import labels, retrieval
 from app.db import repository
 
 
@@ -76,10 +76,10 @@ class FaqInput(BaseModel):
 @tool(args_schema=FaqInput)
 async def query_faq(keyword: str) -> dict:
     """キーワードで FAQ を検索する。ポリシー、ルール、操作方法などの一般的な質問に使用する。"""
-    rows = await repository.search_faq(keyword)
-    if not rows:
+    hits = await retrieval.search_knowledge(keyword)
+    if not hits:
         return {"hits": [], "message": f"「{keyword}」に関連するFAQが見つかりませんでした"}
-    return {"hits": [{"question": r.question, "answer": r.answer} for r in rows]}
+    return {"hits": [{"question": h["question"], "answer": h["answer"]} for h in hits]}
 
 
 @tool

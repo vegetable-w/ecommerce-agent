@@ -1,30 +1,40 @@
 """app.tools.business.query_faq のテスト。
 
-DB を触るため、tests/conftest.py の注記どおりモジュール先頭で
-pytest.mark.asyncio(loop_scope="session") を指定する必要がある。
+検索の実体はベクトル検索(app.core.retrieval.search_knowledge)なので、埋め込み上流と
+Milvus を呼ばないようにモックする。DB には触れないため、conftest.py の
+pytest.mark.asyncio(loop_scope="session") は不要。
 """
 
 import pytest
 from pydantic import ValidationError
 
-from app.db.models import Faq
 from app.tools.business import query_faq
 
-pytestmark = pytest.mark.asyncio(loop_scope="session")
+
+def _stub_search(monkeypatch, hits):
+    """search_knowledge を差し替え、渡された keyword を記録して返す。"""
+    seen = {}
+
+    async def fake_search(keyword, **kw):
+        seen["keyword"] = keyword
+        return hits
+
+    monkeypatch.setattr("app.tools.business.retrieval.search_knowledge", fake_search)
+    return seen
 
 
-async def test_query_faq_hit(db_session_factory, db_clean):
-    async with db_session_factory() as s:
-        s.add(Faq(question="返品ポリシー", answer="7日間の返品に対応", category="アフターサービス"))
-        await s.commit()
+async def test_query_faq_hit(monkeypatch):
+    seen = _stub_search(monkeypatch, [
+        {"id": 1, "score": 0.72, "question": "返品ポリシー", "answer": "7日間の返品に対応"},
+    ])
     r = await query_faq.ainvoke({"keyword": "返品"})
     assert r["hits"] and r["hits"][0]["question"] == "返品ポリシー"
+    # キーワードが検索へそのまま渡ること(ツールが問い合わせ文を握り潰さない)
+    assert seen["keyword"] == "返品"
 
 
-async def test_query_faq_miss_returns_message(db_session_factory, db_clean):
-    async with db_session_factory() as s:
-        s.add(Faq(question="返品ポリシー", answer="7日間の返品に対応", category="アフターサービス"))
-        await s.commit()
+async def test_query_faq_miss_returns_message(monkeypatch):
+    _stub_search(monkeypatch, [])
     r = await query_faq.ainvoke({"keyword": "靴"})
     assert r["hits"] == [] and "見つかりません" in r["message"]
 

@@ -26,13 +26,13 @@
   },
   {
     "query": "買ったものを返したい",
-    "expect_answer_contains": "返品",
-    "note": "返品ポリシーについて への言い換え"
+    "expect_answer_contains": "未使用に近い",
+    "note": "返品ポリシーについて への言い換え。「返品」だけだと返品対象外リストでも通ってしまう"
   },
   {
     "query": "お金はいつ戻ってきますか",
-    "expect_answer_contains": "返金",
-    "note": "返金時期 への言い換え"
+    "expect_answer_contains": "着金時期",
+    "note": "返金時期 への言い換え。「返金」だけだと対応時間の表でも通ってしまう"
   },
   {
     "query": "送料はいくらですか",

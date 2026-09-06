@@ -19,16 +19,21 @@ async def main() -> int:
     failures = 0
     for s in samples:
         hits = await retrieval.search_knowledge(s["query"])
-        top = hits[0] if hits else None
-        ok = bool(top) and s["expect_answer_contains"] in top["answer"]
+        # query_faq は top_k 件をまとめてモデルへ渡すので、モデルが見るのは 1 位だけではない。
+        # 「1 位かどうか」ではなく「返した集合に入っているか」を見るのが実際の挙動に即している。
+        rank = next((i for i, h in enumerate(hits, 1)
+                     if s["expect_answer_contains"] in h["answer"]), None)
+        ok = rank is not None
         failures += not ok
         mark = "OK " if ok else "NG "
-        if top:
-            print(f"{mark}{s['query']}  → [{top['score']:.3f}] {top['question']}")
+        if hits:
+            top = hits[0]
+            pos = f"{rank}位" if ok else "圏外"
+            print(f"{mark}{s['query']}  → 1位[{top['score']:.3f}] {top['question']}  (期待は {pos})")
         else:
             print(f"{mark}{s['query']}  → (ヒットなし)")
         if not ok:
-            print(f"      期待: {s['expect_answer_contains']!r} を含む回答")
+            print(f"      期待: {s['expect_answer_contains']!r} を含む回答が top_k に入ること")
     passed = len(samples) - failures
     print(f"\n召回成功 {passed}/{len(samples)}")
     return 1 if failures else 0

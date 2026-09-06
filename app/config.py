@@ -31,8 +31,13 @@ class Settings(BaseSettings):
     # Milvus Lite(埋め込みファイル DB)は sys_platform != 'win32' の marker で
     # Windows を除外しているため、このマシンでは使えない(実測で確認済み)。
     milvus_uri: str = "http://localhost:19530"
-    retrieval_top_k: int = Field(default=3, gt=0)
-    retrieval_min_score: float = 0.4
+    # 実測に基づく既定値(31 chunk のナレッジ、ラベル付きサンプル 8 件 + 無関係な質問 7 件で計測):
+    #   業務の質問のスコアは 0.504〜0.785、無関係な質問は 0.313〜0.451。分離幅は 0.053 しかない。
+    #   閾値 0.4 では無関係な質問 7 件中 4 件が通ってしまうため、中点の 0.48 を採る。
+    #   top_k は 3 だと「買ったものを返したい」の正解が 4 位で圏外になる(1〜4 位のスコア差が
+    #   0.02 しかなく dense 単路では並べ替えきれない)。5 にすると eval が 8/8 になる。
+    retrieval_top_k: int = Field(default=5, gt=0)
+    retrieval_min_score: float = 0.48
     # /kb の再実行ボタンは make 経由でジョブを起動する。Windows では make が PATH に
     # 載っていないことがあり(winget の Packages 配下に実体だけある)、アプリのプロセスから
     # shutil.which("make") が None になる。その場合はここに実体のパスを設定する。

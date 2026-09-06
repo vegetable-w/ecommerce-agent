@@ -16,6 +16,8 @@ class SessionStore:
 
 
 def trim_history(messages: list[BaseMessage], max_tokens: int) -> list[BaseMessage]:
+    """max_tokensは正の値であること。trim_messagesは0以下だと例外を投げず履歴を無音で全消去するため、
+    ここでは保証しない(settings.token_budgetのgt=0が唯一の防波堤)。"""
     return trim_messages(
         messages,
         strategy="last",

@@ -1,4 +1,5 @@
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages.utils import count_tokens_approximately
 
 from app.core.memory import SessionStore, trim_history
 
@@ -29,3 +30,21 @@ def test_trim_keeps_recent_and_starts_on_human():
 def test_trim_noop_when_under_budget():
     msgs = [HumanMessage("hi"), AIMessage("hello")]
     assert trim_history(msgs, max_tokens=2000) == msgs
+
+
+def test_trim_drops_leading_ai_message():
+    msgs = [AIMessage("先頭のAI発話"), HumanMessage("質問"), AIMessage("回答")]
+    trimmed = trim_history(msgs, max_tokens=2000)
+    assert trimmed[0].type == "human"
+    assert trimmed == msgs[1:]
+
+
+def test_trim_single_human_message_survives():
+    msgs = [HumanMessage("hi")]
+    assert trim_history(msgs, max_tokens=2000) == msgs
+
+
+def test_trim_budget_exactly_equal_to_history_tokens_keeps_all():
+    msgs = [HumanMessage("hi"), AIMessage("hello")]
+    exact_budget = count_tokens_approximately(msgs)
+    assert trim_history(msgs, max_tokens=exact_budget) == msgs

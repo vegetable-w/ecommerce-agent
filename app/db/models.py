@@ -8,10 +8,23 @@ from app.db.base import Base
 
 class Conversation(Base):
     __tablename__ = "conversations"
-    # status/created_at/updated_at は server_default 任せで Python 側に値を持たないため、
-    # eager_defaults=True にしないと commit 後の属性アクセスが暗黙のリフレッシュ(同期IO)を
-    # 試みてしまい、AsyncSession では "MissingGreenlet" になる。flush 時に SELECT で
-    # 一括取得させることで、commit 後すぐに属性へ触れても安全にする。
+    # 4モデルのうち Conversation だけ eager_defaults=True にしている。
+    # status/created_at/updated_at は server_default 任せで Python 側に値を持たないが、
+    # Conversation は flush 直後に同じインスタンスの status/created_at を読み戻す使い方
+    # (tests/test_models.py::test_conversation_defaults_and_autoincrement、および
+    # 呼び出し元での「作成直後の会話ステータス確認」)がある。expire_on_commit=False の
+    # AsyncSession でこれを素の属性アクセスとしてやると、SQLAlchemy は暗黙のリフレッシュ
+    # (同期IO)を試みてしまい "sqlalchemy.exc.MissingGreenlet" になる。eager_defaults は
+    # flush 時に awaited な SELECT でこれらの列を先読みし、そのIOを安全な場所に前倒しする。
+    #
+    # Message/Faq/Ticket には付けていない: created_at などの server_default 列を
+    # flush 直後の同一インスタンスから読み返す消費者が(Task 4/11 の計画を含め)存在せず、
+    # 付けると全 INSERT ごとに不要な追加 SELECT が発生するだけになる
+    # (messages は1ターンあたり3〜4 INSERT走るためコストが無視できない)。
+    # もし今後 Message/Faq/Ticket のどれかで flush 直後に server_default 列を読む必要が
+    # 出てきたら、症状は同じ "sqlalchemy.exc.MissingGreenlet" として現れる。そのときは
+    # その列だけ Python 側でも値を持たせる(例えば ticket_no のように)か、
+    # 該当モデルにだけ eager_defaults=True を足すこと。全モデルに機械的に足し返さない。
     __mapper_args__ = {"eager_defaults": True}
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -27,8 +40,6 @@ class Conversation(Base):
 
 class Message(Base):
     __tablename__ = "messages"
-    # created_at が server_default 任せ。理由は Conversation のコメント参照。
-    __mapper_args__ = {"eager_defaults": True}
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     conversation_id: Mapped[int] = mapped_column(
@@ -43,8 +54,6 @@ class Message(Base):
 
 class Faq(Base):
     __tablename__ = "faq"
-    # created_at/updated_at が server_default 任せ。理由は Conversation のコメント参照。
-    __mapper_args__ = {"eager_defaults": True}
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     question: Mapped[str] = mapped_column(String(512))
@@ -58,8 +67,6 @@ class Faq(Base):
 
 class Ticket(Base):
     __tablename__ = "tickets"
-    # status/created_at が server_default 任せ。理由は Conversation のコメント参照。
-    __mapper_args__ = {"eager_defaults": True}
 
     ticket_no: Mapped[str] = mapped_column(String(32), primary_key=True)
     conversation_id: Mapped[int] = mapped_column(

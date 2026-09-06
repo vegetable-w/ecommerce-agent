@@ -42,6 +42,34 @@ async def test_search_faq_like_hit_and_miss(db_session_factory, db_clean):
     assert await repo.search_faq("靴") == []  # 検索漏れ
 
 
+async def test_search_faq_percent_does_not_false_positive_match(db_session_factory, db_clean):
+    """`%` は LIKE のメタ文字なので、無関係な行(パーセント記号を含まない)に
+    誤ヒットしてはいけない。"""
+    async with db_session_factory() as s:
+        s.add(Faq(question="50Xオフセール中です", answer="dummy", category="キャンペーン"))
+        await s.commit()
+    assert await repo.search_faq("50%オフ") == []
+
+
+async def test_search_faq_underscore_does_not_false_positive_match(db_session_factory, db_clean):
+    """`_` は LIKE の1文字ワイルドカードなので、無関係な行に誤ヒットしてはいけない。"""
+    async with db_session_factory() as s:
+        s.add(Faq(question="aXbという別の型番", answer="dummy", category="商品"))
+        await s.commit()
+    assert await repo.search_faq("a_b") == []
+
+
+async def test_search_faq_literal_percent_still_matches(db_session_factory, db_clean):
+    """メタ文字をエスケープしても、キーワードそのものを文字通り含む行は
+    引き続きヒットしなければならない。"""
+    async with db_session_factory() as s:
+        s.add(Faq(question="本当に50%オフのキャンペーン", answer="dummy", category="キャンペーン"))
+        await s.commit()
+    hits = await repo.search_faq("50%オフ")
+    assert len(hits) == 1
+    assert hits[0].question == "本当に50%オフのキャンペーン"
+
+
 async def test_create_ticket_writes_and_flips_conversation_status(db_session_factory, db_clean):
     cid = await repo.create_conversation("u1")
     no = await repo.create_ticket(cid, "返品したい", "after_sales")

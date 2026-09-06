@@ -68,9 +68,21 @@ async def list_messages(conversation_id: int) -> list[Message]:
 
 
 async def search_faq(keyword: str) -> list[Faq]:
+    # keyword は LLM が渡す自由文字列。素朴な部分一致検索(言い回しの違いを拾えない
+    # 意味的な限界)はこの章では意図的にそのままにしているが、LIKE のメタ文字
+    # '%' '_' を未エスケープで埋め込むと、それらの記号を含まない無関係な行にまで
+    # 誤ヒットする(例: "50%オフ" が "50Xオフセール中です" にヒットしてしまう)。
+    # これは意図した挙動ではなくバグなので、メタ文字はエスケープする。
+    # エスケープ文字にはバックスラッシュではなく '!' を使う: バックスラッシュは
+    # MySQL がデフォルト(NO_BACKSLASH_ESCAPES 未設定)で文字列リテラル内でも
+    # エスケープ文字として扱うため、`LIKE ... ESCAPE '\\'` のような SQL リテラルを
+    # 書こうとすると二重のエスケープ処理がぶつかって構文エラーになる(実機の
+    # MySQL で確認済み)。'!' はそのような特別な意味を持たないため、この種の
+    # 混乱が起きない。
+    escaped = keyword.replace("!", "!!").replace("%", "!%").replace("_", "!_")
     async with db.async_session() as s:
         result = await s.execute(
-            select(Faq).where(Faq.question.like(f"%{keyword}%"))
+            select(Faq).where(Faq.question.like(f"%{escaped}%", escape="!"))
         )
         return list(result.scalars())
 

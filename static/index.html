@@ -49,8 +49,13 @@
   .who b{font-size:15px}
   .who span{font-size:12px; color:var(--muted); display:flex; align-items:center; gap:5px}
   .dot{width:7px;height:7px;border-radius:50%;background:#5ed6a4;box-shadow:0 0 0 3px rgba(94,214,164,.22)}
+  .adminlink{
+    margin-left:auto; text-decoration:none; font-size:12px; color:var(--muted);
+    background:#fff; border:1px solid var(--line); padding:7px 12px; border-radius:999px;
+  }
+  .adminlink:hover{color:var(--accent-d); border-color:#ffd3e0}
   .reset{
-    margin-left:auto; border:none; cursor:pointer; font:inherit; font-size:12px;
+    border:none; cursor:pointer; font:inherit; font-size:12px;
     color:var(--muted); background:#fff; border:1px solid var(--line);
     padding:7px 12px; border-radius:999px;
   }
@@ -154,6 +159,7 @@
       <b>STORE カスタマーサポート</b>
       <span><i class="dot"></i> オンライン</span>
     </div>
+    <a class="adminlink" href="/admin" title="ナレッジベースなどの管理画面">管理画面</a>
     <button class="reset" id="reset" title="新しい会話を始めます">会話をリセット</button>
   </header>
 

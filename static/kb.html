@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ナレッジベース登録 · STORE 管理画面</title>
+<script src="/static/admin.js"></script>
+<style>
+  /* このページ固有のものだけ。共通の見た目は admin.js が注入する */
+  .kb-chunk{border:1px solid var(--line); border-radius:14px; padding:10px 13px; margin-bottom:9px; background:#fffdfe}
+  .kb-chunk .path{font-size:11px; color:var(--muted)}
+  .kb-chunk .q{font-size:13.5px; font-weight:600; margin:3px 0 5px}
+  .kb-chunk .a{font-size:12.5px; line-height:1.75; white-space:pre-wrap; word-break:break-word; color:#5d5470}
+  .kb-chunk .tags{display:flex; flex-wrap:wrap; gap:5px; margin-top:7px}
+  .kb-list{max-height:460px; overflow-y:auto; padding-right:4px}
+  .kb-hit{border-bottom:1px solid var(--line); padding:9px 2px}
+  .kb-hit:last-child{border-bottom:none}
+  .kb-hit .score{font-family:ui-monospace,Consolas,monospace; font-size:12px; color:var(--accent-d)}
+</style>
+</head>
+<body>
+<div class="adm-wrap">
+
+  <div class="adm-bar" id="bar"></div>
+  <div id="barErr"></div>
+
+  <div class="adm-card">
+    <h2><span class="adm-num">1</span>手動登録</h2>
+    <div class="adm-row" style="margin-bottom:9px">
+      <select class="adm-in" id="ctype">
+        <option value="faq">faq（商品・ショッピング FAQ）</option>
+        <option value="policy">policy（ポリシー）</option>
+        <option value="manual">manual（マニュアル）</option>
+      </select>
+      <label class="adm-note" style="margin:0">
+        <input type="checkbox" id="alsoVec"> 登録後そのままベクトル化する
+      </label>
+      <button class="adm-btn" id="fillSample" style="margin-left:auto">サンプルを入れる</button>
+    </div>
+    <textarea class="adm-ta" id="md" placeholder="Markdown を貼り付けてください（見出しごとに chunk へ分割します）"></textarea>
+    <div class="adm-btns" style="margin-top:9px">
+      <button class="adm-btn" id="btnPreview">chunk プレビュー</button>
+      <button class="adm-btn pri" id="btnIngest">登録する</button>
+    </div>
+    <div id="ingestMsg"></div>
+  </div>
+
+  <div class="adm-card">
+    <h2><span class="adm-num">2</span>構築資料</h2>
+    <div class="adm-scroll">
+      <table class="adm-tbl" id="srcTbl"><tbody><tr><td class="adm-empty">読み込み中…</td></tr></tbody></table>
+    </div>
+    <div class="adm-btns" style="margin-top:11px">
+      <button class="adm-btn" data-job="kb-preview">再実行：チャンク分割プレビュー</button>
+      <button class="adm-btn" data-job="kb-build">再実行：オフライン構築</button>
+    </div>
+  </div>
+
+  <div class="adm-card">
+    <h2><span class="adm-num">3</span>会話からのナレッジ抽出</h2>
+    <div class="adm-bar" id="stgBar"></div>
+    <div class="adm-btns">
+      <button class="adm-btn" data-job="seed-conv">過去会話の seed を投入</button>
+      <button class="adm-btn heavy" data-job="kb-mine">再実行：会話からナレッジ抽出（LLM 使用）</button>
+      <button class="adm-btn" id="btnStaging">staging を 1 件ずつ見る</button>
+    </div>
+    <div id="stgRows"></div>
+  </div>
+
+  <div class="adm-card">
+    <h2><span class="adm-num">4</span>ベクトル化と二重書き込み</h2>
+    <div class="adm-bar" id="dwBar"></div>
+    <div class="adm-btns">
+      <button class="adm-btn pri" id="btnVectorize">pending をベクトル化</button>
+      <button class="adm-btn" data-job="kb-vectorize">再実行：ベクトル化ジョブ</button>
+      <button class="adm-btn heavy" data-job="kb-reset">クリアして再構築（全削除）</button>
+    </div>
+    <p class="adm-note">
+      MySQL が authoritative source、Milvus は検索用。先に MySQL へ pending として保存し、
+      そのあとベクトル化する。途中で失敗しても rollback しないので、もう一度実行すれば残りを補完できる。
+    </p>
+    <div id="vecMsg"></div>
+  </div>
+
+  <div class="adm-card">
+    <h2><span class="adm-num">5</span>検索テスト</h2>
+    <div class="adm-row">
+      <input class="adm-in" id="q" style="flex:1; min-width:240px" placeholder="質問を入力（例：配送料はどう請求されますか）">
+      <select class="adm-in" id="topk">
+        <option value="3">Top-3</option><option value="5">Top-5</option><option value="10">Top-10</option>
+      </select>
+      <button class="adm-btn pri" id="btnSearch">検索</button>
+    </div>
+    <div class="adm-btns" id="presets" style="margin-top:9px"></div>
+    <p class="adm-note">ルート：dense ベクトル単路（BGE-M3 / COSINE）。閾値未満は未ヒットとして扱う。</p>
+    <div id="hits"></div>
+  </div>
+
+  <div class="adm-card">
+    <h2><span class="adm-num">6</span>最近の登録</h2>
+    <div class="adm-scroll">
+      <table class="adm-tbl" id="recentTbl"><tbody><tr><td class="adm-empty">読み込み中…</td></tr></tbody></table>
+    </div>
+  </div>
+
+  <div class="adm-card">
+    <h2>ジョブ実行ログ</h2>
+    <div id="jobArea"></div>
+  </div>
+
+</div>
+
+<script>
+const { mountAdminNav, getJSON, postJSON, statBox, pill, esc, toast } = window.Admin;
+mountAdminNav('kb');
+
+const $ = id => document.getElementById(id);
+
+/* ジョブのログはジョブ名をキーに保持する。
+   ジョブが終端状態に入るとページ全体を取り直すので、そのとき DOM ごと作り直される。
+   保持していないと「いちばん読みたい実行結果」がちょうど消える。 */
+const logCache = {};
+let jobs = [];
+let polling = null;
+
+const PRESETS = [
+  '配送料はどう請求されますか',
+  'あと何日で届きますか',
+  'レシートがほしいのですが',
+  '箱を開けたら割れていました',
+  'お金はいつ戻ってきますか',
+];
+
+const SAMPLE = `# 会員プログラム
+
+## ゴールド会員の特典
+
+年間のご購入金額が5万円以上のお客様はゴールド会員となり、月に3回まで送料無料特典をご利用いただけます。
+
+## 特典の有効期限
+
+特典は付与された月の末日まで有効です。翌月への繰り越しはできません。`;
+
+/* ---------- 在庫バー ---------- */
+function renderBar(d) {
+  const k = d.knowledge || {}, m = d.milvus || {};
+  const consistent = d.consistent === null || d.consistent === undefined
+    ? pill('', '取得不可', true)              // 読めないことと不一致は別物
+    : (d.consistent ? pill('ok', '一致') : pill('warn', '不一致'));
+  $('bar').innerHTML =
+    statBox('ナレッジ chunk', k.total) +
+    statBox('未ベクトル化', k.pending) +
+    statBox('ベクトル化済み', k.done) +
+    statBox('Milvus 件数', m.count) +
+    `<div class="adm-stat"><div class="k">二重書き込み</div><div class="v" style="font-size:14px">${consistent}</div></div>` +
+    statBox('重要条項', k.key_clauses);
+
+  const errs = [d.knowledge_error, d.milvus_error, d.staging_error].filter(Boolean);
+  $('barErr').innerHTML = errs.map(e => `<div class="adm-err">${esc(e)}</div>`).join('');
+
+  $('dwBar').innerHTML =
+    statBox('pending', k.pending) + statBox('done', k.done) + statBox('Milvus', m.count);
+
+  const s = d.staging || {};
+  $('stgBar').innerHTML =
+    statBox('抽出済み', s.extracted) + statBox('保持', s.kept) +
+    statBox('破棄', s.discarded) + statBox('バッチ数', s.batches);
+}
+
+function renderSources(d) {
+  const rows = (d.sources || []).map(s => `<tr>
+      <td>${esc(s.name)}</td>
+      <td>${pill(s.exists ? 'ok' : 'bad', s.content_type)}</td>
+      <td>${s.chunks == null ? '取得不可' : s.chunks + ' chunk'}</td>
+      <td>${s.key_clauses == null ? '—' : s.key_clauses + ' 件'}</td>
+      <td>${s.chars == null ? '—' : s.chars + ' 文字'}</td>
+      <td><button class="adm-btn" data-src="${esc(s.name)}">chunk を見る</button></td>
+    </tr>`).join('');
+  $('srcTbl').innerHTML =
+    `<thead><tr><th>資料</th><th>種別</th><th>chunk</th><th>重要条項</th><th>分量</th><th></th></tr></thead>` +
+    `<tbody>${rows || '<tr><td class="adm-empty">資料がありません</td></tr>'}</tbody>`;
+  $('srcTbl').querySelectorAll('[data-src]').forEach(b =>
+    b.addEventListener('click', () => preview({ source: b.dataset.src })));
+}
+
+function renderRecent(d) {
+  const rows = (d.recent || []).map(r => `<tr>
+      <td>${r.id}</td><td>${esc(r.questions)}</td>
+      <td>${esc(r.content_type || '')}</td>
+      <td>${r.vectorize_status === 'done' ? pill('ok', 'done') : pill('warn', 'pending')}</td>
+    </tr>`).join('');
+  $('recentTbl').innerHTML =
+    `<thead><tr><th>id</th><th>質問</th><th>種別</th><th>状態</th></tr></thead>` +
+    `<tbody>${rows || '<tr><td class="adm-empty">まだ登録がありません</td></tr>'}</tbody>`;
+}
+
+/* ---------- ジョブ ---------- */
+function renderJobs() {
+  $('jobArea').innerHTML = jobs.map(j => {
+    const st = j.running ? pill('warn', '実行中')
+      : (j.exit_code === 0 ? pill('ok', '正常終了')
+      : (j.exit_code == null ? pill('', '未実行', true) : pill('bad', `終了コード ${j.exit_code}`)));
+    const log = logCache[j.name];
+    return `<div style="margin-bottom:12px">
+      <div class="adm-row">
+        <b style="font-size:13px">${esc(j.label || j.name)}</b>${st}
+        ${j.heavy ? pill('bad', 'heavy', true) : ''}
+        <button class="adm-btn" data-tail="${esc(j.name)}" style="margin-left:auto">ログを見る</button>
+        ${j.running ? `<button class="adm-btn heavy" data-stop="${esc(j.name)}">停止</button>` : ''}
+      </div>
+      <div class="adm-log">${log ? esc(log) : ''}</div>
+    </div>`;
+  }).join('');
+  $('jobArea').querySelectorAll('[data-tail]').forEach(b =>
+    b.addEventListener('click', () => showLog(b.dataset.tail)));
+  $('jobArea').querySelectorAll('[data-stop]').forEach(b =>
+    b.addEventListener('click', async () => {
+      try { await postJSON(`/api/jobs/${b.dataset.stop}/stop`); toast('停止しました'); refresh(); }
+      catch (e) { toast(e.message); }
+    }));
+}
+
+async function showLog(name) {
+  try {
+    const d = await getJSON(`/api/jobs/${name}`);
+    logCache[name] = (d.log || d.tail || '(ログがありません)');
+    renderJobs();
+  } catch (e) { toast(e.message); }
+}
+
+async function runJob(name) {
+  const j = jobs.find(x => x.name === name);
+  if (j && j.heavy && !confirm(`「${j.label || name}」は時間と費用のかかる処理です。実行しますか？`)) return;
+  try {
+    await postJSON(`/api/jobs/${name}`);
+    toast(`${name} を開始しました`);
+    startPolling(name);
+  } catch (e) { toast(e.message); }
+}
+
+/* 実行中は 1.5 秒ごとにログを取り直す。終端に入ったら最後に一度全体を取り直す。 */
+function startPolling(name) {
+  clearInterval(polling);
+  polling = setInterval(async () => {
+    try {
+      const d = await getJSON(`/api/jobs/${name}`);
+      logCache[name] = (d.log || d.tail || '');
+      const j = jobs.find(x => x.name === name);
+      if (j) { j.running = d.running; j.exit_code = d.exit_code; }
+      renderJobs();
+      if (!d.running) { clearInterval(polling); polling = null; refresh(); }
+    } catch { clearInterval(polling); polling = null; }
+  }, 1500);
+}
+
+/* ---------- プレビュー / 登録 ---------- */
+function chunkCard(c) {
+  const tags = [
+    c.is_key_clause ? pill('warn', '重要条項') : '',
+    c.is_table ? pill('ok', '表ブロック') : '',
+    c.is_duplicate === null ? pill('', '重複判定なし', true)
+      : (c.is_duplicate ? pill('bad', '重複') : pill('ok', '重複なし')),
+    `<span class="adm-pill">${c.chars} 文字</span>`,
+  ].join('');
+  return `<div class="kb-chunk">
+    <div class="path">${esc(c.section_path || c.category)}</div>
+    <div class="q">${esc(c.questions)}</div>
+    <div class="a">${esc(c.answer)}</div>
+    <div class="tags">${tags}</div>
+  </div>`;
+}
+
+async function preview(payload) {
+  try {
+    const d = await postJSON('/api/kb/preview', payload);
+    const dup = d.duplicate_check === 'ok' ? `重複 ${d.duplicates} 件` : '重複判定なし（既存を読めませんでした）';
+    $('ingestMsg').innerHTML =
+      `<p class="adm-note">${esc(d.source || '貼り付け本文')}：${d.total} chunk / 重要条項 ${d.key_clauses} / 表ブロック ${d.tables} / ${dup}</p>` +
+      `<div class="kb-list">${d.chunks.map(chunkCard).join('')}</div>`;
+  } catch (e) {
+    $('ingestMsg').innerHTML = `<div class="adm-err">${esc(e.message)}</div>`;
+  }
+}
+
+/* ---------- 起動 ---------- */
+async function refresh() {
+  try {
+    const d = await getJSON('/api/kb/overview');
+    renderBar(d); renderSources(d); renderRecent(d);
+    jobs = d.jobs || [];
+    renderJobs();
+  } catch (e) {
+    $('barErr').innerHTML = `<div class="adm-err">概要を取得できませんでした: ${esc(e.message)}</div>`;
+  }
+}
+
+$('fillSample').addEventListener('click', () => { $('md').value = SAMPLE; $('ctype').value = 'policy'; });
+$('btnPreview').addEventListener('click', () =>
+  preview({ text: $('md').value, content_type: $('ctype').value }));
+
+$('btnIngest').addEventListener('click', async () => {
+  try {
+    const d = await postJSON('/api/kb/ingest', {
+      text: $('md').value, content_type: $('ctype').value, vectorize: $('alsoVec').checked,
+    });
+    toast(`登録 ${d.inserted} 件 / スキップ ${d.skipped} 件` +
+          (d.vectorized == null ? '' : ` / ベクトル化 ${d.vectorized} 件`));
+    $('ingestMsg').innerHTML = `<p class="adm-note">${esc(d.message)}</p>`;
+    refresh();
+  } catch (e) {
+    $('ingestMsg').innerHTML = `<div class="adm-err">${esc(e.message)}</div>`;
+    refresh();   // 502(ベクトル化だけ失敗)でも DB には入っているので数値を取り直す
+  }
+});
+
+$('btnVectorize').addEventListener('click', async () => {
+  try {
+    const d = await postJSON('/api/kb/vectorize', {});
+    toast(`ベクトル化 ${d.vectorized} 件`);
+    $('vecMsg').innerHTML = `<p class="adm-note">${esc(d.message)}</p>`;
+  } catch (e) {
+    $('vecMsg').innerHTML = `<div class="adm-err">${esc(e.message)}</div>`;
+  }
+  refresh();
+});
+
+$('btnSearch').addEventListener('click', search);
+$('q').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) search(); });
+
+async function search() {
+  const query = $('q').value.trim();
+  if (!query) return;
+  try {
+    const d = await postJSON('/api/kb/search', { query, top_k: Number($('topk').value) });
+    $('hits').innerHTML = d.hits.length
+      ? d.hits.map(h => `<div class="kb-hit">
+          <span class="score">${h.score.toFixed(4)}</span>
+          <b style="font-size:13px; margin-left:8px">${esc(h.question)}</b>
+          <span class="adm-pill" style="margin-left:6px">id ${h.id}</span>
+          <div class="adm-note" style="margin-top:4px">${esc(h.answer)}</div>
+        </div>`).join('')
+      : `<p class="adm-note">閾値 ${d.min_score} 以上のヒットはありませんでした。</p>`;
+  } catch (e) {
+    $('hits').innerHTML = `<div class="adm-err">${esc(e.message)}</div>`;
+  }
+}
+
+$('btnStaging').addEventListener('click', async () => {
+  try {
+    const d = await getJSON('/api/kb/staging');
+    $('stgRows').innerHTML = d.rows.length
+      ? `<div class="adm-scroll" style="margin-top:10px"><table class="adm-tbl">
+          <thead><tr><th>id</th><th>状態</th><th>質問</th><th>回答</th><th>由来</th></tr></thead><tbody>` +
+        d.rows.map(r => `<tr><td>${r.id}</td>
+          <td>${pill(r.status === 'kept' ? 'ok' : r.status === 'discarded' ? 'bad' : 'warn', r.status)}</td>
+          <td>${esc(r.question)}</td><td>${esc(r.answer)}</td>
+          <td class="adm-note">${esc(r.source_ref || '')}</td></tr>`).join('') +
+        '</tbody></table></div>'
+      : '<p class="adm-note">staging は空です。</p>';
+  } catch (e) { $('stgRows').innerHTML = `<div class="adm-err">${esc(e.message)}</div>`; }
+});
+
+document.querySelectorAll('[data-job]').forEach(b =>
+  b.addEventListener('click', () => runJob(b.dataset.job)));
+
+$('presets').innerHTML = PRESETS.map(p => `<button class="adm-btn" data-q="${esc(p)}">${esc(p)}</button>`).join('');
+$('presets').querySelectorAll('[data-q]').forEach(b =>
+  b.addEventListener('click', () => { $('q').value = b.dataset.q; search(); }));
+
+refresh();
+</script>
+</body>
+</html>

@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>STORE 管理画面</title>
+<script src="/static/admin.js"></script>
+</head>
+<body>
+<div class="adm-wrap">
+  <div id="cards"></div>
+  <p class="adm-note" id="foot"></p>
+</div>
+
+<script>
+const { mountAdminNav, getJSON, esc, pill } = window.Admin;
+mountAdminNav('admin');
+
+/* 各モジュールの入口だけをここに集める。モジュール側の URL は変えない。 */
+const LINKS = { knowledge: '/kb', vectors: '/kb', staging: '/kb', sources: '/kb',
+                jobs: '/kb', conversations: '/', config: null };
+
+/* stats の見せ方はカードごとに違うので、ここで 1 行の要約に畳む。
+   数値が読めなかった項目は「取得不可」と出す。0 と混ぜない。 */
+function summarize(key, s) {
+  if (!s) return '';
+  const n = v => (v === null || v === undefined ? '取得不可' : v);
+  switch (key) {
+    case 'knowledge':     return `全 ${n(s.total)} chunk / 未ベクトル化 ${n(s.pending)} / 重要条項 ${n(s.key_clauses)}`;
+    case 'vectors':       return `Milvus ${n(s.count)} 件 (collection: ${esc(s.collection ?? '-')})`;
+    case 'staging':       return `抽出 ${n(s.extracted)} / 保持 ${n(s.kept)} / 破棄 ${n(s.discarded)}`;
+    case 'sources':       return `資料 ${n(s.files ?? (s.sources && s.sources.length))} 件`;
+    case 'jobs':          return `登録ジョブ ${n(s.total ?? (s.jobs && s.jobs.length))} 件 / 実行中 ${n(s.running)}`;
+    case 'conversations': return `会話 ${n(s.conversations)} 件 / メッセージ ${n(s.messages)} 件`;
+    default:              return Object.entries(s).slice(0, 3)
+                            .map(([k, v]) => `${esc(k)}: ${esc(v)}`).join(' / ');
+  }
+}
+
+/* 状態ピル。依存が落ちているカードだけを「取得失敗」にし、他のカードは通常表示のままにする。 */
+function state(card) {
+  if (!card.ok) return pill('bad', '取得失敗');
+  const s = card.stats || {};
+  if (card.key === 'knowledge' && s.total === 0) return pill('warn', 'データなし', true);
+  if (card.key === 'knowledge' && s.pending > 0) return pill('warn', '要ベクトル化');
+  if (card.key === 'vectors' && s.count === 0)   return pill('warn', 'データなし', true);
+  return pill('ok', '正常');
+}
+
+async function load() {
+  const box = document.getElementById('cards');
+  let data;
+  try {
+    data = await getJSON('/api/admin/overview');
+  } catch (e) {
+    box.innerHTML = `<div class="adm-card"><div class="adm-err">管理情報を取得できませんでした: ${esc(e.message)}</div></div>`;
+    return;
+  }
+
+  box.innerHTML = (data.cards || []).map(c => {
+    const href = LINKS[c.key];
+    const btn = href ? `<a class="adm-btn" href="${href}" style="text-decoration:none">開く</a>` : '';
+    const err = c.error ? `<div class="adm-err">${esc(c.error)}</div>` : '';
+    return `<div class="adm-card">
+      <h2>${esc(c.title || c.key)} ${state(c)}</h2>
+      <div class="adm-row" style="justify-content:space-between">
+        <div class="adm-note" style="margin:0">${esc(summarize(c.key, c.stats))}</div>
+        ${btn}
+      </div>
+      ${err}
+    </div>`;
+  }).join('');
+
+  const deg = data.degraded || [];
+  document.getElementById('foot').textContent = deg.length
+    ? `取得できないモジュール: ${deg.join(', ')}（他のカードには影響しません）`
+    : 'すべてのモジュールから数値を取得できています。';
+}
+
+load();
+</script>
+</body>
+</html>

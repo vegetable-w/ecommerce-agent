@@ -51,8 +51,10 @@ def _error_run(tc_id: str, name: str, msg: str) -> ToolRun:
 async def execute_tool_call(
     tool_call: dict, conversation_id: int, timeout: float = 5.0, max_retries: int = 2
 ) -> ToolRun:
-    name = tool_call["name"]
-    tc_id = tool_call["id"]
+    # name/id が欠けた壊れた tool_call でも例外を外へ漏らさない(このモジュールの契約: 常に
+    # ToolRun を返す。実測で確認済み: dict の素朴な添字アクセスは KeyError で契約を破っていた)。
+    name = tool_call.get("name", "")
+    tc_id = tool_call.get("id", "unknown")
     args = dict(tool_call.get("args") or {})
 
     tool = registry.get_tool(name)

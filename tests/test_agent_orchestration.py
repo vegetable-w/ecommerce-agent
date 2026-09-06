@@ -7,7 +7,7 @@ DB を触るため、モジュール先頭に loop_scope="session" の asyncio �
 from types import SimpleNamespace
 
 import pytest
-from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, SystemMessage, ToolMessage
 
 from app.core import agent
 from app.core.prompts import AGENT_SYSTEM
@@ -65,6 +65,15 @@ async def test_tool_call_flow_executes_and_converges(db_session_factory, db_clea
     assert [m.role for m in msgs] == ["user", "assistant", "tool", "assistant"]
     assert msgs[2].tool_call_id == "c1"
 
+    # レビュー指摘: 収束呼び出しにツール結果が実際に渡っていることをFakeModelの記録で確認する。
+    # ここを確認しないと、収束が [*messages, ai] だけ(tool_message を落とす)に壊れても
+    # FakeModelはscriptedを順にpopするだけなので他の全テストが緑のまま通ってしまう。
+    convergence_messages = model.invoke_messages[1]
+    tool_msgs = [m for m in convergence_messages if isinstance(m, ToolMessage)]
+    assert len(tool_msgs) == 1
+    assert tool_msgs[0].tool_call_id == "c1"
+    assert tool_msgs[0].content == res.tool_runs[0].tool_message.content
+
 
 async def test_continue_conversation_replays_only_final_answers(db_session_factory, db_clean):
     m1 = FakeModel(
@@ -115,6 +124,100 @@ async def test_system_prompt_survives_into_model_messages(db_session_factory, db
     first_call_messages = model.invoke_messages[0]
     assert isinstance(first_call_messages[0], SystemMessage)
     assert first_call_messages[0].content == AGENT_SYSTEM
+
+
+async def test_multiple_tool_calls_execute_and_both_converge(db_session_factory, db_clean):
+    """1ターンで複数ツール呼び出しがある場合、両方実行され、両方の tool 行が正しい
+    tool_call_id で保存され、両方の ToolMessage が収束呼び出しへ渡ることを確認する。"""
+    first = AIMessage(
+        content="",
+        tool_calls=[
+            {"name": "query_order", "args": {"order_id": "1001"}, "id": "c1"},
+            {"name": "query_logistics", "args": {"order_id": "1001"}, "id": "c2"},
+        ],
+    )
+    model = FakeModel([first, AIMessage(content="両方確認しました。")])
+    res = await agent.run_agent_turn("u1", "注文1001について教えて", None, model=model)
+
+    assert {tc["name"] for tc in res.tool_calls} == {"query_order", "query_logistics"}
+    assert len(res.tool_runs) == 2
+    assert all(r.ok for r in res.tool_runs)
+    assert {r.tool_call_id for r in res.tool_runs} == {"c1", "c2"}
+
+    msgs = await repo.list_messages(res.conversation_id)
+    assert [m.role for m in msgs] == ["user", "assistant", "tool", "tool", "assistant"]
+    assert {m.tool_call_id for m in msgs if m.role == "tool"} == {"c1", "c2"}
+
+    convergence_tool_msgs = [m for m in model.invoke_messages[1] if isinstance(m, ToolMessage)]
+    assert {m.tool_call_id for m in convergence_tool_msgs} == {"c1", "c2"}
+
+
+async def test_prepare_turn_survives_malformed_tool_call_alongside_good_one(
+    db_session_factory, db_clean
+):
+    """壊れた tool_call(id 欠落)が1つ混ざっていても、_prepare_turn は落ちずに
+    正常なツールを実行し切り、両方に対応する tool 行を保存する。
+
+    AIMessage(tool_calls=...) のコンストラクタ自体が id 欠落を拒否する(langchain_core の
+    バリデータが tool_call() で id を必須キーワード引数として要求する)ため、実際に壊れた
+    dict を混入させるには構築後に list へ直接 append する必要がある。これは「バリデーション
+    済みの AIMessage しか来ない」という前提が崩れた場合(将来 LangChain 以外の実装や、
+    JSON 経由で tool_calls が再構成される経路が増えた場合など)を模している。
+    """
+    first = AIMessage(
+        content="",
+        tool_calls=[{"name": "query_order", "args": {"order_id": "1001"}, "id": "c1"}],
+    )
+    first.tool_calls.append({"name": "query_logistics"})  # id も args も欠落 = 壊れた呼び出し
+    model = FakeModel([first, AIMessage(content="ご案内します。")])
+    res = await agent.run_agent_turn("u1", "注文1001について教えて", None, model=model)
+
+    assert len(res.tool_runs) == 2
+    assert res.tool_runs[0].ok is True
+    # 壊れた呼び出し(args 欠落で LogisticsInput の必須フィールド order_id が無い)は
+    # 例外を送出せず、tool_call_id="unknown" のエラー ToolRun になる
+    assert res.tool_runs[1].ok is False
+    assert res.tool_runs[1].tool_call_id == "unknown"
+
+    msgs = await repo.list_messages(res.conversation_id)
+    assert [m.role for m in msgs] == ["user", "assistant", "tool", "tool", "assistant"]
+
+
+async def test_prepare_turn_survives_execute_tool_call_raising(
+    db_session_factory, db_clean, monkeypatch
+):
+    """execute_tool_call 自体は「例外を漏らさない」契約を持つが、asyncio.gather に
+    return_exceptions=True を渡す防御的多重化がある。ここでは execute_tool_call を
+    直接壊して例外を送出させ、それでも _prepare_turn がクラッシュせず、他の兄弟タスクを
+    最後まで実行し切り(取りこぼしなく tool 行を保存し)、例外側もエラー ToolRun として
+    扱われることを確認する。"""
+    real_execute = agent.execute_tool_call
+
+    async def flaky_execute(tool_call, conversation_id, *args, **kwargs):
+        if tool_call["id"] == "c2":
+            raise RuntimeError("boom")
+        return await real_execute(tool_call, conversation_id, *args, **kwargs)
+
+    monkeypatch.setattr(agent, "execute_tool_call", flaky_execute)
+
+    first = AIMessage(
+        content="",
+        tool_calls=[
+            {"name": "query_order", "args": {"order_id": "1001"}, "id": "c1"},
+            {"name": "query_logistics", "args": {"order_id": "1001"}, "id": "c2"},
+        ],
+    )
+    model = FakeModel([first, AIMessage(content="ご案内します。")])
+    res = await agent.run_agent_turn("u1", "注文1001について教えて", None, model=model)
+
+    assert len(res.tool_runs) == 2
+    ok_by_id = {r.tool_call_id: r.ok for r in res.tool_runs}
+    assert ok_by_id["c1"] is True
+    assert ok_by_id["c2"] is False
+
+    msgs = await repo.list_messages(res.conversation_id)
+    assert [m.role for m in msgs] == ["user", "assistant", "tool", "tool", "assistant"]
+    assert {m.tool_call_id for m in msgs if m.role == "tool"} == {"c1", "c2"}
 
 
 async def test_system_prompt_survives_when_history_is_trimmed(monkeypatch):

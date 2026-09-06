@@ -9,7 +9,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
 from app.config import settings
 from app.core.llm import get_chat_model
@@ -33,11 +33,25 @@ class AgentResult:
     tool_runs: list[ToolRun]
 
 
-def _text(msg: AIMessage) -> str:
-    if isinstance(msg.content, str):
-        return msg.content
-    # content が block list の場合はテキスト部分を連結
-    return "".join(p.get("text", "") for p in msg.content if isinstance(p, dict))
+def _exception_to_tool_run(tool_call: dict, exc: BaseException) -> ToolRun:
+    """execute_tool_call は「例外を外へ漏らさない」契約(Task 9)だが、防御的多重化として
+    asyncio.gather(return_exceptions=True) が拾った例外もここで同じ ToolRun 形状へ変換する。
+    こうしておくと、gather の1タスクが失敗しても他の tool タスクは最後まで await され切り、
+    (create_ticket のような書き込み系ツールが)tool 行の記録なしに副作用だけ残す事態を防げる。
+    """
+    name = tool_call.get("name", "")
+    tc_id = tool_call.get("id", "unknown")
+    return ToolRun(
+        tool_call_id=tc_id,
+        name=name,
+        ok=False,
+        tool_message=ToolMessage(
+            content="ツール実行失敗: 予期しないエラー",
+            tool_call_id=tc_id,
+            name=name,
+            status="error",
+        ),
+    )
 
 
 def _build_history(rows: list[Message]) -> list[BaseMessage]:
@@ -92,15 +106,24 @@ async def _prepare_turn(user_id, message, conversation_id, model):
     await repository.append_message(
         conversation_id,
         "assistant",
-        content=_text(ai) or None,
+        content=ai.text or None,
         tool_calls=ai.tool_calls or None,
     )
 
     runs: list[ToolRun] = []
     if ai.tool_calls:
-        runs = await asyncio.gather(
-            *(execute_tool_call(tc, conversation_id) for tc in ai.tool_calls)
+        # return_exceptions=True: execute_tool_call 自体は例外を漏らさない契約だが、
+        # 防御的多重化としてここでも拾う。指定しないと gather は最初の例外で await を打ち切り、
+        # 兄弟タスク(create_ticket など副作用のある書き込み系ツール)が tool 行の記録なしに
+        # 実行され続けてしまう(実測で確認済みの問題)。
+        results = await asyncio.gather(
+            *(execute_tool_call(tc, conversation_id) for tc in ai.tool_calls),
+            return_exceptions=True,
         )
+        runs = [
+            r if isinstance(r, ToolRun) else _exception_to_tool_run(tc, r)
+            for tc, r in zip(ai.tool_calls, results)
+        ]
         for r in runs:
             await repository.append_message(
                 conversation_id,
@@ -118,12 +141,12 @@ async def run_agent_turn(user_id, message, conversation_id, model=None) -> Agent
         user_id, message, conversation_id, model
     )
     if not ai.tool_calls:
-        return AgentResult(conversation_id, _text(ai), [], [])
+        return AgentResult(conversation_id, ai.text, [], [])
     final: AIMessage = await model.ainvoke(  # 収束: bind_tools しない(1ターン制約)
         [*messages, ai, *(r.tool_message for r in runs)]
     )
-    await repository.append_message(conversation_id, "assistant", content=_text(final))
-    return AgentResult(conversation_id, _text(final), ai.tool_calls, runs)
+    await repository.append_message(conversation_id, "assistant", content=final.text)
+    return AgentResult(conversation_id, final.text, ai.tool_calls, runs)
 
 
 async def stream_agent_turn(
@@ -144,7 +167,7 @@ async def stream_agent_turn(
 
     if not ai.tool_calls:
         # ツールなし: turn1 のテキストがそのまま最終回答(assistant は保存済み)。一括出力する
-        yield {"type": "delta", "text": _text(ai)}
+        yield {"type": "delta", "text": ai.text}
         yield {"type": "done", "conversation_id": conversation_id}
         return
 
@@ -155,7 +178,10 @@ async def stream_agent_turn(
     async for chunk in model.astream(  # 収束: bind_tools しない(1ターン制約)
         [*messages, ai, *(r.tool_message for r in runs)]
     ):
-        text = chunk.content if isinstance(chunk.content, str) else _text(chunk)
+        # .contentは文字列/ブロック形式のどちらもあり得るため、両対応の.textプロパティを使う
+        # (app/api/chat.py と同じ理由: 独自の連結ロジックを持つと reasoning ブロックの
+        # 混入など細部がずれる)
+        text = chunk.text
         if not text:
             continue
         chunks.append(text)

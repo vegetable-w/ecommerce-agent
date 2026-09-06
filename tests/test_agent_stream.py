@@ -5,7 +5,7 @@ DB を触るため、モジュール先頭に loop_scope="session" の asyncio �
 """
 
 import pytest
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
 
 from app.core import agent
 from app.db import repository as repo
@@ -35,6 +35,14 @@ async def test_stream_with_tools_emits_tool_then_deltas_then_done(db_session_fac
     assert types == ["tool"] + ["delta"] * len(deltas) + ["done"]
 
     assert model.bind_calls == 1  # 収束(astream)側は bind しない
+
+    # レビュー指摘: astream 収束呼び出しにもツール結果が実際に渡っていることを確認する。
+    # ここを確認しないと、[*messages, ai, *(r.tool_message for r in runs)] からツール結果が
+    # 落ちても、FakeModel は stream_tokens を無条件に yield するだけなので気づけない。
+    convergence_messages = model.astream_messages[0]
+    tool_msgs = [m for m in convergence_messages if isinstance(m, ToolMessage)]
+    assert len(tool_msgs) == 1
+    assert tool_msgs[0].tool_call_id == "c1"
 
     msgs = await repo.list_messages(conversation_id)
     assert [m.role for m in msgs] == ["user", "assistant", "tool", "assistant"]

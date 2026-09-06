@@ -29,6 +29,24 @@ async def test_execute_unknown_tool_returns_error_run():
     assert "不明なツール" in run.tool_message.content
 
 
+# --- execute_tool_call は「例外を外へ漏らさない」契約(Task 9)を持つ。しかし id/name を
+# 素朴な dict 添字アクセスで読んでいたため、壊れた tool_call(モデル/上流由来で欠落しうる)を
+# 渡すと KeyError がこの契約を破って外へ漏れていた(実測で確認済み)。この2本はその回帰テスト。
+
+
+async def test_execute_tool_call_missing_id_returns_error_run_instead_of_raising():
+    run = await infra.execute_tool_call({"name": "query_order"}, conversation_id=1)
+    assert run.ok is False
+    assert run.tool_call_id == "unknown"
+
+
+async def test_execute_tool_call_missing_name_returns_error_run_instead_of_raising():
+    run = await infra.execute_tool_call({"id": "c1"}, conversation_id=1)
+    assert run.ok is False
+    assert run.tool_call_id == "c1"
+    assert "不明なツール" in run.tool_message.content
+
+
 async def test_timeout_then_error(monkeypatch):
     async def slow(_args):
         await asyncio.sleep(1)

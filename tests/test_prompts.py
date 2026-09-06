@@ -9,7 +9,7 @@ def test_customer_service_prompt_renders_with_history():
     assert msgs[0].type == "system"
     assert msgs[-1].content == "キャットフードは売っていますか？"
     # 行動制約は必ずsystem promptに含める
-    for keyword in ("カスタマーサポート", "ない", "注文"):
+    for keyword in ("推測・捏造しない", "照会システムへのアクセス権限がない", "アフターサービス規約に準じます", "まず気持ちに配慮"):
         assert keyword in msgs[0].content
 
 def test_extract_prompt_renders_text():

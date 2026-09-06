@@ -25,7 +25,7 @@ CUSTOMER_SERVICE_PROMPT = ChatPromptTemplate.from_messages(
 EXTRACT_SYSTEM = """あなたはECのアフターサービスチケット抽出器です。ユーザーの説明から次の構造化フィールドを抽出してください:
 - order_id:注文番号。原文に明示されている場合のみ抽出し、それ以外はnullとする。推測や補完は禁止。
 - request_type:要望種別。返金、交換、修理、苦情、その他のいずれかに限定する。判断できない場合は「その他」を選ぶ。
-- expected_solution:ユーザーが期待する対応内容を一文で要約する。原文に忠実にし、原文にない約束を追加しない。"""
+- expected_solution:ユーザーが期待する対応内容を一文で要約する。原文に忠実にし、原文にない約束を追加しない。具体的な対応要求がない場合(例:使用方法や注意点の質問)は、ユーザーが知りたい内容やその他の要望をそのまま一文で要約する。"""
 
 EXTRACT_PROMPT = ChatPromptTemplate.from_messages(
     [

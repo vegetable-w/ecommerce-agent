@@ -25,15 +25,41 @@ async def extract_qa(conversation_texts: list[str], model=None) -> list[QaPair]:
     return result.pairs
 
 
+_MINED_ROLES = ("user", "assistant")
+_SOURCE_REF_MAX = 255  # qa_extraction_staging.source_ref の桁数
+
+
 async def _load_conversation_texts() -> list[tuple[str, str]]:
-    """[(source_ref, 会話テキスト)] を返す。会話テキストはその会話の user/assistant 発話を連結したもの。"""
+    """[(source_ref, 会話テキスト)] を返す。
+
+    role を user / assistant に絞る。02 章では tool の実行結果も messages に入っており、
+    中身は `{"hits": [...]}` のような生 JSON なので、抽出プロンプトに混ぜても
+    ノイズにしかならない(content の有無だけで絞ると混入する)。
+    content が空の行(assistant がツール呼び出しだけ行ったターン)も落とす。
+    """
     convs = await repository.list_conversations_with_messages()
     out = []
     for conv_id, msgs in convs:
-        lines = [f"{m.role}: {m.content}" for m in msgs if m.content]
+        lines = [f"{m.role}: {m.content}" for m in msgs if m.content and m.role in _MINED_ROLES]
         if lines:
             out.append((f"conv:{conv_id}", "\n".join(lines)))
     return out
+
+
+def _batch_source_ref(refs: list[str]) -> str:
+    """バッチ内の全会話 ID を連結して source_ref にする。
+
+    先頭 1 件だけを入れると、既定の batch_size=20 では最大 19 件が
+    「別の会話に由来する」と誤って記録される。source_ref は「この問答はどの会話から来たか」を
+    後で人が辿るための欄なので、自信を持って間違えるより、候補を全部挙げるほうがよい。
+    桁数を超える場合は入る分だけ並べて件数を添える。
+    """
+    joined = ",".join(refs)
+    if len(joined) <= _SOURCE_REF_MAX:
+        return joined
+    suffix = f"...(全{len(refs)}件)"
+    room = _SOURCE_REF_MAX - len(suffix)
+    return joined[:room].rsplit(",", 1)[0] + suffix
 
 
 async def mine(batch_size: int = 20, model=None) -> dict:
@@ -42,8 +68,11 @@ async def mine(batch_size: int = 20, model=None) -> dict:
     for start in range(0, len(sources), batch_size):
         batch = sources[start:start + batch_size]
         pairs = await extract_qa([t for _, t in batch], model=model)
+        source_ref = _batch_source_ref([ref for ref, _ in batch])
         for p in pairs:
-            await repository.insert_staging(batch_no, batch[0][0], p.question, p.answer)
+            await repository.insert_staging(batch_no, source_ref, p.question, p.answer)
+    # extracted は batch_no で絞らず全件を対象にする。前回の実行が途中で落ちて
+    # extracted のまま残った行も、ここで拾って重複排除・昇格まで進めるため(復旧を兼ねる)。
     staged = await repository.list_staging_by_status("extracted")
     existing = await repository.list_all_questions()
     kept, discarded = dedup.dedupe(staged, existing)

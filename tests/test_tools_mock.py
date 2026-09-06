@@ -1,6 +1,10 @@
 """Tests for mock business tools (query_order, query_product, query_logistics)."""
+import pathlib
+import re
+
 import pytest
 
+from app.tools import business
 from app.tools.business import query_logistics, query_order, query_product
 
 
@@ -24,20 +28,66 @@ async def test_query_order_deterministic_and_shaped():
 
 @pytest.mark.asyncio
 async def test_query_product_deterministic_and_shaped():
-    """query_product must return reproducible output for the same product name."""
-    p1 = await query_product.ainvoke({"product_name": "キャットフード"})
-    p2 = await query_product.ainvoke({"product_name": "キャットフード"})
+    """query_product must return reproducible output for the same product."""
+    p1 = await query_product.ainvoke({"product_name": "メカニカルキーボード"})
+    p2 = await query_product.ainvoke({"product_name": "メカニカルキーボード"})
 
     # Same seed => same output
     assert p1 == p2
 
     # Correct shape and valid values
-    assert p1["product_name"] == "キャットフード"
+    assert p1["found"] is True
+    assert p1["product_name"] == "メカニカルキーボード"
+    assert p1["model_number"] == "EC-KB20"
     assert isinstance(p1["price"], int)
     assert 20 <= p1["price"] <= 999
     assert isinstance(p1["stock"], int)
     assert 0 <= p1["stock"] <= 500
-    assert p1["spec"] in {"標準パック", "ファミリーパック", "お試しパック"}
+
+
+@pytest.mark.asyncio
+async def test_query_product_seeds_on_model_number_not_wording():
+    """同じ商品を別の言い方で聞いても、価格と在庫は同じであること。
+
+    以前は問い合わせ文字列そのものを seed にしていたため、「キーボード」と
+    「静かなキーボード」で違う価格が返っていた。同じ商品なのに聞き方で値段が変わるのは、
+    mock であってもユーザーから見れば矛盾した回答になる。
+    """
+    a = await query_product.ainvoke({"product_name": "静かなキーボード"})
+    b = await query_product.ainvoke({"product_name": "EC-KB20 の在庫"})
+    assert a["model_number"] == b["model_number"] == "EC-KB20"
+    assert (a["price"], a["stock"]) == (b["price"], b["stock"])
+
+
+@pytest.mark.asyncio
+async def test_query_product_refuses_unstocked_items():
+    """取り扱いのない商品に価格と在庫をでっち上げないこと。
+
+    以前は商品名を seed にして必ず price/stock を返していたため、「宇宙船」にも
+    値段と在庫が付いた。mock の粗さではなくユーザーへ嘘をつく挙動なので、
+    カタログに無いものは在庫も価格も返さない。
+    """
+    r = await query_product.ainvoke({"product_name": "宇宙船"})
+    assert r["found"] is False
+    assert "price" not in r and "stock" not in r
+    assert "取り扱いを確認できませんでした" in r["message"]
+
+
+def test_product_catalogue_matches_the_knowledge_document():
+    """カタログの写しが原本(商品仕様マニュアル)とずれていないこと。
+
+    カタログを business.py に写しているのは query_product を deterministic に保つため。
+    写しである以上ずれるので、原本を parse して機械的に突き合わせる
+    (02 章で labels.py と DDL を突き合わせたのと同じ方式)。
+    """
+    doc = pathlib.Path("data/kb/product-spec-manual.md").read_text(encoding="utf-8")
+    # 見出しの形式: "## ロボット掃除機 Standard（型番 EC-RV100）"
+    found = dict(
+        (m.group(2), m.group(1).strip())
+        for m in re.finditer(r"^##\s+(.+?)（型番\s*([A-Z0-9-]+)）\s*$", doc, re.M)
+    )
+    assert found, "原本から型番を 1 件も抽出できていない(見出し書式が変わった可能性)"
+    assert business.PRODUCT_CATALOGUE == found
 
 
 @pytest.mark.asyncio
@@ -110,12 +160,13 @@ async def test_query_product_golden_value():
     recorded eval results. If the seeding logic must change, update this value
     after verifying the new output is intentional.
     """
-    result = await query_product.ainvoke({"product_name": "キャットフード"})
+    result = await query_product.ainvoke({"product_name": "メカニカルキーボード"})
     expected = {
-        "product_name": "キャットフード",
-        "price": 641,
-        "stock": 287,
-        "spec": "お試しパック",
+        "product_name": "メカニカルキーボード",
+        "model_number": "EC-KB20",
+        "found": True,
+        "price": 468,
+        "stock": 265,
     }
     assert result == expected
 

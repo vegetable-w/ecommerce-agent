@@ -28,3 +28,30 @@ def test_table_section_splits_by_rows_with_header():
 def test_returns_chunk_dataclass():
     chunks = build_chunks("# A\n\n## B\n\n本文。", content_type="faq")
     assert isinstance(chunks[0], Chunk)
+
+
+def test_is_key_clause_looks_at_heading_only():
+    """本文の偶発的な語で重要条項と誤判定しないこと。
+
+    「登録は無料です」のように、条項ではない節の本文に _KEY_TERMS の語が紛れることは多い。
+    本文まで見る実装では実測で適合率 5/12 まで落ちた。見出しだけを見れば 5/5 になる。
+    """
+    md = "# 会員について\n\n## 会員登録の方法\n\nメールアドレスをご登録ください。登録は無料です。"
+    c = build_chunks(md, content_type="faq")[0]
+    assert c.questions == "会員登録の方法"
+    assert c.is_key_clause == 0, "本文の「無料」で誤検出してはいけない"
+
+
+def test_is_key_clause_still_catches_real_clause():
+    md = "# 返品ポリシー\n\n## 送料の負担\n\n配送業者はヤマト運輸です。"
+    c = build_chunks(md, content_type="policy")[0]
+    assert c.is_key_clause == 1, "見出しに「送料」があれば本文に語が無くても重要条項"
+
+
+def test_headingless_block_uses_lead_sentence_as_question():
+    """questions はベクトル化テキストの一部なので、content_type をそのまま入れない。"""
+    md = "当店をご利用いただきありがとうございます。以下は各種ご案内です。"
+    c = build_chunks(md, content_type="faq")[0]
+    assert c.questions == "当店をご利用いただきありがとうございます。"
+    assert c.questions != "faq"
+    assert c.category == "faq"  # category は content_type のままでよい

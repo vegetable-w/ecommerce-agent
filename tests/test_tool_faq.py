@@ -50,3 +50,18 @@ async def test_query_faq_whitespace_only_raises_validation_error():
     with pytest.raises(ValidationError) as exc_info:
         await query_faq.ainvoke({"keyword": "   "})
     assert "空白のみの値は許可されない" in str(exc_info.value)
+
+
+def test_query_faq_description_covers_product_specs():
+    """商品仕様を query_faq の守備範囲として明示し続けること。
+
+    ナレッジベースには商品仕様マニュアルが入っている。この docstring がモデルの
+    ツール選択の根拠なので、「ポリシー・ルール・操作方法」だけに戻すと、仕様の質問が
+    mock データを返す query_product へ流れ、実測ではモデルが型番の仕様を
+    「確認できませんでした」と答えるか、一般常識で作文する状態に戻る。
+    """
+    desc = query_faq.description
+    assert "仕様" in desc, "商品仕様が守備範囲だと書かれていない"
+    assert "型番" in desc, "型番での問い合わせが守備範囲だと書かれていない"
+    # 在庫・価格は query_product 側の仕事であることも書き残す(重複した説明で迷わせない)
+    assert "query_product" in desc

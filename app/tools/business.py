@@ -75,7 +75,10 @@ class FaqInput(BaseModel):
 
 @tool(args_schema=FaqInput)
 async def query_faq(keyword: str) -> dict:
-    """キーワードで FAQ を検索する。ポリシー、ルール、操作方法などの一般的な質問に使用する。"""
+    """ナレッジベースを検索する。ポリシー、ルール、操作方法などの一般的な質問に加えて、
+    商品の仕様・型番・機能・マニュアルの内容についてもこのツールで調べる
+    （例:「ロボット掃除機の吸引力」「EC-RV300 の稼働時間」「静かなキーボードはあるか」）。
+    在庫数と価格そのものを知りたい場合だけ query_product を使う。"""
     hits = await retrieval.search_knowledge(keyword)
     if not hits:
         return {"hits": [], "message": f"「{keyword}」に関連するFAQが見つかりませんでした"}

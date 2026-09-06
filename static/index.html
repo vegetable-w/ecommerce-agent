@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>STORE カスタマーサポート</title>
+<style>
+  :root{
+    --bg1:#fff1f5; --bg2:#eef2ff; --bg3:#fdf6ec;
+    --ink:#3d3550; --muted:#9b91ad;
+    --me:#ffb3c8; --me-ink:#5a2136;
+    --bot:#ffffff; --line:#f0e6f2;
+    --accent:#ff8fb1; --accent-d:#ff6f9c;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; color:var(--ink);
+    font-family:"Hiragino Maru Gothic ProN","Yu Gothic UI",-apple-system,"Segoe UI",system-ui,sans-serif;
+    background:
+      radial-gradient(1000px 600px at 10% -10%, var(--bg1), transparent 60%),
+      radial-gradient(900px 500px at 110% 10%, var(--bg2), transparent 60%),
+      var(--bg3);
+    display:flex; align-items:center; justify-content:center; padding:16px;
+  }
+
+  .app{
+    width:min(680px,100%); height:min(860px,calc(100vh - 32px));
+    display:flex; flex-direction:column;
+    background:rgba(255,255,255,.72); backdrop-filter:blur(10px);
+    border:1px solid #fff; border-radius:26px; overflow:hidden;
+    box-shadow:0 24px 60px rgba(160,120,170,.22), 0 2px 0 #fff inset;
+  }
+
+  header{
+    display:flex; align-items:center; gap:12px;
+    padding:14px 18px; background:rgba(255,255,255,.85);
+    border-bottom:1px solid var(--line);
+  }
+  .face{
+    width:42px; height:42px; border-radius:50%; flex:none;
+    display:grid; place-items:center; font-size:22px;
+    background:linear-gradient(160deg,#ffd9e5,#ffeaf1);
+    box-shadow:0 3px 10px rgba(255,143,177,.35);
+    animation:bob 3.2s ease-in-out infinite;
+  }
+  @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+  .who{display:flex; flex-direction:column; line-height:1.25}
+  .who b{font-size:15px}
+  .who span{font-size:12px; color:var(--muted); display:flex; align-items:center; gap:5px}
+  .dot{width:7px;height:7px;border-radius:50%;background:#5ed6a4;box-shadow:0 0 0 3px rgba(94,214,164,.22)}
+  .reset{
+    margin-left:auto; border:none; cursor:pointer; font:inherit; font-size:12px;
+    color:var(--muted); background:#fff; border:1px solid var(--line);
+    padding:7px 12px; border-radius:999px;
+  }
+  .reset:hover{color:var(--accent-d); border-color:#ffd3e0}
+
+  .log{flex:1; overflow-y:auto; padding:20px 18px 8px; display:flex; flex-direction:column; gap:14px}
+  .log::-webkit-scrollbar{width:8px}
+  .log::-webkit-scrollbar-thumb{background:#f0dfe8; border-radius:99px}
+
+  .row{display:flex; gap:9px; align-items:flex-end; animation:pop .22s ease-out}
+  @keyframes pop{from{opacity:0; transform:translateY(8px) scale(.98)}to{opacity:1; transform:none}}
+  .row.me{flex-direction:row-reverse}
+
+  /* 客服側は emoji の猫、ユーザー側だけインライン SVG(emoji の顔文字は環境により硬く見えるため)。 */
+  .av{width:30px;height:30px;border-radius:50%;flex:none;display:grid;place-items:center;font-size:16px;
+      background:linear-gradient(160deg,#ffe3ec,#fff3f7)}
+  .row.me .av{background:linear-gradient(160deg,#e3e9ff,#f2f5ff)}
+  .row.me .av svg{width:17px;height:17px;fill:#8b93cf}
+
+  .bub{
+    max-width:76%; padding:11px 15px; border-radius:20px; font-size:15px; line-height:1.75;
+    white-space:pre-wrap; word-break:break-word;
+  }
+  .row.bot .bub{background:var(--bot); border:1px solid var(--line); border-bottom-left-radius:7px;
+                box-shadow:0 4px 14px rgba(170,140,180,.10)}
+  .row.me  .bub{background:var(--me); color:var(--me-ink); border-bottom-right-radius:7px;
+                box-shadow:0 4px 14px rgba(255,143,177,.28)}
+  .row.err .bub{background:#fff4f4; border:1px solid #ffd9d9; color:#b4444f; font-size:13.5px}
+
+  .caret{display:inline-block;width:2px;height:1em;vertical-align:-2px;margin-left:1px;
+         background:var(--accent); animation:blink .9s steps(1) infinite}
+  @keyframes blink{0%,50%{opacity:1}51%,100%{opacity:0}}
+
+  .think{display:flex; gap:4px; padding:4px 2px}
+  .think i{width:7px;height:7px;border-radius:50%;background:#ffc2d5;display:block;animation:jump 1.1s infinite}
+  .think i:nth-child(2){animation-delay:.15s}
+  .think i:nth-child(3){animation-delay:.3s}
+  @keyframes jump{0%,60%,100%{transform:translateY(0);opacity:.55}30%{transform:translateY(-6px);opacity:1}}
+
+  .hint{align-self:center; font-size:12px; color:var(--muted); background:#fff;
+        border:1px solid var(--line); padding:6px 14px; border-radius:999px}
+
+  footer{padding:12px 14px 16px; background:rgba(255,255,255,.85); border-top:1px solid var(--line)}
+  .bar{display:flex; gap:10px; align-items:flex-end;
+       background:#fff; border:1.5px solid var(--line); border-radius:22px; padding:8px 8px 8px 16px;
+       transition:border-color .15s}
+  .bar:focus-within{border-color:#ffc7d8}
+  textarea{
+    flex:1; border:none; outline:none; resize:none; font:inherit; font-size:15px; line-height:1.6;
+    max-height:120px; background:transparent; color:var(--ink); padding:4px 0;
+  }
+  textarea::placeholder{color:#c9bfd6}
+  .send{
+    width:40px;height:40px;flex:none;border:none;border-radius:50%;cursor:pointer;
+    background:linear-gradient(160deg,var(--accent),var(--accent-d)); color:#fff; font-size:17px;
+    box-shadow:0 4px 12px rgba(255,143,177,.45); transition:transform .12s, opacity .12s;
+  }
+  .send:hover:not(:disabled){transform:translateY(-1px)}
+  .send:disabled{opacity:.4; cursor:not-allowed; box-shadow:none}
+  .tip{text-align:center; font-size:11px; color:var(--muted); margin:8px 0 0}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="face">🐱</div>
+    <div class="who">
+      <b>STORE カスタマーサポート</b>
+      <span><i class="dot"></i> オンライン</span>
+    </div>
+    <button class="reset" id="reset" title="新しい会話を始めます">会話をリセット</button>
+  </header>
+
+  <div class="log" id="log"></div>
+
+  <footer>
+    <div class="bar">
+      <textarea id="input" rows="1" placeholder="ご用件をどうぞ… (Enter で送信 / Shift+Enter で改行)"></textarea>
+      <button class="send" id="send" title="送信">➤</button>
+    </div>
+    <p class="tip" id="tip"></p>
+  </footer>
+</div>
+
+<script>
+const log   = document.getElementById('log');
+const input = document.getElementById('input');
+const send  = document.getElementById('send');
+const tip   = document.getElementById('tip');
+
+let sessionId = newSession();
+let busy = false;
+
+function newSession(){
+  const id = 'web-' + Math.random().toString(36).slice(2, 10);
+  tip.textContent = 'session_id: ' + id;
+  return id;
+}
+
+function greet(){
+  log.innerHTML = '';
+  addHint('新しい会話を始めました');
+  const b = addRow('bot');
+  b.textContent = 'STORE カスタマーサポートです🐾 ご注文・配送・返品交換など、お気軽にどうぞ。';
+}
+
+function addHint(text){
+  const d = document.createElement('div');
+  d.className = 'hint'; d.textContent = text;
+  log.appendChild(d); scroll();
+}
+
+/* ユーザー側は emoji を使わない。Windows の Segoe UI Emoji だと
+   表情が硬く見えるうえ、環境によって字形が変わるため。 */
+const ME_AVATAR = `<svg viewBox="0 0 32 32" aria-hidden="true">
+  <circle cx="16" cy="12" r="5.4"/>
+  <path d="M6.2 27c0-5.1 4.4-8.6 9.8-8.6S25.8 21.9 25.8 27z"/>
+</svg>`;
+
+function addRow(kind){
+  const row = document.createElement('div');
+  row.className = 'row ' + kind;
+  const av = document.createElement('div');
+  av.className = 'av';
+  if (kind === 'me') av.innerHTML = ME_AVATAR;
+  else av.textContent = '🐱';
+  const bub = document.createElement('div');
+  bub.className = 'bub';
+  row.append(av, bub);
+  log.appendChild(row); scroll();
+  return bub;
+}
+
+function scroll(){ log.scrollTop = log.scrollHeight; }
+
+/* 到着した chunk を 1 文字ずつ吐き出して「打っている」感じにする。
+   遅れが溜まったら早送りして、実際の応答から離れすぎないようにする。 */
+function typer(el){
+  let queue = '', text = '', done = false, timer = null;
+  const caret = document.createElement('span');
+  caret.className = 'caret';
+  el.appendChild(caret);
+
+  function tick(){
+    if (queue.length){
+      const step = queue.length > 60 ? 6 : queue.length > 20 ? 2 : 1;
+      text += queue.slice(0, step);
+      queue = queue.slice(step);
+      el.textContent = text;
+      el.appendChild(caret);
+      scroll();
+    } else if (done){
+      clearInterval(timer); timer = null;
+      caret.remove();
+      return;
+    }
+  }
+  timer = setInterval(tick, 14);
+
+  return {
+    push(s){ queue += s; },
+    finish(){
+      done = true;
+      return new Promise(res => {
+        const wait = setInterval(() => {
+          if (!timer){ clearInterval(wait); res(); }
+        }, 20);
+      });
+    },
+    get text(){ return text + queue; }
+  };
+}
+
+function setBusy(v){
+  busy = v;
+  send.disabled = v;
+  input.disabled = v;
+  if (!v) input.focus();
+}
+
+async function ask(message){
+  addRow('me').textContent = message;
+
+  const thinkRow = document.createElement('div');
+  thinkRow.className = 'row bot';
+  thinkRow.innerHTML = '<div class="av">🐱</div><div class="bub"><div class="think"><i></i><i></i><i></i></div></div>';
+  log.appendChild(thinkRow); scroll();
+
+  let bub = null, type = null, started = false;
+
+  const start = () => {
+    if (started) return;
+    started = true;
+    thinkRow.remove();
+    bub = addRow('bot');
+    type = typer(bub);
+  };
+
+  try{
+    const res = await fetch('/api/chat', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ session_id: sessionId, message })
+    });
+
+    if (!res.ok){
+      thinkRow.remove();
+      const e = addRow('err');
+      e.textContent = `リクエストが受け付けられませんでした (HTTP ${res.status})`;
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+
+    for(;;){
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream:true });
+
+      let i;
+      while ((i = buf.indexOf('\n\n')) !== -1){
+        const frame = buf.slice(0, i);
+        buf = buf.slice(i + 2);
+
+        let ev = 'message', data = '';
+        for (const line of frame.split('\n')){
+          if (line.startsWith('event:')) ev = line.slice(6).trim();
+          else if (line.startsWith('data:')) data = line.slice(5).trim();
+        }
+        if (!data) continue;
+
+        if (ev === 'error'){
+          if (started) await type.finish();
+          thinkRow.remove();
+          let msg = 'エラーが発生しました';
+          try { msg = JSON.parse(data).message || msg; } catch {}
+          addRow('err').textContent = '⚠ ' + msg;
+          continue;
+        }
+        if (data === '[DONE]') continue;
+
+        try{
+          const delta = JSON.parse(data).delta;
+          if (delta){ start(); type.push(delta); }
+        } catch {}
+      }
+    }
+
+    if (started) await type.finish();
+    else thinkRow.remove();
+
+  } catch (err){
+    thinkRow.remove();
+    if (started) await type.finish();
+    addRow('err').textContent = '⚠ サーバーに接続できませんでした。サービスが起動しているか確認してください。';
+  }
+}
+
+async function submit(){
+  const msg = input.value.trim();
+  if (!msg || busy) return;
+  input.value = ''; autosize();
+  setBusy(true);
+  try { await ask(msg); } finally { setBusy(false); }
+}
+
+function autosize(){
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+}
+
+send.addEventListener('click', submit);
+input.addEventListener('input', autosize);
+input.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing){ e.preventDefault(); submit(); }
+});
+document.getElementById('reset').addEventListener('click', () => {
+  if (busy) return;
+  sessionId = newSession();
+  greet();
+  input.focus();
+});
+
+greet();
+input.focus();
+</script>
+</body>
+</html>

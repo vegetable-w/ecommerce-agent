@@ -33,5 +33,9 @@ class Settings(BaseSettings):
     milvus_uri: str = "http://localhost:19530"
     retrieval_top_k: int = Field(default=3, gt=0)
     retrieval_min_score: float = 0.4
+    # /kb の再実行ボタンは make 経由でジョブを起動する。Windows では make が PATH に
+    # 載っていないことがあり(winget の Packages 配下に実体だけある)、アプリのプロセスから
+    # shutil.which("make") が None になる。その場合はここに実体のパスを設定する。
+    make_bin: str = "make"
 
 settings = Settings()

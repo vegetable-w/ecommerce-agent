@@ -51,10 +51,16 @@ def _error_run(tc_id: str, name: str, msg: str) -> ToolRun:
 async def execute_tool_call(
     tool_call: dict, conversation_id: int, timeout: float = 5.0, max_retries: int = 2
 ) -> ToolRun:
-    # name/id が欠けた壊れた tool_call でも例外を外へ漏らさない(このモジュールの契約: 常に
-    # ToolRun を返す。実測で確認済み: dict の素朴な添字アクセスは KeyError で契約を破っていた)。
+    # name/id が欠けた、または id が None の壊れた tool_call でも例外を外へ漏らさない
+    # (このモジュールの契約: 常に ToolRun を返す)。実測で確認済み:
+    # - dict の素朴な添字アクセスは KeyError で契約を破っていた(キー欠落)。
+    # - `.get("id", "unknown")` だけでは id=None を防げない: langchain_core の
+    #   ToolCall/ToolCallChunk は id: str | None を許容しており(OpenAI互換ゲートウェイが
+    #   id を省略した tool_call チャンクをマージするとこの形になりうる)、キーは存在するが
+    #   値が None なので既定値は使われず、後段の ToolMessage(tool_call_id=None) が
+    #   ValidationError で落ちる。`or "unknown"` で falsy(None/空文字含む)を弾く。
     name = tool_call.get("name", "")
-    tc_id = tool_call.get("id", "unknown")
+    tc_id = tool_call.get("id") or "unknown"
     args = dict(tool_call.get("args") or {})
 
     tool = registry.get_tool(name)

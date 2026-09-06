@@ -65,6 +65,40 @@ async def test_stream_without_tools_emits_single_delta_then_done(db_session_fact
     assert [m.role for m in msgs] == ["user", "assistant"]
 
 
+async def test_stream_without_tools_delta_excludes_reasoning_blocks(db_session_factory, db_clean):
+    """ツールなし分岐の delta も .text 経由(app/core/agent.py の ai.text)であり、
+    content が block list のとき reasoning など text 以外のブロックを混入させない。
+    chapter 1 の Critical バグ(自前の isinstance 連結に戻す)への回帰テスト。"""
+    content = [
+        {"type": "text", "text": "ご案内します"},
+        {"type": "reasoning", "text": "内部思考"},
+    ]
+    model = FakeModel([AIMessage(content=content)])
+    events = [ev async for ev in agent.stream_agent_turn("u1", "こんにちは", None, model=model)]
+    deltas = [e["text"] for e in events if e["type"] == "delta"]
+    assert deltas == ["ご案内します"]
+
+
+async def test_stream_with_tools_delta_excludes_reasoning_blocks(db_session_factory, db_clean):
+    """収束(astream)側の chunk.text も同じ回帰テスト対象。FakeModel.astream は
+    stream_tokens の各要素をそのまま AIMessageChunk(content=...) にするので、
+    要素として block list を渡せば chunk.content が block 形式のケースを再現できる。"""
+    first = AIMessage(
+        content="",
+        tool_calls=[{"name": "query_logistics", "args": {"order_id": "1001"}, "id": "c1"}],
+    )
+    block_chunk = [
+        {"type": "text", "text": "配送中です"},
+        {"type": "reasoning", "text": "非公開の内部推論"},
+    ]
+    model = FakeModel([first], stream_tokens=[block_chunk])
+    events = [
+        ev async for ev in agent.stream_agent_turn("u1", "注文1001は今どこですか", None, model=model)
+    ]
+    deltas = [e["text"] for e in events if e["type"] == "delta"]
+    assert deltas == ["配送中です"]
+
+
 async def test_stream_new_conversation_returns_fresh_id(db_session_factory, db_clean):
     model = FakeModel([AIMessage(content="はい、承知しました。")])
     events = [ev async for ev in agent.stream_agent_turn("u1", "こんにちは", None, model=model)]

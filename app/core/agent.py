@@ -39,8 +39,10 @@ def _exception_to_tool_run(tool_call: dict, exc: BaseException) -> ToolRun:
     こうしておくと、gather の1タスクが失敗しても他の tool タスクは最後まで await され切り、
     (create_ticket のような書き込み系ツールが)tool 行の記録なしに副作用だけ残す事態を防げる。
     """
+    # id=None も "unknown" に落とす(app/tools/infra.py の execute_tool_call と同じ理由:
+    # id は存在するが None の場合があり、`.get(..., default)` では防げない)。
     name = tool_call.get("name", "")
-    tc_id = tool_call.get("id", "unknown")
+    tc_id = tool_call.get("id") or "unknown"
     return ToolRun(
         tool_call_id=tc_id,
         name=name,

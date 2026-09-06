@@ -8,10 +8,12 @@ from types import SimpleNamespace
 
 import pytest
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, SystemMessage, ToolMessage
+from sqlalchemy import select
 
 from app.core import agent
 from app.core.prompts import AGENT_SYSTEM
 from app.db import repository as repo
+from app.db.models import Ticket
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
@@ -48,6 +50,39 @@ async def test_no_tool_calls_returns_direct_answer(db_session_factory, db_clean)
     assert res.answer.startswith("こんにちは") and res.tool_calls == []
     msgs = await repo.list_messages(res.conversation_id)
     assert [m.role for m in msgs] == ["user", "assistant"]
+
+
+async def test_direct_answer_uses_text_property_and_excludes_reasoning_blocks(
+    db_session_factory, db_clean
+):
+    """.text は content が block list のとき type="text" の部分だけを連結し、それ以外の
+    ブロック(reasoning など)は含めない。chapter 1 が踏んだ Critical バグと同じ形
+    (`content if isinstance(content, str) else ""` のような自前実装)への回帰テスト。
+    ツールなし分岐の ai.text 呼び出しを直接検証する。"""
+    content = [
+        {"type": "text", "text": "ご案内します"},
+        {"type": "reasoning", "text": "内部思考は非公開"},
+    ]
+    model = FakeModel([AIMessage(content=content)])
+    res = await agent.run_agent_turn("u1", "こんにちは", None, model=model)
+    assert res.answer == "ご案内します"
+    assert "非公開" not in res.answer
+
+
+async def test_convergence_final_text_excludes_reasoning_blocks(db_session_factory, db_clean):
+    """収束呼び出し(非ストリーミング)の final.text も同じ回帰テスト対象。"""
+    first = AIMessage(
+        content="",
+        tool_calls=[{"name": "query_logistics", "args": {"order_id": "1001"}, "id": "c1"}],
+    )
+    final_content = [
+        {"type": "text", "text": "現在配送中です"},
+        {"type": "reasoning", "text": "非公開の内部推論"},
+    ]
+    model = FakeModel([first, AIMessage(content=final_content)])
+    res = await agent.run_agent_turn("u1", "注文1001はどこですか", None, model=model)
+    assert res.answer == "現在配送中です"
+    assert "非公開" not in res.answer
 
 
 async def test_tool_call_flow_executes_and_converges(db_session_factory, db_clean):
@@ -152,32 +187,69 @@ async def test_multiple_tool_calls_execute_and_both_converge(db_session_factory,
     assert {m.tool_call_id for m in convergence_tool_msgs} == {"c1", "c2"}
 
 
-async def test_prepare_turn_survives_malformed_tool_call_alongside_good_one(
+async def test_prepare_turn_survives_tool_call_with_none_id_alongside_good_one(
     db_session_factory, db_clean
 ):
-    """壊れた tool_call(id 欠落)が1つ混ざっていても、_prepare_turn は落ちずに
-    正常なツールを実行し切り、両方に対応する tool 行を保存する。
+    """id=None の tool_call が1つ混ざっていても、_prepare_turn は落ちずに完走し、
+    正常な兄弟ツール(create_ticket、書き込み系で副作用を持つ)の結果が tool 行なしに
+    孤児化しないことを確認する。
 
-    AIMessage(tool_calls=...) のコンストラクタ自体が id 欠落を拒否する(langchain_core の
-    バリデータが tool_call() で id を必須キーワード引数として要求する)ため、実際に壊れた
-    dict を混入させるには構築後に list へ直接 append する必要がある。これは「バリデーション
-    済みの AIMessage しか来ない」という前提が崩れた場合(将来 LangChain 以外の実装や、
-    JSON 経由で tool_calls が再構成される経路が増えた場合など)を模している。
+    このテストが実際に踏んでいるのは app/tools/infra.py の
+    `tc_id = tool_call.get("id") or "unknown"` の分岐であって、キー欠落側の防御
+    (`.get("name", "")` / 別途 tests/test_tools_infra.py で直接テスト済み)ではない。
+    id=None は「キーが無い」場合とは違い、`.get(key, default)` の既定値では救えない
+    (キーは存在し値が None なので default は使われない)。しかも id=None は理論上の話では
+    なく、AIMessage(tool_calls=[{"name":..., "args":..., "id": None}]) は
+    langchain_core の ToolCall.id: str | None の宣言どおり正常に構築できる
+    (以前の版で使っていた「構築後に list へ append する」トリックは不要)。
+    OpenAI互換ゲートウェイが id を省略した tool_call チャンクを astream でマージすると
+    この形になりうるため、実運用でも到達しうる。
+
+    修正前は execute_tool_call 内の `ToolMessage(tool_call_id=None, ...)` が
+    ValidationError を送出し、_exception_to_tool_run 側の同じ `.get("id", "unknown")`
+    も id=None を素通りさせて同じ ValidationError を出すため、gather の
+    return_exceptions=True による多重防御は無力化されていた(2層とも同じ穴)。
     """
     first = AIMessage(
         content="",
-        tool_calls=[{"name": "query_order", "args": {"order_id": "1001"}, "id": "c1"}],
+        tool_calls=[
+            {
+                "name": "create_ticket",
+                "args": {"description": "配送が遅い", "ticket_type": "complaint"},
+                "id": "c1",
+            },
+            # args を欠落させ、LogisticsInput の必須フィールド order_id 不足で
+            # ValidationError(=エラー ToolRun)になる経路を確実に踏ませる。
+            # (order_id を渡すと単に成功して ok=True になり、"id=None でも success/error
+            # どちらの分岐でも ToolMessage(tool_call_id=None) が構築される" ことの
+            # error側の実例を示せなくなるため)
+            {"name": "query_logistics", "args": {}, "id": None},
+        ],
     )
-    first.tool_calls.append({"name": "query_logistics"})  # id も args も欠落 = 壊れた呼び出し
     model = FakeModel([first, AIMessage(content="ご案内します。")])
-    res = await agent.run_agent_turn("u1", "注文1001について教えて", None, model=model)
+    res = await agent.run_agent_turn("u1", "配送が遅いです", None, model=model)
 
     assert len(res.tool_runs) == 2
-    assert res.tool_runs[0].ok is True
-    # 壊れた呼び出し(args 欠落で LogisticsInput の必須フィールド order_id が無い)は
-    # 例外を送出せず、tool_call_id="unknown" のエラー ToolRun になる
-    assert res.tool_runs[1].ok is False
-    assert res.tool_runs[1].tool_call_id == "unknown"
+    runs_by_id = {r.tool_call_id: r for r in res.tool_runs}
+    assert runs_by_id["c1"].ok is True
+    assert runs_by_id["unknown"].ok is False  # id=None は "unknown" に落ちてエラー化される
+
+    msgs = await repo.list_messages(res.conversation_id)
+    assert [m.role for m in msgs] == ["user", "assistant", "tool", "tool", "assistant"]
+    assert {m.tool_call_id for m in msgs if m.role == "tool"} == {"c1", "unknown"}
+
+    # 良い方(create_ticket)の副作用が孤児化せず記録されていることを確認する
+    conv = await repo.get_conversation(res.conversation_id)
+    assert conv.status == "escalated"
+    async with db_session_factory() as s:
+        tickets = list(
+            (
+                await s.execute(
+                    select(Ticket).where(Ticket.conversation_id == res.conversation_id)
+                )
+            ).scalars()
+        )
+    assert len(tickets) == 1
 
     msgs = await repo.list_messages(res.conversation_id)
     assert [m.role for m in msgs] == ["user", "assistant", "tool", "tool", "assistant"]
@@ -214,6 +286,13 @@ async def test_prepare_turn_survives_execute_tool_call_raising(
     ok_by_id = {r.tool_call_id: r.ok for r in res.tool_runs}
     assert ok_by_id["c1"] is True
     assert ok_by_id["c2"] is False
+
+    # _exception_to_tool_run が組み立てる ToolMessage の中身も軽く固定しておく
+    # (ok と tool_call_id だけでは、本文が空文字や status="success" のままでも
+    # 検出できないため)。
+    c2_run = next(r for r in res.tool_runs if r.tool_call_id == "c2")
+    assert c2_run.tool_message.status == "error"
+    assert c2_run.tool_message.content  # 空文字ではない
 
     msgs = await repo.list_messages(res.conversation_id)
     assert [m.role for m in msgs] == ["user", "assistant", "tool", "tool", "assistant"]

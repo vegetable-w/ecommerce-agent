@@ -1,9 +1,18 @@
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 class ExtractRequest(BaseModel):
     text: str = Field(min_length=1, description="ユーザーのアフターサービスに関する説明原文")
+
+    # min_lengthはOpenAPIスキーマのminLengthとして表出させるために残し、
+    # 空白のみの値(min_lengthを通過してしまう)はこのvalidatorで拒否する
+    @field_validator("text")
+    @classmethod
+    def _reject_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("空白のみの値は許可されない")
+        return v
 
 class RequestType(str, Enum):
     REFUND = "返金"

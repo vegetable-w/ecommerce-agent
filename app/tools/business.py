@@ -4,6 +4,8 @@ import random
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
+from app.db import repository
+
 
 class OrderInput(BaseModel):
     order_id: str = Field(description="注文番号。例: 1001")
@@ -54,3 +56,16 @@ async def query_logistics(order_id: str) -> dict:
         "location": f"{city}配送センター",
         "timeline": [f"{city}配送センターから発送", f"現在の状態: {status}"],
     }
+
+
+class FaqInput(BaseModel):
+    keyword: str = Field(description="FAQ を検索するためのキーワード。例:『返品』『発送までの目安』")
+
+
+@tool(args_schema=FaqInput)
+async def query_faq(keyword: str) -> dict:
+    """キーワードで FAQ を検索する。ポリシー、ルール、操作方法などの一般的な質問に使用する。"""
+    rows = await repository.search_faq(keyword)
+    if not rows:
+        return {"hits": [], "message": f"「{keyword}」に関連するFAQが見つかりませんでした"}
+    return {"hits": [{"question": r.question, "answer": r.answer} for r in rows]}

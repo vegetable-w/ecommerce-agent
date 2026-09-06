@@ -1,0 +1,22 @@
+[
+  {
+    "conversation": "user: 送料はどうなっていますか\nassistant: 1回のご注文が3,000円以上で送料無料です。3,000円未満の場合は500円を申し受けます。",
+    "expect_question_contains": "送料",
+    "note": "普遍的な価値のあるルール。抽出されるべき"
+  },
+  {
+    "conversation": "user: 注文番号 1001 の荷物は今どこですか\nassistant: 現在、横浜の配送センターを出発しており、明日中にお届け予定です。",
+    "expect_empty": true,
+    "note": "特定注文の個別事例。無理に抽出してはいけない"
+  },
+  {
+    "conversation": "user: 返品したいのですが何日以内ですか\nassistant: 商品到着後7日以内であれば返品を承ります。未使用に近い状態であることが条件です。",
+    "expect_question_contains": "返品",
+    "note": "ポリシー。抽出されるべき"
+  },
+  {
+    "conversation": "user: こんにちは\nassistant: こんにちは。ご用件をお伺いします。",
+    "expect_empty": true,
+    "note": "雑談。抽出してはいけない"
+  }
+]

@@ -1,4 +1,4 @@
-.PHONY: dev test eval seed kb-build kb-vectorize kb-mine eval-retrieval
+.PHONY: dev test eval seed seed-conv kb-build kb-vectorize kb-mine eval-retrieval eval-mining
 
 dev:
 	uv run --env-file .env uvicorn app.main:app --port 8000 --reload
@@ -23,3 +23,9 @@ kb-mine:
 
 eval-retrieval:
 	uv run --env-file .env python scripts/eval_retrieval.py
+
+seed-conv:
+	docker compose exec -T mysql mysql --default-character-set=utf8mb4 -uroot -proot support < sql/03-seed.sql
+
+eval-mining:
+	uv run --env-file .env python scripts/eval_mining.py

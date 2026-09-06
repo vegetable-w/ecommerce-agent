@@ -1,0 +1,42 @@
+[
+  {
+    "query": "配送料はどう請求されますか",
+    "expect_answer_contains": "3,000円",
+    "note": "受け入れ1の本命。字面のLIKEでは当たらないことを実測済み"
+  },
+  {
+    "query": "あと何日で届きますか",
+    "expect_answer_contains": "48時間",
+    "note": "発送までどのくらいかかりますか への言い換え"
+  },
+  {
+    "query": "レシートがほしいのですが",
+    "expect_answer_contains": "請求書",
+    "note": "請求書・領収書の発行方法 への言い換え"
+  },
+  {
+    "query": "箱を開けたら割れていました",
+    "expect_answer_contains": "破損",
+    "note": "配送中の破損 への言い換え"
+  },
+  {
+    "query": "クレジットカードは使えますか",
+    "expect_answer_contains": "支払",
+    "note": "利用できる支払い方法 への言い換え"
+  },
+  {
+    "query": "買ったものを返したい",
+    "expect_answer_contains": "返品",
+    "note": "返品ポリシーについて への言い換え"
+  },
+  {
+    "query": "お金はいつ戻ってきますか",
+    "expect_answer_contains": "返金",
+    "note": "返金時期 への言い換え"
+  },
+  {
+    "query": "送料はいくらですか",
+    "expect_answer_contains": "3,000円",
+    "note": "受け入れ基準の原文。ただし資料の見出しと逐字一致するため、これ単体では意味検索を証明しない"
+  }
+]

@@ -111,6 +111,39 @@
   .send:hover:not(:disabled){transform:translateY(-1px)}
   .send:disabled{opacity:.4; cursor:not-allowed; box-shadow:none}
   .tip{text-align:center; font-size:11px; color:var(--muted); margin:8px 0 0}
+
+  /* ツール履歴バッジ。既存の .hint と同じカプセル語彙で、点線にして「補足情報」であることを示す。 */
+  .tools:empty{display:none}
+  .tools{display:flex; flex-direction:column; align-items:flex-start; gap:5px; margin-bottom:8px}
+  .tool{
+    display:inline-flex; align-items:center; gap:6px;
+    font-size:11.5px; color:var(--muted); background:#fdfafc;
+    border:1px dashed #e3d7e8; padding:4px 11px; border-radius:999px;
+    animation:pop .22s ease-out;
+  }
+
+  /* markdown 本文。.bub の pre-wrap はブロック要素と二重に効くため md 側で解除する。 */
+  .bub .md{white-space:normal}
+  .bub .md > :first-child{margin-top:0}
+  .bub .md > :last-child{margin-bottom:0}
+  .bub .md p{margin:.5em 0}
+  .bub .md h3,.bub .md h4,.bub .md h5{margin:.75em 0 .35em; line-height:1.5}
+  .bub .md h3{font-size:15.5px}
+  .bub .md h4{font-size:14.5px}
+  .bub .md h5{font-size:13.5px; color:var(--muted)}
+  .bub .md ul,.bub .md ol{margin:.5em 0; padding-left:1.35em}
+  .bub .md li{margin:.22em 0}
+  .bub .md code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:13px;
+                background:#fff5f8; border:1px solid #f7e2ea; border-radius:6px; padding:1px 5px}
+  .bub .md pre{background:#fff5f8; border:1px solid #f7e2ea; border-radius:14px;
+               padding:10px 13px; overflow-x:auto; margin:.6em 0}
+  .bub .md pre code{background:none; border:none; padding:0; font-size:12.5px; line-height:1.6}
+  .bub .md blockquote{margin:.6em 0; padding:.15em .9em; border-left:3px solid #ffd3e0; color:#7c7290}
+  .bub .md hr{border:none; border-top:1px dashed var(--line); margin:.85em 0}
+  .bub .md a{color:var(--accent-d)}
+  .bub .md table{border-collapse:collapse; margin:.6em 0; font-size:13.5px; display:block; overflow-x:auto}
+  .bub .md th,.bub .md td{border:1px solid var(--line); padding:5px 10px; text-align:left; white-space:nowrap}
+  .bub .md th{background:#fff6f9; font-weight:600}
 </style>
 </head>
 <body>
@@ -141,18 +174,34 @@ const input = document.getElementById('input');
 const send  = document.getElementById('send');
 const tip   = document.getElementById('tip');
 
-let sessionId = newSession();
+/* user_id は端末に固定(会話をまたいで同じ人だと分かるように)、
+   conversation_id は done フレームで受け取って保存し、次のターンで送り返す。
+   localStorage はプライベートウィンドウ等で例外を投げうるので必ず包む。 */
+const UID_KEY = 'ec.user_id', CONV_KEY = 'ec.conversation_id';
+
+function load(k){ try{ return localStorage.getItem(k); }catch{ return null; } }
+function save(k, v){ try{ localStorage.setItem(k, v); }catch{} }
+function drop(k){ try{ localStorage.removeItem(k); }catch{} }
+
+let userId = load(UID_KEY) || ('web-' + Math.random().toString(36).slice(2, 10));
+save(UID_KEY, userId);
+let conversationId = Number(load(CONV_KEY)) || null;
 let busy = false;
 
-function newSession(){
-  const id = 'web-' + Math.random().toString(36).slice(2, 10);
-  tip.textContent = 'session_id: ' + id;
-  return id;
+function updateTip(){
+  tip.textContent = 'user_id: ' + userId + (conversationId ? '  /  conversation_id: ' + conversationId : '');
 }
 
-function greet(){
+function setConversation(id){
+  if (!id || id === conversationId) return;
+  conversationId = id;
+  save(CONV_KEY, String(id));
+  updateTip();
+}
+
+function greet(fresh){
   log.innerHTML = '';
-  addHint('新しい会話を始めました');
+  addHint(!fresh && conversationId ? '前回の会話の続きです' : '新しい会話を始めました');
   const b = addRow('bot');
   b.textContent = 'STORE カスタマーサポートです🐾 ご注文・配送・返品交換など、お気軽にどうぞ。';
 }
@@ -199,8 +248,11 @@ function typer(el){
       const step = queue.length > 60 ? 6 : queue.length > 20 ? 2 : 1;
       text += queue.slice(0, step);
       queue = queue.slice(step);
-      el.textContent = text;
-      el.appendChild(caret);
+      el.innerHTML = renderMd(text);
+      // caret は最後のブロックの中に置く。直下に足すと改行して独りだけ次の行に出る。
+      let last = el.lastElementChild;
+      while (last && last.lastElementChild) last = last.lastElementChild;
+      (last || el).appendChild(caret);
       scroll();
     } else if (done){
       clearInterval(timer); timer = null;
@@ -224,6 +276,91 @@ function typer(el){
   };
 }
 
+/* 依存なしの最小 markdown renderer。まず必ず escape してから、
+   モデルが実際に出す範囲(見出し / 強調 / コード / 箇条書き / 表 / 引用 / 罫線 / リンク)だけ解釈する。
+   ストリーミング中は未完成の記法が一瞬崩れて見えるが、次のフレームで直るので許容する。 */
+function esc(t){
+  return t.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
+}
+
+function inline(t){
+  const code = [];
+  let r = esc(t).replace(/`([^`\n]+)`/g, (_, c) => { code.push(c); return '\u0000' + (code.length - 1) + '\u0000'; });
+  r = r
+    .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+    .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+  return r.replace(/\u0000(\d+)\u0000/g, (_, i) => '<code>' + code[i] + '</code>');
+}
+
+function renderMd(src){
+  const L = src.split('\n');
+  const out = [];
+  const cells = r => r.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map(c => c.trim());
+  let i = 0;
+
+  while (i < L.length){
+    const line = L[i];
+
+    if (/^\s*```/.test(line)){                      // コードブロック(閉じ未着でも描画する)
+      const buf = [];
+      i++;
+      while (i < L.length && !/^\s*```/.test(L[i])) buf.push(L[i++]);
+      i++;
+      out.push('<pre><code>' + esc(buf.join('\n')) + '</code></pre>');
+      continue;
+    }
+    if (/^\s*$/.test(line)){ i++; continue; }
+    if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)){ out.push('<hr>'); i++; continue; }
+
+    let m = /^\s*(#{1,6})\s+(.*)$/.exec(line);
+    if (m){
+      const h = Math.min(m[1].length, 3) + 2;        // # -> h3, ## -> h4, ###+ -> h5
+      out.push('<h' + h + '>' + inline(m[2]) + '</h' + h + '>');
+      i++; continue;
+    }
+
+    if (/^\s*\|/.test(line) && i + 1 < L.length && /^\s*\|?[\s:|-]+\|[\s:|-]*$/.test(L[i + 1])){
+      const head = cells(line);
+      i += 2;
+      const rows = [];
+      while (i < L.length && /^\s*\|/.test(L[i])) rows.push(cells(L[i++]));
+      out.push('<table><thead><tr>' + head.map(c => '<th>' + inline(c) + '</th>').join('') +
+               '</tr></thead><tbody>' +
+               rows.map(r => '<tr>' + r.map(c => '<td>' + inline(c) + '</td>').join('') + '</tr>').join('') +
+               '</tbody></table>');
+      continue;
+    }
+
+    if (/^\s*>\s?/.test(line)){
+      const buf = [];
+      while (i < L.length && /^\s*>\s?/.test(L[i])) buf.push(L[i++].replace(/^\s*>\s?/, ''));
+      out.push('<blockquote>' + renderMd(buf.join('\n')) + '</blockquote>');
+      continue;
+    }
+
+    if (/^\s*(?:[-*+]|\d+[.)])\s+/.test(line)){
+      const tag = /^\s*\d/.test(line) ? 'ol' : 'ul';
+      const items = [];
+      while (i < L.length && /^\s*(?:[-*+]|\d+[.)])\s+/.test(L[i])){
+        items.push(L[i++].replace(/^\s*(?:[-*+]|\d+[.)])\s+/, ''));
+      }
+      out.push('<' + tag + '>' + items.map(t => '<li>' + inline(t) + '</li>').join('') + '</' + tag + '>');
+      continue;
+    }
+
+    const buf = [];
+    while (i < L.length && !/^\s*$/.test(L[i]) && !/^\s*```/.test(L[i]) &&
+           !/^\s*(?:[-*+]|\d+[.)])\s+/.test(L[i]) && !/^\s*>/.test(L[i]) &&
+           !/^\s*#{1,6}\s/.test(L[i]) && !/^\s*\|/.test(L[i])){
+      buf.push(L[i++]);
+    }
+    out.push('<p>' + inline(buf.join('\n')).replace(/\n/g, '<br>') + '</p>');
+  }
+  return out.join('');
+}
+
 function setBusy(v){
   busy = v;
   send.disabled = v;
@@ -234,32 +371,61 @@ function setBusy(v){
 async function ask(message){
   addRow('me').textContent = message;
 
-  const thinkRow = document.createElement('div');
-  thinkRow.className = 'row bot';
-  thinkRow.innerHTML = '<div class="av">🐱</div><div class="bub"><div class="think"><i></i><i></i><i></i></div></div>';
-  log.appendChild(thinkRow); scroll();
+  /* bot 行は最初から出しておき、本文には 3 点リーダーを入れておく。
+     ツールバッジが付いてから最初の delta が届くまでの間も、ここが空だと固まって見える。 */
+  const row = document.createElement('div');
+  row.className = 'row bot';
+  row.innerHTML = '<div class="av">🐱</div><div class="bub">' +
+                  '<div class="tools"></div>' +
+                  '<div class="md"><div class="think"><i></i><i></i><i></i></div></div>' +
+                  '</div>';
+  log.appendChild(row); scroll();
 
-  let bub = null, type = null, started = false;
+  const tools = row.querySelector('.tools');
+  const md    = row.querySelector('.md');
+
+  let type = null, started = false, badged = false, closed = false;
 
   const start = () => {
     if (started) return;
     started = true;
-    thinkRow.remove();
-    bub = addRow('bot');
-    type = typer(bub);
+    md.innerHTML = '';
+    type = typer(md);
+  };
+
+  const addTool = (name) => {
+    badged = true;
+    const t = document.createElement('div');
+    t.className = 'tool';
+    t.textContent = '🔧 ' + name + ' を呼び出しました';
+    tools.appendChild(t); scroll();
+  };
+
+  // 本文が空のまま終わる場合の後始末。バッジだけは残す価値があるので行ごとは消さない。
+  const settle = () => {
+    if (closed) return;
+    closed = true;
+    if (!started){
+      if (badged) md.remove();
+      else row.remove();
+    }
+  };
+
+  const fail = async (text) => {
+    if (started) await type.finish();
+    settle();
+    addRow('err').textContent = text;
   };
 
   try{
-    const res = await fetch('/api/chat', {
+    const res = await fetch('/api/agent/stream', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ session_id: sessionId, message })
+      body: JSON.stringify({ user_id: userId, message, conversation_id: conversationId })
     });
 
     if (!res.ok){
-      thinkRow.remove();
-      const e = addRow('err');
-      e.textContent = `リクエストが受け付けられませんでした (HTTP ${res.status})`;
+      await fail(`リクエストが受け付けられませんでした (HTTP ${res.status})`);
       return;
     }
 
@@ -285,29 +451,27 @@ async function ask(message){
         if (!data) continue;
 
         if (ev === 'error'){
-          if (started) await type.finish();
-          thinkRow.remove();
           let msg = 'エラーが発生しました';
           try { msg = JSON.parse(data).message || msg; } catch {}
-          addRow('err').textContent = '⚠ ' + msg;
-          continue;
+          await fail('⚠ ' + msg);
+          continue;   // error の後に [DONE] は来ない。ストリーム終了まで読み切る
         }
         if (data === '[DONE]') continue;
 
-        try{
-          const delta = JSON.parse(data).delta;
-          if (delta){ start(); type.push(delta); }
-        } catch {}
+        let obj;
+        try { obj = JSON.parse(data); } catch { continue; }
+
+        if (obj.event === 'tool'){ addTool(obj.name); continue; }
+        if (obj.event === 'done'){ setConversation(obj.conversation_id); continue; }
+        if (obj.delta){ start(); type.push(obj.delta); }
       }
     }
 
     if (started) await type.finish();
-    else thinkRow.remove();
+    settle();
 
   } catch (err){
-    thinkRow.remove();
-    if (started) await type.finish();
-    addRow('err').textContent = '⚠ サーバーに接続できませんでした。サービスが起動しているか確認してください。';
+    await fail('⚠ サーバーに接続できませんでした。サービスが起動しているか確認してください。');
   }
 }
 
@@ -331,12 +495,15 @@ input.addEventListener('keydown', e => {
 });
 document.getElementById('reset').addEventListener('click', () => {
   if (busy) return;
-  sessionId = newSession();
-  greet();
+  conversationId = null;   // user_id は据え置き。次のターンで新しい会話が作られる
+  drop(CONV_KEY);
+  updateTip();
+  greet(true);
   input.focus();
 });
 
-greet();
+updateTip();
+greet(false);
 input.focus();
 </script>
 </body>

@@ -2,7 +2,7 @@
 import random
 
 from langchain_core.tools import tool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.db import repository
 
@@ -59,7 +59,16 @@ async def query_logistics(order_id: str) -> dict:
 
 
 class FaqInput(BaseModel):
-    keyword: str = Field(description="FAQ を検索するためのキーワード。例:『返品』『発送までの目安』")
+    keyword: str = Field(min_length=1, description="FAQ を検索するためのキーワード。例:『返品』『発送までの目安』")
+
+    # min_lengthはOpenAPIスキーマのminLengthとして表出させるために残し、
+    # 空白のみの値(min_lengthを通過してしまう)はこのvalidatorで拒否する
+    @field_validator("keyword")
+    @classmethod
+    def _reject_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("空白のみの値は許可されない")
+        return v
 
 
 @tool(args_schema=FaqInput)

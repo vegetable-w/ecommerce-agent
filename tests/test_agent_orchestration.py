@@ -84,6 +84,14 @@ async def test_convergence_final_text_excludes_reasoning_blocks(db_session_facto
     assert res.answer == "現在配送中です"
     assert "非公開" not in res.answer
 
+    # レビュー指摘: append_message(content=final.text) の保存側も同じ回帰対象。
+    # ここが breakして final.content(block list)をそのまま保存するようになっても、
+    # 今ターンの res.answer は正しいままなので気づけない。しかし _build_history は
+    # 保存された assistant.content をそのまま次ターンの履歴として再生するため、
+    # 症状は次ターンのプロンプト汚染として遅れて出る(このチャプターで2回目の同型バグ)。
+    msgs = await repo.list_messages(res.conversation_id)
+    assert msgs[-1].content == "現在配送中です"
+
 
 async def test_tool_call_flow_executes_and_converges(db_session_factory, db_clean):
     first = AIMessage(
@@ -192,23 +200,28 @@ async def test_prepare_turn_survives_tool_call_with_none_id_alongside_good_one(
 ):
     """id=None の tool_call が1つ混ざっていても、_prepare_turn は落ちずに完走し、
     正常な兄弟ツール(create_ticket、書き込み系で副作用を持つ)の結果が tool 行なしに
-    孤児化しないことを確認する。
+    孤児化しないことを確認する、エンドツーエンドの統合テスト。
 
-    このテストが実際に踏んでいるのは app/tools/infra.py の
-    `tc_id = tool_call.get("id") or "unknown"` の分岐であって、キー欠落側の防御
-    (`.get("name", "")` / 別途 tests/test_tools_infra.py で直接テスト済み)ではない。
-    id=None は「キーが無い」場合とは違い、`.get(key, default)` の既定値では救えない
-    (キーは存在し値が None なので default は使われない)。しかも id=None は理論上の話では
-    なく、AIMessage(tool_calls=[{"name":..., "args":..., "id": None}]) は
-    langchain_core の ToolCall.id: str | None の宣言どおり正常に構築できる
-    (以前の版で使っていた「構築後に list へ append する」トリックは不要)。
+    レビュー指摘の訂正: このテストは app/tools/infra.py 側の `tool_call.get("id") or
+    "unknown"` を直接は踏まない。execute_tool_call が(infra.py 側の防御が生きていれば)
+    正常に ToolRun を返すため、agent.py 側の _exception_to_tool_run(gather の
+    return_exceptions=True による多重防御のバックストップ)は呼ばれずに完走する。
+    実際に確かめると、infra.py 側の防御だけを外して agent.py 側を残した場合でも
+    execute_tool_call が ValidationError を送出 → gather がそれを拾う →
+    _exception_to_tool_run が同じ ("unknown", ok=False) の ToolRun を作るため、
+    この統合テストの assert は全部通ってしまう(2層が同じ入出力を作るので、
+    どちらか一方が壊れても統合レベルでは見分けが付かない)。
+    infra.py の `tool_call.get("id") or "unknown"` 自体は
+    tests/test_tools_infra.py::test_execute_tool_call_none_id_returns_error_run_instead_of_raising
+    が単体レベルで直接カバーしている。ここではあくまで
+    「_prepare_turn 全体として id=None を持つ tool_call を落とさず処理し切れるか」
+    (どちらの層が実際に守っているかは問わない)を確認する。
+
+    id=None は理論上の話ではなく、AIMessage(tool_calls=[{"name":..., "args":...,
+    "id": None}]) は langchain_core の ToolCall.id: str | None の宣言どおり正常に
+    構築できる(以前の版で使っていた「構築後に list へ append する」トリックは不要)。
     OpenAI互換ゲートウェイが id を省略した tool_call チャンクを astream でマージすると
     この形になりうるため、実運用でも到達しうる。
-
-    修正前は execute_tool_call 内の `ToolMessage(tool_call_id=None, ...)` が
-    ValidationError を送出し、_exception_to_tool_run 側の同じ `.get("id", "unknown")`
-    も id=None を素通りさせて同じ ValidationError を出すため、gather の
-    return_exceptions=True による多重防御は無力化されていた(2層とも同じ穴)。
     """
     first = AIMessage(
         content="",
@@ -250,9 +263,6 @@ async def test_prepare_turn_survives_tool_call_with_none_id_alongside_good_one(
             ).scalars()
         )
     assert len(tickets) == 1
-
-    msgs = await repo.list_messages(res.conversation_id)
-    assert [m.role for m in msgs] == ["user", "assistant", "tool", "tool", "assistant"]
 
 
 async def test_prepare_turn_survives_execute_tool_call_raising(

@@ -47,6 +47,16 @@ async def test_execute_tool_call_missing_name_returns_error_run_instead_of_raisi
     assert "不明なツール" in run.tool_message.content
 
 
+async def test_execute_tool_call_none_id_returns_error_run_instead_of_raising():
+    # id はキーとして存在するが値が None(キー欠落とは別の穴): `.get("id", "unknown")` の
+    # ような既定値付き取得では防げず、後段の ToolMessage(tool_call_id=None) が
+    # ValidationError で落ちる。`.get("id") or "unknown"` でないと防げない。
+    run = await infra.execute_tool_call(
+        {"name": "query_order", "args": {"order_id": "1001"}, "id": None}, conversation_id=1
+    )
+    assert run.tool_call_id == "unknown"
+
+
 async def test_timeout_then_error(monkeypatch):
     async def slow(_args):
         await asyncio.sleep(1)

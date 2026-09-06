@@ -24,8 +24,13 @@ dev = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 # DBテストではセッション全体で使い回すengine(_test_engine, scope="session")を
-# 複数のfixture/テストがまたいで利用するため、loop scopeもsessionに揃える。
+# 複数のfixture/テストがまたいで利用するため、fixtureのloop scopeはsessionに揃える。
 # 揃えないとasyncmyのコネクションが異なるイベントループに紐付き、
 # "Future attached to a different loop" のRuntimeErrorになる。
+# テスト側のデフォルトloop scopeはあえて上げない(=function のまま): これを session に
+# すると、DB と無関係な非同期テストまで含めて全テストが1つのイベントループを共有してしまい、
+# あるテストが残したタスクが後続テストに漏れる温床になる(Task 9のタイムアウト/リトライや
+# バックグラウンドタスクで特に問題になる)。DBに触れるテストモジュールだけ、そのモジュール内で
+# `pytestmark = pytest.mark.asyncio(loop_scope="session")` を明示すること
+# (tests/test_db_conn.py 参照)。
 asyncio_default_fixture_loop_scope = "session"
-asyncio_default_test_loop_scope = "session"

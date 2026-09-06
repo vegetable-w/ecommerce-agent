@@ -1,3 +1,14 @@
+"""DB を触るテストの共通fixture。
+
+Note: DB を触るテストモジュールには、モジュール先頭で
+`pytestmark = pytest.mark.asyncio(loop_scope="session")` が必要(tests/test_db_conn.py 参照)。
+_test_engine はセッションスコープのイベントループ上に作られるため、そのモジュールのテスト自体も
+同じループで動かさないと、asyncmy のコネクションが別ループに紐付いて
+"attached to a different loop" の RuntimeError になる。今後 DB テストを追加するモジュールでも
+同様にこのマーカーを付けること(pyproject.toml の asyncio_default_fixture_loop_scope の
+コメントも参照)。
+"""
+
 import pathlib
 
 import pytest_asyncio
@@ -72,19 +83,36 @@ async def _test_engine():
 
 
 @pytest_asyncio.fixture(loop_scope="session")
-async def db_session_factory(_test_engine, monkeypatch):
-    """repository が利用する async_session をテスト DB 用 factory に差し替える。"""
-    factory = async_sessionmaker(_test_engine, expire_on_commit=False)
-    monkeypatch.setattr("app.db.base.async_session", factory)
-    return factory
+async def db_clean(_test_engine):
+    """各テストの前後に4テーブルを空にする。
+
+    後片付け(yield 後)だけだと、db_clean を要求しなかった直前のテストが書き込みを
+    残した場合に、db_clean を正しく要求した次のテストがその汚れをテスト開始時点で
+    引き継いでしまう(汚れは「片付け忘れたテスト」ではなく「次のテスト」の失敗として
+    現れ、原因調査を誤らせる)。前方でも truncate することで、このfixtureを要求した
+    テストは他のテストの後始末忘れに関わらず常に空の状態から始まることを保証する。
+    """
+
+    async def _truncate() -> None:
+        async with _test_engine.begin() as conn:
+            await conn.execute(text("SET FOREIGN_KEY_CHECKS=0"))
+            for t in _TABLES:
+                await conn.execute(text(f"TRUNCATE TABLE {t}"))
+            await conn.execute(text("SET FOREIGN_KEY_CHECKS=1"))
+
+    await _truncate()
+    yield
+    await _truncate()
 
 
 @pytest_asyncio.fixture(loop_scope="session")
-async def db_clean(_test_engine):
-    """各テスト後に 4 テーブルを空にする。"""
-    yield
-    async with _test_engine.begin() as conn:
-        await conn.execute(text("SET FOREIGN_KEY_CHECKS=0"))
-        for t in _TABLES:
-            await conn.execute(text(f"TRUNCATE TABLE {t}"))
-        await conn.execute(text("SET FOREIGN_KEY_CHECKS=1"))
+async def db_session_factory(_test_engine, db_clean, monkeypatch):
+    """repository が利用する async_session をテスト DB 用 factory に差し替える。
+
+    db_clean に依存させることで、このfixtureを要求したテストには必ず前後の
+    クリーンアップが付いてくる。db_session_factory だけを要求して db_clean を
+    要求し忘れる、という抜け道を構造的になくすため。
+    """
+    factory = async_sessionmaker(_test_engine, expire_on_commit=False)
+    monkeypatch.setattr("app.db.base.async_session", factory)
+    return factory

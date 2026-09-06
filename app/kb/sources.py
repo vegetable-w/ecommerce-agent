@@ -14,6 +14,7 @@ SOURCE_TYPES = {
     "product-faq.md": "faq",
     "returns-policy.md": "policy",
     "after-sales-manual.md": "manual",
+    "product-spec-manual.md": "manual",
 }
 
 # mined は会話からの抽出で付く。資料ファイルには現れない

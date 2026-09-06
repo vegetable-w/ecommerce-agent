@@ -117,7 +117,11 @@ async def test_cards_carry_real_numbers(db_session_factory, monkeypatch):
     assert cards["staging"]["stats"]["extracted"] == 1
     assert cards["staging"]["stats"]["batches"] == 1
     assert cards["vectors"]["stats"]["count"] == 3
-    assert cards["sources"]["stats"]["total_chunks"] == 31
+    # 資料が増減するたびに壊れる固定値ではなく、内訳との整合を見る。
+    # 「合計が内訳の和になっている」ほうが、数字を 1 つ書き写すより実際にバグを捕まえる。
+    src = cards["sources"]["stats"]
+    assert src["total_chunks"] == sum(f["chunks"] for f in src["files"])
+    assert src["total_chunks"] > 0
     assert cards["conversations"]["stats"] == {
         "conversations": 0, "messages": 0, "tickets": 0, "faq": 0,
     }

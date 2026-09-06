@@ -82,19 +82,7 @@ async def query_faq(keyword: str) -> dict:
     return {"hits": [{"question": r.question, "answer": r.answer} for r in rows]}
 
 
-class CreateTicketInput(BaseModel):
-    description: str = Field(description="ユーザーの問題の説明")
-    ticket_type: Literal["after_sales", "complaint", "inquiry"] = Field(
-        description="チケット種別。after_sales(アフターサービス) / complaint(苦情) / inquiry(問い合わせ) のいずれか"
-    )
-
-    # conversation_id はここに含めない: InjectedToolArg (下記 create_ticket 関数の
-    # 引数注釈) と組み合わせることで、モデルに渡るスキーマ (get_input_schema()) から
-    # 会話主キーを除外しつつ、.ainvoke() 時に渡された値は _injected_args_keys 経由で
-    # 正しく関数へ再注入される。この挙動は動かして確認済み(Task 8 実装時の検証)。
-
-
-@tool(args_schema=CreateTicketInput)
+@tool
 async def create_ticket(
     description: str,
     ticket_type: Literal["after_sales", "complaint", "inquiry"],

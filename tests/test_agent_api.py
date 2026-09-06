@@ -16,18 +16,36 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage, ToolMessage
+from pydantic import ValidationError as PydanticValidationError
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api import agent as agent_api
 from app.core import agent
 from app.core.agent import AgentResult
 from app.db import repository as repo
 from app.main import app
+from app.schemas.agent import ToolResultView
 from app.tools.infra import ToolRun
 from tests.test_agent_orchestration import FakeModel
 
 session_loop = pytest.mark.asyncio(loop_scope="session")
 
 _NOT_FOUND_MSG = "会話が見つかりません"
+_DB_DOWN_MSG = "データベースを一時的に利用できません。しばらくしてからもう一度お試しください"
+_UPSTREAM_MSG = "上流モデルを一時的に利用できません。しばらくしてからもう一度お試しください"
+
+# 到達不能なポート。ここへの接続は即座に拒否され、SQLAlchemyError(OperationalError)になる。
+_DEAD_DB_URL = "mysql+asyncmy://root:root@127.0.0.1:59999/nonexistent_db"
+
+
+def _dead_session_factory():
+    """本番相当の DB が落ちている状況を作る session factory。
+
+    repository は app.db.base.async_session を参照するので、そこをこれに差し替えると
+    _prepare_turn の最初の create_conversation が実際に SQLAlchemyError を送出する。
+    DB より手前で失敗するため、上流 LLM は呼ばれない。
+    """
+    return async_sessionmaker(create_async_engine(_DEAD_DB_URL), expire_on_commit=False)
 
 
 def teardown_function():
@@ -162,6 +180,86 @@ async def test_stream_endpoint_rejects_empty_message_before_stream_starts(
     assert "event: error" not in resp.text
 
 
+@session_loop
+async def test_stream_endpoint_rejects_whitespace_only_input(db_session_factory, db_clean):
+    """min_length=1 は "   " を通してしまう。空白のみの user 行を一度 DB に作ると、
+    _build_history が user 行を無条件に拾うため以後のターンで永久に再生される
+    (chapter 1 の SessionStore と違い MySQL に残るので、より高くつく)。"""
+    _use_model(FakeModel([AIMessage(content="hi")]))
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        blank_msg = await client.post(
+            "/api/agent/stream", json={"user_id": "u1", "message": "   "}
+        )
+        blank_user = await client.post(
+            "/api/agent/stream", json={"user_id": "  ", "message": "hi"}
+        )
+
+    assert blank_msg.status_code == 422
+    assert blank_user.status_code == 422
+
+
+@session_loop
+async def test_stream_frames_survive_newlines_and_spaces_in_deltas(
+    db_session_factory, db_clean
+):
+    """SSE のフレーム境界を生バイトで固定する。
+
+    他のストリームテストは _data_watch 相当の splitlines() 経由で読むため、フレーム境界の
+    崩れ(_sse が \\n\\n ではなく \\n を出す / JSON のエスケープが崩れて delta 内の改行が
+    そのまま本文に出る)を原理的に検出できない。Task 13 の回答は見出し・箇条書き・表を含む
+    Markdown なので、改行を含む delta は例外ではなく通常ケースになる。
+    """
+    tokens = ["行1\n行2", "\n\n", "  前後に空白  "]
+    first = AIMessage(
+        content="",
+        tool_calls=[{"name": "query_logistics", "args": {"order_id": "1001"}, "id": "c1"}],
+    )
+    _use_model(FakeModel([first], stream_tokens=tokens))
+
+    _, _, body = await _post_stream({"user_id": "u1", "message": "注文1001はどこですか"})
+
+    # 本文は必ず \n\n で終わる。末尾の空要素を落とした残りが「フレームの列」。
+    raw_frames = body.split("\n\n")
+    assert raw_frames[-1] == ""
+    frames = raw_frames[:-1]
+
+    # tool + delta*3 + done + [DONE] = 6 フレーム、1フレームちょうど1行。
+    # JSON が正しくエスケープされていれば delta 内の改行は "\\n" の2文字になり、
+    # 生の改行はフレーム区切り以外に現れない。
+    assert len(frames) == 6
+    for f in frames:
+        assert "\n" not in f
+        assert f.startswith("data: ")
+
+    payloads = _data_payloads(body)
+    deltas = [p["delta"] for p in payloads if "delta" in p]
+    assert deltas == tokens  # 前後の空白も含めて完全に round-trip する
+    assert "".join(deltas) == "行1\n行2\n\n  前後に空白  "
+
+
+def test_stream_endpoint_returns_error_frame_when_database_is_down(monkeypatch):
+    """SQLAlchemyError 分岐を実際の DB 障害で踏む。到達不能なホストへ向けた engine を
+    差し込むだけなので、fixture も上流 LLM も要らない。DB 障害を「上流モデルが…」と
+    誤って報告する退行(SQLAlchemyError 分岐の削除)を検出する。"""
+    monkeypatch.setattr("app.db.base.async_session", _dead_session_factory())
+    _use_model(FakeModel([AIMessage(content="hi")]))
+
+    client = TestClient(app)
+    with client.stream(
+        "POST", "/api/agent/stream", json={"user_id": "u1", "message": "hi"}
+    ) as resp:
+        assert resp.status_code == 200
+        body = b"".join(resp.iter_bytes()).decode("utf-8")
+
+    expected_frame = "event: error\ndata: {}\n\n".format(
+        json.dumps({"message": _DB_DOWN_MSG}, ensure_ascii=False)
+    )
+    assert expected_frame in body
+    assert "[DONE]" not in body
+
+
 # --- 12B: /api/agent --------------------------------------------------------
 
 
@@ -235,6 +333,10 @@ def test_agent_endpoint_502_on_upstream_failure(monkeypatch):
     client = TestClient(app)
     r = client.post("/api/agent", json={"user_id": "u1", "message": "hi"})
     assert r.status_code == 502
+    # 文言そのものを固定する。ステータスコードだけだと、detail に例外クラス名や
+    # ファイル名・行番号といった内部詳細が漏れる退行を検出できない
+    # (この章で一度実際に起きた形)。
+    assert r.json()["detail"] == _UPSTREAM_MSG
 
 
 def test_agent_endpoint_422_on_missing_fields(monkeypatch):
@@ -249,3 +351,126 @@ def test_agent_endpoint_422_on_missing_fields(monkeypatch):
     monkeypatch.setattr(agent, "run_agent_turn", must_not_run)
     client = TestClient(app)
     assert client.post("/api/agent", json={"message": "hi"}).status_code == 422
+
+
+def test_agent_endpoint_forwards_request_fields_to_core(monkeypatch):
+    """リクエストの3フィールドが run_agent_turn へそのまま渡ることを固定する。
+
+    他の /api/agent テストは引数を無視するフェイクを使うため、ハンドラが
+    conversation_id を落として常に新規会話を開始するようになっても全部緑のままになる
+    (マルチターンが静かに壊れ、Task 14 の eval はこのエンドポイントを叩く)。
+    ストリーム側は unknown-conversation テストが conversation_id を実際に送るので
+    既に固定されているが、こちらは無防備だった。
+    """
+    seen: dict = {}
+
+    async def fake_run(user_id, message, conversation_id, model=None):
+        seen.update(user_id=user_id, message=message, conversation_id=conversation_id)
+        return AgentResult(conversation_id or 1, "a", [], [])
+
+    monkeypatch.setattr(agent, "run_agent_turn", fake_run)
+    client = TestClient(app)
+    r = client.post(
+        "/api/agent", json={"user_id": "u9", "message": "m9", "conversation_id": 77}
+    )
+    assert r.status_code == 200
+    assert seen == {"user_id": "u9", "message": "m9", "conversation_id": 77}
+    assert r.json()["conversation_id"] == 77
+
+
+def test_agent_endpoint_handles_block_style_tool_content(monkeypatch):
+    """ToolMessage.content がブロック形式(list[dict])でも 200 で正しく返す。
+
+    ToolResultView.content が .content(生の list)を受けていると、ここは
+    ValidationError → detail のない素の英語 500 になる。しかも DB 行・チケット・回答は
+    既に永続化された「成功したターン」なので、成功したのに捨てられる。
+    .text は type="text" のブロックだけを連結し、reasoning などの非公開ブロックを落とす。
+    """
+    blocks = [
+        {"type": "text", "text": "配送中です"},
+        {"type": "reasoning", "text": "内部推論は非公開"},
+    ]
+    tm = ToolMessage(content=blocks, tool_call_id="c1", name="query_logistics")
+
+    async def fake_run(user_id, message, conversation_id, model=None):
+        return AgentResult(
+            conversation_id=12,
+            answer="配送中です。",
+            tool_calls=[{"name": "query_logistics", "args": {"order_id": "1001"}, "id": "c1"}],
+            tool_runs=[ToolRun("c1", "query_logistics", True, tm)],
+        )
+
+    monkeypatch.setattr(agent, "run_agent_turn", fake_run)
+    client = TestClient(app)
+    r = client.post("/api/agent", json={"user_id": "u1", "message": "注文1001はどこですか"})
+    assert r.status_code == 200
+    content = r.json()["tool_results"][0]["content"]
+    assert content == "配送中です"
+    assert isinstance(content, str)  # ブロックの list がそのまま漏れ出さない
+    assert "非公開" not in content
+
+
+def test_tool_result_view_content_must_be_a_string():
+    """ToolResultView.content: str は API の公開契約であり、二重防御の外側の層でもある。
+
+    ハンドラが .text を使っている限り実行時には常に str が入るので、この契約は
+    エンドツーエンドのテストからは見えない(型を object に緩めても全部緑のまま通る)。
+    schema 層で直接固定して、緩められたことに気づけるようにする。
+    """
+    with pytest.raises(PydanticValidationError):
+        ToolResultView(
+            tool_call_id="c1",
+            name="query_logistics",
+            ok=True,
+            content=[{"type": "text", "text": "配送中です"}],
+        )
+
+
+def test_agent_endpoint_500_with_japanese_detail_on_response_build_failure(monkeypatch):
+    """応答組み立ての ValidationError は、素の英語 500 ではなく日本語 detail 付きの
+    500 になる(そして DB/上流の障害を意味する 502・503 とは区別される)。
+
+    tool_call_id=None は app/tools/infra.py の `or "unknown"` 防御と .text 化により
+    実運用では到達しないはずの形。最後の砦が実際に砦として働くことを固定する。
+    """
+    tm = ToolMessage(content="x", tool_call_id="c1", name="query_logistics")
+
+    async def fake_run(user_id, message, conversation_id, model=None):
+        return AgentResult(
+            conversation_id=12,
+            answer="ご案内します。",
+            tool_calls=[],
+            tool_runs=[ToolRun(None, "query_logistics", True, tm)],
+        )
+
+    monkeypatch.setattr(agent, "run_agent_turn", fake_run)
+    client = TestClient(app)
+    r = client.post("/api/agent", json={"user_id": "u1", "message": "hi"})
+    assert r.status_code == 500
+    assert r.json()["detail"] == "応答の生成に失敗しました"
+
+
+def test_agent_endpoint_503_when_database_is_down(monkeypatch):
+    """DB 障害は 503 + DB 用の文言。502「上流モデルが…」に落ちる退行
+    (SQLAlchemyError 分岐の削除)を検出する。リトライ判断が変わるため、
+    この 503 と 502 の区別は利用者にも自動リトライにも意味がある。"""
+    monkeypatch.setattr("app.db.base.async_session", _dead_session_factory())
+
+    client = TestClient(app)
+    r = client.post("/api/agent", json={"user_id": "u1", "message": "hi"})
+    assert r.status_code == 503
+    assert r.json()["detail"] == _DB_DOWN_MSG
+
+
+def test_agent_endpoint_rejects_whitespace_only_input(monkeypatch):
+    async def must_not_run(*a, **k):
+        raise AssertionError("バリデーションで弾かれるべきリクエストが本体まで到達した")
+
+    monkeypatch.setattr(agent, "run_agent_turn", must_not_run)
+    client = TestClient(app)
+    assert (
+        client.post("/api/agent", json={"user_id": "u1", "message": "   "}).status_code == 422
+    )
+    assert (
+        client.post("/api/agent", json={"user_id": "  ", "message": "hi"}).status_code == 422
+    )

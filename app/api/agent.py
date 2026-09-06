@@ -14,6 +14,7 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from langchain_core.language_models import BaseChatModel
+from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core import agent
@@ -66,6 +67,13 @@ async def agent_stream(req: AgentRequest, model: BaseChatModel = Depends(get_mod
                 yield f
             return
         except Exception:
+            # 既知かつ意図的な不整合(レビュー承認済み): ここは上流障害だけでなく
+            # こちら側のバグも捕まえるが、文言は一律「上流モデルを一時的に利用できません」に
+            # なる。/api/agent 側では同じ状況を「サーバー側の欠陥はサーバーエラーとして出す」
+            # 方針で 500 と 502 に区別しているので、その原則とは食い違っている。
+            # それでもこうしているのは、ここが既に HTTP 200 とヘッダを送出した後であり、
+            # ステータスコードで区別する手段が物理的に残っていないため。文言を増やすより、
+            # 下流には「エラーで終わった」とだけ伝え、詳細は logger.exception に委ねる。
             logger.exception("エージェントオーケストレーション失敗 user_id=%s", req.user_id)
             for f in _sse_error("上流モデルを一時的に利用できません。しばらくしてからもう一度お試しください"):
                 yield f
@@ -90,6 +98,14 @@ async def agent_stream(req: AgentRequest, model: BaseChatModel = Depends(get_mod
 async def run_agent(req: AgentRequest) -> AgentResponse:
     # agent.run_agent_turn と属性経由で呼ぶこと(from ... import run_agent_turn にしない)。
     # テストの monkeypatch.setattr(agent, "run_agent_turn", ...) が効かなくなるため。
+    #
+    # 注意(テストを書く人向けの落とし穴): このハンドラは model を Depends で受け取らず、
+    # run_agent_turn の内部で get_chat_model() を組み立てる。したがって
+    # app.dependency_overrides[agent_api.get_model] はこちらには一切効かない
+    # (効くのは /api/agent/stream だけ)。両方のエンドポイントがフェイクになったつもりで
+    # このエンドポイントを叩くと、本物の上流 LLM を呼び、本番相当の support DB へ
+    # 書き込む。このエンドポイントを差し替えたいときは
+    # monkeypatch.setattr(agent, "run_agent_turn", ...) を使うこと。
     try:
         result = await agent.run_agent_turn(req.user_id, req.message, req.conversation_id)
     except agent.ConversationNotFound:
@@ -114,28 +130,44 @@ async def run_agent(req: AgentRequest) -> AgentResponse:
     # DB 行もチケットも回答も正しく作られた「成功したターン」が日本語メッセージのない
     # 素の 500 として捨てられる。
     #
-    # なお、この return は意図的に try の外に置いている。中に入れると想定外の形状に
-    # よる ValidationError が except Exception に吸われて 502「上流モデルを一時的に
-    # 利用できません」になるが、それは嘘であり(上流ではなくこちらの応答組み立ての欠陥)、
-    # 決定的に同じ結果になる再試行をクライアントに促してしまう。app/api/extract.py の
-    # 解析失敗を 502 ではなく 500 とした判断と同じ理由で、サーバー側の欠陥は
-    # サーバーエラーとして出す。
-    return AgentResponse(
-        conversation_id=result.conversation_id,
-        answer=result.answer,
-        tool_calls=[
-            ToolCallView(
-                id=tc.get("id") or "", name=tc.get("name") or "", args=tc.get("args") or {}
-            )
-            for tc in result.tool_calls
-        ],
-        tool_results=[
-            ToolResultView(
-                tool_call_id=r.tool_call_id,
-                name=r.name,
-                ok=r.ok,
-                content=r.tool_message.content,
-            )
-            for r in result.tool_runs
-        ],
-    )
+    # 応答の組み立ては上の try とは別の except で包む。run_agent_turn の失敗(上流障害・
+    # DB 障害)と、組み立て段階の ValidationError(= こちら側の欠陥)は別物であり、
+    # 後者を except Exception に吸わせて 502「上流モデルを一時的に利用できません」に
+    # するのは嘘になる(上流は正常で、決定的に同じ結果になる再試行を促してしまう)。
+    # app/api/extract.py が解析失敗を 502 ではなく 500 とした判断と同じ。
+    # ただし「500 にする」ことと「日本語の説明を返す」ことは両立するので、素の
+    # Internal Server Error に落とさず、detail 付きの 500 として返す。
+    # 下の .text 化(ブロック形式対応)と id=None 防御により実際には到達しないはずで、
+    # 到達しないことこそが狙い。最後の砦として残す。
+    try:
+        return AgentResponse(
+            conversation_id=result.conversation_id,
+            answer=result.answer,
+            tool_calls=[
+                ToolCallView(
+                    id=tc.get("id") or "", name=tc.get("name") or "", args=tc.get("args") or {}
+                )
+                for tc in result.tool_calls
+            ],
+            tool_results=[
+                ToolResultView(
+                    tool_call_id=r.tool_call_id,
+                    name=r.name,
+                    ok=r.ok,
+                    # .content ではなく .text を使う(app/api/chat.py と
+                    # app/core/agent.py の3か所で既に標準化されている作法)。
+                    # ToolMessage.content は str だけでなくブロック形式(list[dict])も
+                    # ありうる。.content のままだと ToolResultView.content: str に
+                    # 対して ValidationError になり、DB 行もチケットも回答も
+                    # 正しく永続化された「成功したターン」が 500 で捨てられる。
+                    # .text は TextAccessor(str のサブクラス)を返すので pydantic の
+                    # str フィールドにそのまま入り、type="text" のブロックだけを
+                    # 連結して reasoning などの非公開ブロックを落とす。
+                    content=r.tool_message.text,
+                )
+                for r in result.tool_runs
+            ],
+        )
+    except ValidationError:
+        logger.exception("応答組み立てに失敗 user_id=%s", req.user_id)
+        raise HTTPException(status_code=500, detail="応答の生成に失敗しました")

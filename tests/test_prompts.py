@@ -39,6 +39,9 @@ def test_agent_system_covers_tool_principles():
     # Rule 6: Refund policy rule
     assert "プラットフォームのアフターサービス規定に従います" in AGENT_SYSTEM
 
+    # Rule 7: Tool failure handling rule
+    assert "エラーの内部的なメッセージをそのまま伝えたり" in AGENT_SYSTEM
+
 def test_agent_prompt_has_history_placeholder():
     """Test that AGENT_PROMPT has the history placeholder."""
     assert any(getattr(m, "variable_name", None) == "history"

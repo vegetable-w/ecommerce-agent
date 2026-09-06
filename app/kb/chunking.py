@@ -3,6 +3,8 @@
 ここは純粋なテキスト処理のみで、DB にも Milvus にも埋め込み API にも触れない。
 """
 
+import re
+
 from langchain_core.documents import Document
 from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
 
@@ -39,3 +41,39 @@ def recursive_split(text: str, chunk_size: int, chunk_overlap: int = 0) -> list[
         keep_separator="end",
     )
     return splitter.split_text(text)
+
+
+_SENT_RE = re.compile(r"[^。！？!?…\n]*[。！？!?…\n]|[^。！？!?…\n]+$")
+
+
+def _split_sentences(text: str) -> list[str]:
+    """文末記号(改行を含む)ごとに区切る。記号は直前の文に付けたまま残す。"""
+    return [m for m in _SENT_RE.findall(text) if m]
+
+
+def _trailing_sentences(text: str, max_chars: int) -> str:
+    """text 末尾から**完全な文**を何文か取り、合計が max_chars を超えないようにする。
+    1 文が単独で超える場合はその 1 文をまるごと採用する(「半端な文を残さない」を優先)。"""
+    out: list[str] = []
+    total = 0
+    for s in reversed(_split_sentences(text)):
+        if out and total + len(s) > max_chars:
+            break
+        out.insert(0, s)
+        total += len(s)
+    return "".join(out)
+
+
+def apply_sentence_overlap(chunks: list[str], overlap: int) -> list[str]:
+    """各チャンクの先頭に、直前チャンク末尾の完全な文を重なりとして付ける。
+
+    文字数で機械的に切ると前置きが文の途中から始まり、埋め込みにも表示にも半端な断片が
+    混じる。重なりは必ず文単位で取る。
+    """
+    if not chunks:
+        return []
+    out = [chunks[0]]
+    for i in range(1, len(chunks)):
+        ov = _trailing_sentences(chunks[i - 1], overlap)
+        out.append(ov + chunks[i] if ov else chunks[i])
+    return out

@@ -10,7 +10,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 import app.db.base as db
 from app.db.models import (
@@ -21,6 +21,7 @@ from app.db.models import (
     QaExtractionStaging,
     Ticket,
 )
+from app.kb.dedup import normalize_question
 
 _TICKET_SEQ = 0
 
@@ -212,3 +213,121 @@ async def list_conversations_with_messages() -> list[tuple[int, list[Message]]]:
             )).scalars())
             out.append((cid, msgs))
         return out
+
+
+# ---------------------------------------------------------------------------
+# /kb 管理画面の読み取り側集計 (Task 17)
+# ---------------------------------------------------------------------------
+
+
+async def knowledge_stats() -> dict:
+    """knowledge_chunks の件数まとめ。1 クエリで total / pending / done / 重要条項を出す。
+
+    ステータス別に COUNT を撃ち直すと、その間に別の書き込みが入って total != pending + done
+    という「どの瞬間にも存在しなかった数字」を画面に出しうる。集計は 1 文にまとめる。
+    """
+    async with db.async_session() as s:
+        row = (await s.execute(
+            select(
+                func.count().label("total"),
+                func.sum(
+                    func.if_(KnowledgeChunk.vectorize_status == "pending", 1, 0)
+                ).label("pending"),
+                func.sum(
+                    func.if_(KnowledgeChunk.vectorize_status == "done", 1, 0)
+                ).label("done"),
+                func.sum(KnowledgeChunk.is_key_clause).label("key_clauses"),
+            ).select_from(KnowledgeChunk)
+        )).one()
+        # 0 件のとき SUM は NULL を返す。int(None) は落ちるので 0 に畳む
+        return {
+            "total": int(row.total),
+            "pending": int(row.pending or 0),
+            "done": int(row.done or 0),
+            "key_clauses": int(row.key_clauses or 0),
+        }
+
+
+async def conversation_stats() -> dict:
+    """02 章までのテーブルの件数。/api/admin/overview の「会話」カード用。"""
+    async with db.async_session() as s:
+        out = {}
+        for key, model in (("conversations", Conversation), ("messages", Message),
+                           ("tickets", Ticket), ("faq", Faq)):
+            out[key] = int(
+                (await s.execute(select(func.count()).select_from(model))).scalar_one()
+            )
+        return out
+
+
+async def list_recent_chunks(limit: int = 20) -> list[KnowledgeChunk]:
+    """最近登録した chunk を id 降順で返す。/kb の「直近の登録」欄用。"""
+    async with db.async_session() as s:
+        result = await s.execute(
+            select(KnowledgeChunk).order_by(KnowledgeChunk.id.desc()).limit(limit)
+        )
+        return list(result.scalars())
+
+
+def chunk_fingerprint(questions: str, answer: str) -> str:
+    """重複判定の指紋。questions と answer の**両方**を正規化して連結する。
+
+    質問文だけで突き合わせてはいけない。大きな表は split_table_rows で複数 chunk に
+    割れるが、各断片は同じ見出し(= questions)を共有する(実測: after-sales-manual.md の
+    「よくある問い合わせの対応時間」が 2 chunk に割れ、questions と section_path は同一で
+    answer だけが違う)。質問一致で消すと、表の 2 枚目以降が丸ごと登録されない。
+    """
+    return normalize_question(questions) + "|" + normalize_question(answer)
+
+
+async def list_chunk_fingerprints() -> set[str]:
+    async with db.async_session() as s:
+        rows = await s.execute(
+            select(KnowledgeChunk.questions, KnowledgeChunk.answer)
+        )
+        return {chunk_fingerprint(q, a) for q, a in rows}
+
+
+async def staging_stats() -> dict:
+    """qa_extraction_staging のステータス別件数 + バッチ数。"""
+    async with db.async_session() as s:
+        rows = (await s.execute(
+            select(QaExtractionStaging.status, func.count())
+            .group_by(QaExtractionStaging.status)
+        )).all()
+        batches = int((await s.execute(
+            select(func.count(func.distinct(QaExtractionStaging.batch_no)))
+        )).scalar_one())
+    # 該当行が 0 件のステータスも 0 として必ず出す。キーが欠けると画面側で
+    # 「0 件」と「集計に失敗」を区別できなくなる
+    out = {k: 0 for k in ("extracted", "kept", "discarded")}
+    for status, n in rows:
+        out[status] = int(n)
+    out["total"] = sum(out[k] for k in ("extracted", "kept", "discarded"))
+    out["batches"] = batches
+    return out
+
+
+async def list_staging(status: str | None = None, limit: int = 100) -> list[QaExtractionStaging]:
+    async with db.async_session() as s:
+        stmt = select(QaExtractionStaging).order_by(QaExtractionStaging.id.desc()).limit(limit)
+        if status:
+            stmt = stmt.where(QaExtractionStaging.status == status)
+        return list((await s.execute(stmt)).scalars())
+
+
+async def clear_knowledge() -> None:
+    """03 章の 2 テーブルを空にする(kb-reset ジョブ用)。通常の API 経路からは呼ばない。
+
+    DELETE ではなく TRUNCATE を使う: AUTO_INCREMENT も戻るため、Milvus の
+    collection を作り直した直後に id の採番が 1 から揃う(Milvus 側の主キーは
+    knowledge_chunks.id なので、ここがずれると再構築後の id が飛ぶ)。
+    knowledge_chunks は prev/next の自己参照 FK を持ち、そのままでは TRUNCATE できないので
+    FOREIGN_KEY_CHECKS を落とす(tests/conftest.py の後片付けと同じ手順)。
+    """
+    async with db.async_session() as s:
+        await s.execute(text("SET FOREIGN_KEY_CHECKS=0"))
+        await s.execute(text("TRUNCATE TABLE qa_extraction_staging"))
+        await s.execute(text("TRUNCATE TABLE knowledge_chunks"))
+        await s.execute(text("SET FOREIGN_KEY_CHECKS=1"))
+        await s.commit()

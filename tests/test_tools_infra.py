@@ -2,10 +2,11 @@
 
 DB を触る test_execute_tool_call_real_create_ticket_injects_conversation_id だけが
 tests/conftest.py の注記どおり pytest.mark.asyncio(loop_scope="session") を必要とする。
-他のテストは registry.get_tool を monkeypatch したフェイクツールのみを使い DB に触れない
-同期不要の async 関数なので、モジュール全体に pytestmark を付けると
-(tests/test_tool_ticket.py と同じ理由で) 無関係なテストにまで影響が及ぶのを避けるため、
-モジュールレベルの pytestmark ではなく該当テストにだけ直接マークを付ける。
+他のテスト(フェイクツールのみを使うもの、および DB 不要の read-only な実ツール
+query_order を通すもの)は DB に触れない同期不要の async 関数なので、モジュール全体に
+pytestmark を付けると(tests/test_tool_ticket.py と同じ理由で)無関係なテストにまで
+影響が及ぶのを避けるため、モジュールレベルの pytestmark ではなく該当テストにだけ
+直接マークを付ける。
 """
 
 import asyncio
@@ -79,6 +80,54 @@ async def test_create_ticket_not_retried(monkeypatch):
         max_retries=2,
     )
     assert run.ok is False and calls["n"] == 1  # 書き込み系ツールは retry しない
+
+
+async def test_execute_tool_call_real_query_order_success():
+    """monkeypatch なしで本物の query_order を通す (DB 不要の read-only ツール)。
+
+    Task 11 は AIMessage.tool_calls の id で ToolMessage を突き合わせるので、
+    ToolRun.tool_call_id と ToolMessage.tool_call_id / .name が呼び出し側の
+    入力と一致し続けることを、フェイクではなく実ツール経由で保証する。
+    """
+    run = await infra.execute_tool_call(
+        {"name": "query_order", "args": {"order_id": "1001"}, "id": "call-abc"},
+        conversation_id=1,
+    )
+    assert run.ok is True
+    assert run.tool_call_id == "call-abc"
+    assert run.tool_message.tool_call_id == "call-abc"
+    assert run.tool_message.name == "query_order"
+
+    payload = json.loads(run.tool_message.content)
+    assert isinstance(payload, dict)
+    assert payload.keys() >= {"order_id", "status", "amount", "created_at", "product"}
+
+
+async def test_validation_error_is_not_retried(monkeypatch):
+    """引数が不正で pydantic.ValidationError になるケースは、同じ引数で再試行しても
+    必ず同じ結果になるので retry 予算を消費せず 1 回で確定させる。
+
+    本物の query_order ツールのクラスに attempt 数を数える ainvoke を被せて計測する
+    (ok is False だけでは「retry したが毎回失敗した」場合と区別できないため、
+    実際の呼び出し回数を数える)。
+    """
+    tool_cls = type(registry.get_tool("query_order"))
+    original_ainvoke = tool_cls.ainvoke
+    calls = {"n": 0}
+
+    async def counting_ainvoke(self, *args, **kwargs):
+        calls["n"] += 1
+        return await original_ainvoke(self, *args, **kwargs)
+
+    monkeypatch.setattr(tool_cls, "ainvoke", counting_ainvoke)
+
+    run = await infra.execute_tool_call(
+        {"name": "query_order", "args": {}, "id": "c1"},  # 必須の order_id を欠く -> ValidationError
+        conversation_id=1,
+        max_retries=2,
+    )
+    assert run.ok is False
+    assert calls["n"] == 1  # retry されていないことを回数で確認
 
 
 @pytest.mark.asyncio(loop_scope="session")

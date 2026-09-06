@@ -16,10 +16,17 @@ import logging
 from dataclasses import dataclass
 
 from langchain_core.messages import ToolMessage
+from pydantic import ValidationError
 
 from app.tools import registry
 
 logger = logging.getLogger(__name__)
+
+# モデルに見せるメッセージには例外クラス名など内部詳細を含めない。
+# (詳細は logger.exception が記録するので、運用側の調査には困らない)
+_UNKNOWN_TOOL_MSG = "不明なツール {name}"
+_VALIDATION_ERROR_MSG = "入力内容を確認できませんでした"
+_EXECUTION_ERROR_MSG = "一時的なエラーが発生しました"
 
 
 @dataclass
@@ -50,7 +57,7 @@ async def execute_tool_call(
 
     tool = registry.get_tool(name)
     if tool is None:
-        return _error_run(tc_id, name, f"不明なツール {name}")
+        return _error_run(tc_id, name, _UNKNOWN_TOOL_MSG.format(name=name))
 
     if name in registry.INJECT_CONVERSATION:
         args["conversation_id"] = conversation_id
@@ -67,9 +74,14 @@ async def execute_tool_call(
                 ok=True,
                 tool_message=ToolMessage(content=content, tool_call_id=tc_id, name=name),
             )
-        except Exception as e:  # noqa: BLE001 - すべて捕捉してエラー結果としてモデルへ返す
+        except ValidationError:
+            # 引数が不正なケースは再試行しても結果が変わらない(同じ引数で同じ検証に
+            # 必ず失敗する)ため、retry 予算を消費せずに即エラー確定する。
+            logger.exception("ツール引数検証失敗 name=%s", name)
+            return _error_run(tc_id, name, _VALIDATION_ERROR_MSG)
+        except Exception:  # noqa: BLE001 - すべて捕捉してエラー結果としてモデルへ返す
             attempt += 1
             if attempt > retries:
                 logger.exception("ツール実行失敗 name=%s", name)
-                return _error_run(tc_id, name, type(e).__name__)
+                return _error_run(tc_id, name, _EXECUTION_ERROR_MSG)
             await asyncio.sleep(0.2 * attempt)

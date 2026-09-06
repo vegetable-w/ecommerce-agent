@@ -42,6 +42,16 @@ async def vectorize_pending(client, batch_size: int = 64) -> int:
     for batch in _batches(pending, batch_size):
         texts = [f"{r.category}\n{r.questions}\n{r.answer}" for r in batch]
         vectors = await embeddings.embed_texts(texts)
+        # 件数が合わなければ upsert も done 化もせずに落とす。
+        # zip は黙って短い方に切り詰めるため、この番人が無いと「ベクトルを受け取れなかった
+        # chunk が status=done かつ実体の無い vector_id を持つ」状態になり、再実行しても
+        # pending として拾われず、検索から永久に消える(実測で確認した穴)。
+        # ここで例外にすればバッチ全体が pending のまま残り、再実行で回収できる。
+        if len(vectors) != len(batch):
+            raise RuntimeError(
+                f"埋め込みの件数が入力と一致しない(入力 {len(batch)} 件 / 返却 {len(vectors)} 件)。"
+                "このバッチは pending のまま残すので、再実行で補完できる。"
+            )
         rows = [
             {"id": r.id, "vector": v, "question": r.questions, "answer": r.answer}
             for r, v in zip(batch, vectors)

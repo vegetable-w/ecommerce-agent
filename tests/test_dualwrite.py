@@ -60,3 +60,36 @@ async def test_vectorize_resumes_after_crash(db_session_factory, milvus, monkeyp
     assert await repository.count_chunks_by_status("pending") == 0
     assert await repository.count_chunks_by_status("done") == 4
     assert milvus_client.count(milvus) == 4  # 重複も欠落もない
+
+
+async def test_short_embedding_response_leaves_batch_recoverable(
+    db_session_factory, milvus, monkeypatch
+):
+    """上流が入力より少ないベクトルを返しても、chunk を失わないこと。
+
+    zip は黙って短い方へ切り詰めるので、番人が無いとベクトルを受け取れなかった chunk が
+    status=done かつ実体の無い vector_id を持ち、再実行でも pending として拾われず、
+    検索から永久に消える。ここでは全件 pending のまま残ることを固定する。
+    """
+    await dualwrite.write_pending([_chunk(f"q{i}", f"a{i}") for i in range(3)])
+
+    async def short_embed(texts):
+        # 3 件要求されたのに 2 件しか返さない上流
+        return [[1.0, 0.0, 0.0] + [0.0] * (milvus_client.DIM - 3) for _ in texts[:-1]]
+
+    monkeypatch.setattr("app.kb.dualwrite.embeddings.embed_texts", short_embed)
+    with pytest.raises(RuntimeError, match="件数"):
+        await dualwrite.vectorize_pending(milvus, batch_size=3)
+
+    # 部分的に done 化されていない = 再実行で全件回収できる
+    assert await repository.count_chunks_by_status("done") == 0
+    assert await repository.count_chunks_by_status("pending") == 3
+    assert milvus_client.count(milvus) == 0
+
+    async def ok_embed(texts):
+        return [[1.0, 0.0, 0.0] + [0.0] * (milvus_client.DIM - 3) for _ in texts]
+
+    monkeypatch.setattr("app.kb.dualwrite.embeddings.embed_texts", ok_embed)
+    assert await dualwrite.vectorize_pending(milvus, batch_size=3) == 3
+    assert await repository.count_chunks_by_status("pending") == 0
+    assert milvus_client.count(milvus) == 3

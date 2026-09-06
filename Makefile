@@ -1,7 +1,7 @@
 .PHONY: dev test eval seed
 
 dev:
-	uv run --env-file .env uvicorn app.main:app --port 8000
+	uv run --env-file .env uvicorn app.main:app --port 8000 --reload
 
 test:
 	uv run pytest -v

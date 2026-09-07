@@ -44,3 +44,43 @@ class CreateTicketResponse(BaseModel):
     # 文言は labels から引く(app/api/actions.py 参照)。既定値をここに書くと
     # 表示名の出所が 2 つになる。
     status: str = Field(description="チケット作成後の会話状態(日本語の表示ラベル)")
+
+
+class CreateRefundRequest(BaseModel):
+    """返金申請フォームの送信内容(06 章)。
+
+    専用のテーブルは作らず tickets を再利用するため、ここで受けるのは
+    「どの会話の、どの注文を、どの理由で」の 3 点だけ。ticket_type は画面から
+    受け取らない(このエンドポイントは返金以外を作らないので、外から指定できると
+    別種のチケットを作る抜け道になる)。
+    """
+
+    conversation_id: int = Field(description="チケットをぶら下げる会話。tickets の FK になる")
+    order_id: str = Field(min_length=1, description="返金を申請する注文番号")
+    # **自由記述にしない。** 理由は画面のドロップダウンの固定分類で、後で集計と
+    # オペレーションの振り分けに使う。文言そのものは DB の ENUM ではなく
+    # description の中に入るだけなので日本語でよい。
+    #
+    # 検証を Literal に任せるのは CreateTicketRequest と同じ理由で、許容値の一覧が
+    # OpenAPI の enum として表に出て、画面のドロップダウンとの契約になるため。
+    reason: Literal[
+        "7日以内の自己都合返品", "品質問題", "誤配送", "不要になった", "その他"
+    ] = Field(description="返金理由。画面のドロップダウンと同じ固定の選択肢")
+
+    # min_length=1 は空白のみの注文番号を通す(CreateTicketRequest の description と
+    # 同じ穴)。通すと、どの注文の申請か分からない返金チケットが残り、運用側は
+    # 会話を遡らないと対応できない。bare な .strip() であることが要点で、
+    # .strip(" ") へ「明示化」すると U+3000(全角スペース)が抜ける。
+    @field_validator("order_id")
+    @classmethod
+    def _reject_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("空白のみの値は許可されない")
+        return v
+
+
+class CreateRefundResponse(BaseModel):
+    ticket_no: str = Field(description="採番されたチケット番号。画面にそのまま出す")
+    # create-ticket と同じく、会話が「オペレーター対応」へ移ったことを伝える
+    # 日本語ラベル。文言は labels から引く(app/api/actions.py 参照)。
+    status: str = Field(description="返金申請後の会話状態(日本語の表示ラベル)")

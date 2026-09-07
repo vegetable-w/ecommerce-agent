@@ -15,7 +15,12 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.core import labels
 from app.db import repository
-from app.schemas.actions import CreateTicketRequest, CreateTicketResponse
+from app.schemas.actions import (
+    CreateRefundRequest,
+    CreateRefundResponse,
+    CreateTicketRequest,
+    CreateTicketResponse,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -63,6 +68,43 @@ async def create_ticket_action(req: CreateTicketRequest) -> CreateTicketResponse
     # その日本語ラベルで、02 章の create_ticket tool と同じ対応表から引く。
     # ここで文字列を書き起こすと、表示名の出所が 2 つになる。
     return CreateTicketResponse(
+        ticket_no=ticket_no,
+        status=labels.label(labels.CONVERSATION_STATUS, "escalated"),
+    )
+
+
+@router.post("/api/actions/create-refund", response_model=CreateRefundResponse)
+async def create_refund_action(req: CreateRefundRequest) -> CreateRefundResponse:
+    """返金申請フォームの送信。専用のテーブルは作らず tickets を再利用する(spec §9 D2)。
+
+    Agent が呼ぶ submit_refund は agent_tools が横取りして画面の選択肢へ変えるだけで
+    DB には届かない。返金チケットが増えるのは、ユーザーがフォームを送信して
+    ここへ POST したときだけ。
+
+    ticket_type は "refund" 固定で、画面から受け取らない。外から指定できると、
+    このエンドポイントを使って別種のチケットを作る抜け道になる。
+    """
+    # 後から人が見て何の申請か分かるようにする。注文番号と理由のどちらが欠けても、
+    # 運用側は会話を遡らないと対応できない。
+    description = f"返金申請 注文番号: {req.order_id} / 理由: {req.reason}"
+    try:
+        ticket_no = await repository.create_ticket(
+            req.conversation_id, description, "refund"
+        )
+    except SQLAlchemyError:
+        # 例外そのものはログにだけ残す(create_ticket_action と同じ理由)。
+        logger.exception("返金チケット作成に失敗 conv=%s", req.conversation_id)
+        if await _conversation_missing(req.conversation_id):
+            raise HTTPException(status_code=404, detail="会話が見つかりません")
+        raise HTTPException(
+            status_code=503,
+            detail="返金申請を一時的に受け付けられません。しばらくしてからもう一度お試しください",
+        )
+    # repository.create_ticket は会話の status も escalated へ動かす。返金申請でも
+    # 会話は有人の確認待ちへ移るので、create-ticket と同じラベルを同じ対応表から引く。
+    # 「返金申請を送信しました」のような文をここで書き起こすと、DB が持つ会話状態と
+    # 画面の表示が別々の出所になり、片方だけ変わったときに食い違う。
+    return CreateRefundResponse(
         ticket_no=ticket_no,
         status=labels.label(labels.CONVERSATION_STATUS, "escalated"),
     )

@@ -15,6 +15,7 @@ TICKET_TYPE: dict[str, str] = {
     "after_sales": "アフターサービス",
     "complaint": "苦情",
     "inquiry": "問い合わせ",
+    "refund": "返金",
 }
 
 TICKET_STATUS: dict[str, str] = {

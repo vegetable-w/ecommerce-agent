@@ -3,8 +3,10 @@
 DB を触らないため、DBフィクスチャや `pytest.mark.asyncio(loop_scope="session")` は不要
 (素の同期関数として書ける)。
 
-各対応表のキー集合は sql/02-ddl.sql の ENUM 定義を実際にパースして突き合わせる
-(期待値をここに二重管理しない)。
+各対応表のキー集合は sql/*.sql の ENUM 定義を実際にパースして突き合わせる
+(期待値をここに二重管理しない)。CREATE TABLE の定義だけでなく、後の章が
+ALTER TABLE ... MODIFY COLUMN で足した値も反映する。ALTER を読まないと、
+DDL 上は許されている値を対応表に足した瞬間に「DDL に無い値」として落ちる。
 """
 
 import pathlib
@@ -12,7 +14,10 @@ import re
 
 from app.core import labels
 
-_DDL_PATH = pathlib.Path(__file__).resolve().parent.parent / "sql" / "02-ddl.sql"
+_SQL_DIR = pathlib.Path(__file__).resolve().parent.parent / "sql"
+_DDL_PATH = _SQL_DIR / "02-ddl.sql"
+# ENUM 列を後から書き換える章のファイル。適用順に並べる(後のものが勝つ)。
+_ALTER_PATHS = [_SQL_DIR / "06-ticket-type.sql"]
 
 # (テーブル名, カラム名) -> labels.py 内の対応表。
 # messages.role はユーザーへ表示することがない内部プロトコル値なので、意図的に
@@ -29,6 +34,10 @@ _NO_LABEL_NEEDED: set[tuple[str, str]] = {
 }
 
 _TABLE_RE = re.compile(r"^CREATE TABLE (\w+)")
+_ALTER_RE = re.compile(
+    r"ALTER TABLE\s+(\w+)\s+MODIFY COLUMN\s+(\w+)\s+ENUM\(([^)]*)\)",
+    re.IGNORECASE | re.DOTALL,
+)
 _ENUM_RE = re.compile(r"^\s*(\w+)\s+ENUM\(([^)]*)\)")
 _TABLE_END_RE = re.compile(r"^\)\s*ENGINE=")
 
@@ -57,8 +66,25 @@ def _parse_ddl_enums(ddl_text: str) -> dict[tuple[str, str], set[str]]:
     return enums
 
 
+def _apply_alter_enums(
+    enums: dict[tuple[str, str], set[str]], sql_text: str
+) -> dict[tuple[str, str], set[str]]:
+    """ALTER TABLE ... MODIFY COLUMN ... ENUM(...) を反映する。
+
+    MODIFY COLUMN は列の定義を丸ごと置き換えるので、ここも上書きにする(和集合に
+    しない)。既存の値を書き落とした ALTER は DB 側では列から値が消えることを意味し、
+    テストでも同じように消えて対応表との不一致として表に出る必要がある。
+    """
+    for table, column, values in _ALTER_RE.findall(sql_text):
+        enums[(table, column)] = {v.strip().strip("'") for v in values.split(",")}
+    return enums
+
+
 def _ddl_enums() -> dict[tuple[str, str], set[str]]:
-    return _parse_ddl_enums(_DDL_PATH.read_text(encoding="utf-8"))
+    enums = _parse_ddl_enums(_DDL_PATH.read_text(encoding="utf-8"))
+    for path in _ALTER_PATHS:
+        enums = _apply_alter_enums(enums, path.read_text(encoding="utf-8"))
+    return enums
 
 
 def test_ddl_has_expected_enum_columns():
@@ -67,7 +93,8 @@ def test_ddl_has_expected_enum_columns():
     assert enums == {
         ("conversations", "status"): {"in_progress", "escalated", "closed"},
         ("messages", "role"): {"user", "assistant", "tool"},
-        ("tickets", "ticket_type"): {"after_sales", "complaint", "inquiry"},
+        # refund は 06 章の sql/06-ticket-type.sql が ALTER で足した値
+        ("tickets", "ticket_type"): {"after_sales", "complaint", "inquiry", "refund"},
         ("tickets", "status"): {"pending", "resolved"},
     }
 

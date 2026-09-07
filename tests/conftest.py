@@ -21,6 +21,10 @@ _DDL_FILES = [
     pathlib.Path(__file__).resolve().parent.parent / "sql" / "02-ddl.sql",
     pathlib.Path(__file__).resolve().parent.parent / "sql" / "03-ddl.sql",
     pathlib.Path(__file__).resolve().parent.parent / "sql" / "04-ddl.sql",
+    # 06 は ALTER のみ(tickets.ticket_type へ refund を足す)。CREATE TABLE より後に
+    # 置くこと。ここに入れ忘れると support_test の ENUM だけ古いままになり、
+    # ORM と実スキーマを突き合わせる tests/test_models.py が落ちる。
+    pathlib.Path(__file__).resolve().parent.parent / "sql" / "06-ticket-type.sql",
 ]
 # 削除順: 子 → 親。knowledge_chunks の自己参照 FK は FOREIGN_KEY_CHECKS=0 で吸収する。
 # low_confidence_questions は conversations への FK を持つので conversations より先に置く。
@@ -86,7 +90,9 @@ async def _test_engine():
         stmts += _split_sql_statements(ddl.read_text(encoding="utf-8"))
     async with engine.begin() as conn:
         for s in stmts:
-            if s.lstrip().upper().startswith("CREATE TABLE"):
+            # SET NAMES などのセッション設定は engine 側で済んでいるので流さない。
+            # 実行するのはスキーマを作る文だけに絞る。
+            if s.lstrip().upper().startswith(("CREATE TABLE", "ALTER TABLE")):
                 await conn.execute(text(s))
     yield engine
     await engine.dispose()

@@ -83,7 +83,12 @@ class Ticket(Base):
         BigInteger, ForeignKey("conversations.id")
     )
     description: Mapped[str] = mapped_column(Text)
-    ticket_type: Mapped[str] = mapped_column(Enum("after_sales", "complaint", "inquiry"))
+    # 06 章で refund を末尾へ追加した(sql/06-ticket-type.sql)。**順番も DDL と同じにする。**
+    # tests/test_models.py が information_schema の COLUMN_TYPE と tuple で突き合わせており、
+    # 並びが違うと ORM と実スキーマのずれとして落ちる。
+    ticket_type: Mapped[str] = mapped_column(
+        Enum("after_sales", "complaint", "inquiry", "refund")
+    )
     status: Mapped[str] = mapped_column(
         Enum("pending", "resolved"), server_default="pending"
     )

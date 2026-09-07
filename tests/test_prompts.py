@@ -127,14 +127,18 @@ def test_rag_refusal_rule_does_not_collide_with_agent_tool_error_rule():
     assert "しばらく時間をおいて再度お試しいただくよう案内する" in AGENT_SYSTEM
     assert "しばらく時間をおいて再度お試し" not in RAG_ANSWER_SYSTEM
     assert "時間をおいての再試行は案内しない" in RAG_ANSWER_SYSTEM
-    # どちらのルートでも、行き先は AGENT_SYSTEM と同じ create_ticket に揃える
+    # 生成 prompt 側では行き先を create_ticket に揃える(モデルへの指示)
     assert "create_ticket" in RAG_ANSWER_SYSTEM
-    assert "create_ticket" in RAG_INSUFFICIENT_NOTICE
+    # ただし拒否の notice は「収束生成」が読む。そのターンではもうツールを呼べないので、
+    # ここでツール名を出すと、モデルが実行できない行動を宣言してしまう
+    # (実測: 「チケットを作成いたしますね」と言うが、実際には作られない)。
+    assert "create_ticket" not in RAG_INSUFFICIENT_NOTICE
+    assert "約束してはいけません" in RAG_INSUFFICIENT_NOTICE
     # ただしツール名はモデルへの指示であって、ユーザーへ見せる文面ではない
     # (実測: この一文が無いと「オペレーター対応(create_ticket)をお願いいたします」と
     #  そのまま出力された)
     assert "ツール名や内部の仕組みをユーザーへの文面に書かない" in RAG_ANSWER_SYSTEM
-    assert "ツール名はユーザーへの文面に書かないでください" in RAG_INSUFFICIENT_NOTICE
+    assert "ツール名や内部の仕組みはユーザーへの文面に書かないでください" in RAG_INSUFFICIENT_NOTICE
 
 
 def test_rag_insufficient_notice_carries_the_instruction_in_its_text():
@@ -181,3 +185,28 @@ def test_self_check_system_defines_both_verdicts():
     assert "useful=true: 回答に必要な情報が evidence に含まれている" in SELF_CHECK_SYSTEM
     assert "質問の一部にしか答えられない" in SELF_CHECK_SYSTEM
     assert "evidence の外にある知識で補って判定しない" in SELF_CHECK_SYSTEM
+
+
+def test_rag_insufficient_notice_bans_general_knowledge_answers():
+    """「推測するな」だけでは足りない。一般知識の列挙を止める文言が要る。
+
+    実測: この一文が無いと、モデルは公開知識(例: 火星探査車の型番)を並べることを
+    「推測ではない」と解釈して回答してしまい、3/3 で拒否しなかった。
+    追加後は、ナレッジに無い商品仕様の質問で 3/3 拒否になった。
+    """
+    from app.core.prompts import RAG_INSUFFICIENT_NOTICE
+
+    assert "一般知識として知っている内容も、ここでは回答してはいけません" in RAG_INSUFFICIENT_NOTICE
+    assert "確認できませんでした" in RAG_INSUFFICIENT_NOTICE
+
+
+def test_rag_insufficient_notice_does_not_promise_unreachable_actions():
+    """収束生成のターンではもうツールを呼べない。
+
+    実測: 旧文面では「チケットを作成いたしますね」と宣言したが、単一ターン制約により
+    実際には作成されなかった。ユーザーへの空約束になるため、希望を尋ねる案内に留める。
+    """
+    from app.core.prompts import RAG_INSUFFICIENT_NOTICE
+
+    assert "実行できない行動を約束してはいけません" in RAG_INSUFFICIENT_NOTICE
+    assert "create_ticket" not in RAG_INSUFFICIENT_NOTICE

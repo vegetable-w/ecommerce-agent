@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.config import settings
 from app.core import labels, query_understanding, retrieval, selfcheck
-from app.core.prompts import RAG_INSUFFICIENT_NOTICE
+from app.core.prompts import RAG_CITATION_NOTICE, RAG_INSUFFICIENT_NOTICE
 from app.db import repository
 
 
@@ -217,7 +217,10 @@ async def query_faq(keyword: str, category: str | None = None) -> dict:
         for i, h in enumerate(arranged)
     ]
     evidence = "\n".join(f"[{c['n']}] {c['question']}: {c['answer']}" for c in citations)
-    return {"sufficient": True, "evidence": evidence, "citations": citations}
+    # notice を足りている側にも載せる。収束生成が読むのは AGENT_SYSTEM(02 章、凍結)で、
+    # そこに引用ルールは無い。tool の本文がモデルへ指示を届けられる唯一の場所。
+    return {"sufficient": True, "notice": RAG_CITATION_NOTICE,
+            "evidence": evidence, "citations": citations}
 
 
 @tool

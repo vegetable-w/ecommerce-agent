@@ -66,7 +66,12 @@ async def test_sufficient_returns_numbered_evidence_and_aligned_citations(monkey
     for c in out["citations"]:
         assert f"[{c['n']}] {c['question']}: {c['answer']}" in out["evidence"]
     # 拒否側のフィールドは混ぜない
-    assert "source" not in out and "notice" not in out
+    # source は拒否側だけの欄。足りている側には出ない
+    assert "source" not in out
+    # notice は足りている側にもある。ただし中身は「拒否せよ」ではなく「引用せよ」。
+    # 収束生成が読む AGENT_SYSTEM(02 章、凍結)に引用ルールが無いため、ここでしか指示できない
+    assert "[1] [2] の形式" in out["notice"]
+    assert "回答できる根拠が見つかりませんでした" not in out["notice"]
 
 
 async def test_citation_numbers_follow_head_tail_order(monkeypatch):

@@ -186,12 +186,15 @@
   .field .cap{display:block; font-size:12.5px; margin-bottom:5px}
   .field .cap i{font-style:normal; font-size:11px; color:var(--accent-d); margin-left:5px}
   /* 素の textarea 規則(入力欄用)を打ち消す。あちらは枠なしの行内入力の想定。 */
-  .sheet select,.sheet textarea{
+  .sheet input,.sheet select,.sheet textarea{
     width:100%; font:inherit; font-size:14px; color:var(--ink); flex:none;
     background:#fffdfe; border:1.5px solid var(--line); border-radius:14px;
     padding:9px 12px; outline:none; transition:border-color .15s;
   }
-  .sheet select:focus,.sheet textarea:focus{border-color:#ffc7d8}
+  .sheet input:focus,.sheet select:focus,.sheet textarea:focus{border-color:#ffc7d8}
+  /* 返金申請の注文番号。backend が特定済みなので入力させない(見えてはいる) */
+  .sheet input[readonly]{background:#f7f3f8; color:var(--muted); cursor:default; border-color:var(--line)}
+  .sheet input[readonly]:focus{border-color:var(--line)}
   .sheet textarea{resize:vertical; min-height:88px; max-height:220px; line-height:1.7}
   /* 高さを固定しておく。出た瞬間にボタンが下へずれると押し間違える。 */
   .sheet .warn{min-height:17px; margin:0 0 10px; font-size:12px; color:#b4444f}
@@ -208,6 +211,31 @@
     box-shadow:0 4px 12px rgba(255,143,177,.45);
   }
   .sheet .btns button:disabled{opacity:.5; cursor:not-allowed; box-shadow:none; transform:none}
+
+  /* 注文の選択カード。注文番号が分からないとき、model に推測させず
+     ここから選んでもらう(spec §12)。押せるのは 1 回だけで、押した後は全部を無効にする。
+     .act と同じピンクの語彙で、1 件ぶんの情報が入るぶんだけ角丸を大きくしている。 */
+  .orders{display:flex; flex-direction:column; gap:8px; margin-top:10px}
+  .order-card{
+    display:flex; flex-direction:column; gap:3px; width:100%; text-align:left;
+    font:inherit; line-height:1.5; cursor:pointer; color:var(--ink);
+    border:1px solid #ffd9e5; background:#fff7fa; padding:10px 13px; border-radius:16px;
+    transition:transform .1s, background .15s, border-color .15s, opacity .15s;
+    animation:pop .2s ease-out;
+  }
+  .order-card:hover:not(:disabled){background:#ffe3ec; border-color:#ffc7d8}
+  .order-card:active:not(:disabled){transform:translateY(1px)}
+  .order-card:disabled{cursor:default; opacity:.42; background:#fff; border-color:var(--line)}
+  .order-card .no{font-size:11.5px; color:var(--muted)}
+  .order-card .pd{font-size:14px; font-weight:600}
+  .order-card .meta{display:flex; align-items:center; gap:8px; font-size:12.5px; margin-top:2px}
+  .order-card .st{border:1px solid var(--line); background:#fff; color:var(--muted);
+                  border-radius:999px; padding:2px 9px; line-height:1.5}
+  .order-card .amt{color:var(--accent-d); font-weight:600}
+  /* 選んだ 1 枚だけは薄くしない。どれを選んだのか後から読み取れるようにする */
+  .order-card.picked:disabled{opacity:1; color:var(--ink);
+                              background:#fff2f6; border-color:#ffc7d8}
+  .order-card.picked .no::after{content:"（選択済み）"; color:var(--accent-d)}
 
   /* ツール履歴バッジ。既存の .hint と同じカプセル語彙で、点線にして「補足情報」であることを示す。 */
   .tools:empty{display:none}
@@ -620,6 +648,12 @@ function renderActions(bub, items){
       const b = addActionButton(bar, 'チケット作成');
       // a.draft は backend 側の「提案」。フォームには入れない(spec §6.3)
       b.addEventListener('click', () => openTicketForm(b));
+    } else if (a.type === 'refund_form'){
+      const b = addActionButton(bar, '返金申請を送信');
+      // こちらは draft を入れる。どの注文の返金かは backend が特定済みで(選んだのは
+      // ユーザー自身)、フォームで選び直させる意味が無い。チケット作成の draft を
+      // 入れないのはモデルの言い換えが本人の申告として残るからで、事情が違う。
+      b.addEventListener('click', () => openRefundForm(b, ((a.draft || {}).order_id) || ''));
     }
   }
 
@@ -632,6 +666,155 @@ function addActionButton(bar, text){
   b.type = 'button'; b.className = 'act'; b.textContent = text;
   bar.appendChild(b);
   return b;
+}
+
+/* 金額は数値で届く。桁区切りだけ入れて円で出す。
+   数値以外が来たらそのまま文字列として出す(勝手に 0 円へ倒さない)。 */
+function yen(v){
+  if (typeof v === 'number' && isFinite(v)) return '¥' + v.toLocaleString('ja-JP');
+  return v == null ? '' : String(v);
+}
+
+/* 注文の選択カード。注文番号が分からないとき、backend は推測せずに interrupt で
+   止まり、その人の注文一覧を送ってくる(spec §12)。ここから選ばれた 1 件を
+   /api/actions/resume へ返すと、止まっていた turn がその続きから走る。 */
+function renderOrders(bub, orders){
+  const list = (orders || []).filter(o => o && o.order_id !== undefined && o.order_id !== null && o.order_id !== '');
+  if (!list.length){
+    // 一覧が空、または壊れて届いた。カードを出せないので番号の入力をお願いする
+    addHint('ご注文の一覧を取得できませんでした。注文番号をご入力ください');
+    return;
+  }
+
+  const box = document.createElement('div');
+  box.className = 'orders';
+  for (const o of list){
+    const c = document.createElement('button');
+    c.type = 'button'; c.className = 'order-card';
+    c.dataset.order = String(o.order_id);
+    // product / status は DB とモデルの側から来る文字列。必ず esc を通す
+    c.innerHTML =
+      `<span class="no">注文番号 ${esc(String(o.order_id))}</span>` +
+      `<span class="pd">${esc(o.product == null ? '' : String(o.product))}</span>` +
+      `<span class="meta"><span class="st">${esc(o.status == null ? '' : String(o.status))}</span>` +
+      `<span class="amt">${esc(yen(o.amount))}</span></span>`;
+    c.addEventListener('click', () => pickOrder(box, c));
+    box.appendChild(c);
+  }
+  bub.appendChild(box); scroll();
+}
+
+/* カードを押したら再開する。押した瞬間に**一覧ごと**無効にする。
+   1 つの中断は 1 回しか再開できないので、2 枚目を押せる状態で残すと
+   「選んだのに別の注文の話が返ってくる」ように見える。 */
+async function pickOrder(box, card){
+  if (busy || box.dataset.picked) return;
+  box.dataset.picked = '1';
+  box.querySelectorAll('.order-card').forEach(b => { b.disabled = true; });
+  card.classList.add('picked');
+
+  if (!conversationId){
+    addRow('err').textContent = '会話を特定できませんでした。もう一度お試しください';
+    return;
+  }
+  setBusy(true);
+  // 読み取りは発話のときと同じ。フレームの形が同じなので分ける理由が無い
+  try { await streamTurn('/api/actions/resume',
+                         { conversation_id: conversationId, value: card.dataset.order }); }
+  finally { setBusy(false); }
+}
+
+/* 返金理由。app/schemas/actions.py の CreateRefundRequest.reason と同じ 5 つで、
+   自由記述にしない(後で集計と振り分けに使う)。ここが増減したら backend も直すこと。 */
+const REFUND_REASONS = ['7日以内の自己都合返品', '品質不良', '誤配送', '不要になった', 'その他'];
+
+/* 返金申請フォーム。作りはチケット作成フォームと同じで、閉じ方
+   (キャンセル / 背景 / Esc)はどれも申請を作らず、ボタンは押せる状態へ戻す。 */
+function openRefundForm(btn, orderId){
+  btn.disabled = true;                       // 開いている間は二重に開かせない
+
+  const mask = document.createElement('div');
+  mask.className = 'mask';
+  // 注文番号は入れて読み取り専用にする。理由は既定の選択を置かない
+  // (先頭の選択肢が黙って送られると、選んでいない理由が tickets に残る)
+  mask.innerHTML = `
+    <div class="sheet" role="dialog" aria-modal="true" aria-label="返金申請">
+      <h3>返金申請</h3>
+      <p class="lead">ご返金の理由をお選びください。担当者が内容を確認いたします。</p>
+      <label class="field">
+        <span class="cap">注文番号</span>
+        <input class="f-order" type="text" readonly value="${esc(String(orderId))}">
+      </label>
+      <label class="field">
+        <span class="cap">返金理由<i>必須</i></span>
+        <select class="f-reason">
+          <option value="">選択してください</option>
+          ${REFUND_REASONS.map(r => `<option value="${esc(r)}">${esc(r)}</option>`).join('')}
+        </select>
+      </label>
+      <p class="warn"></p>
+      <div class="btns">
+        <button type="button" class="ghost">キャンセル</button>
+        <button type="button" class="go">送信する</button>
+      </div>
+    </div>`;
+  document.body.appendChild(mask);
+
+  const sel  = mask.querySelector('.f-reason');
+  const warn = mask.querySelector('.warn');
+  const go   = mask.querySelector('.go');
+
+  const close = (created) => {
+    document.removeEventListener('keydown', onKey);
+    mask.remove();
+    btn.disabled = created;                  // 送れたときだけ押せないままにする
+    if (!busy) input.focus();
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(false); };
+
+  document.addEventListener('keydown', onKey);
+  mask.addEventListener('click', e => { if (e.target === mask) close(false); });
+  mask.querySelector('.ghost').addEventListener('click', () => close(false));
+
+  go.addEventListener('click', async () => {
+    // 必須チェックは送信前にここで行う。backend も 422 で弾くが、往復させない
+    if (!sel.value){ warn.textContent = '返金理由を選択してください'; sel.focus(); return; }
+    if (!String(orderId).trim()){ warn.textContent = '注文番号を特定できませんでした。もう一度お試しください'; return; }
+    if (!conversationId){ warn.textContent = '会話を特定できませんでした。もう一度お試しください'; return; }
+
+    warn.textContent = '';
+    go.disabled = true; go.textContent = '送信中…';
+    const restore = () => { go.disabled = false; go.textContent = '送信する'; };
+
+    try{
+      const res = await fetch('/api/actions/create-refund', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          conversation_id: conversationId,
+          order_id: String(orderId),
+          reason: sel.value,
+        })
+      });
+      if (!res.ok){
+        // 選び直せるようにフォームは開いたままにする
+        warn.textContent = res.status === 422
+          ? '入力内容をご確認ください'
+          : '返金申請を受け付けられませんでした。しばらくしてからもう一度お試しください';
+        restore();
+        return;
+      }
+      const data = await res.json();
+      close(true);
+      // ticket_no は DB 由来。textContent なのでそのまま入れてよい
+      addHint('返金申請を送信しました ' + data.ticket_no);
+    } catch {
+      warn.textContent = 'サーバーに接続できませんでした';
+      restore();
+    }
+  });
+
+  sel.focus();
 }
 
 /* チケット作成フォーム。種別も内容も、その場でユーザーに入力してもらう。
@@ -734,9 +917,11 @@ function setBusy(v){
   if (!v) input.focus();
 }
 
-async function ask(message){
-  addRow('me').textContent = message;
-
+/* SSE の読み取り。入口は 2 つあるが(発話の /api/chat と、注文を選んだ後の
+   /api/actions/resume)、**流れるフレームは同じ**なので読み取りも 1 つにする。
+   違うのは URL と body だけ。2 つに割ると、新しいフレームを足したときに片方だけ
+   直す事故が起きる(app/api/sse.py が backend 側で同じことをしている)。 */
+async function streamTurn(url, body){
   /* bot 行は最初から出しておき、本文には 3 点リーダーを入れておく。
      ツールバッジが付いてから最初の delta が届くまでの間も、ここが空だと固まって見える。 */
   const row = document.createElement('div');
@@ -752,7 +937,7 @@ async function ask(message){
   const bub   = row.querySelector('.bub');
 
   let type = null, started = false, badged = false, closed = false;
-  let citations = [], actions = [];
+  let citations = [], actions = [], interrupt = null;
 
   // 印は毎フレーム作り直されるので、個々の sup ではなく吹き出しに 1 つだけ委譲する
   bub.addEventListener('click', (e) => {
@@ -792,10 +977,10 @@ async function ask(message){
   };
 
   try{
-    const res = await fetch('/api/chat', {
+    const res = await fetch(url, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ user_id: userId, message, conversation_id: conversationId })
+      body: JSON.stringify(body)
     });
 
     if (!res.ok){
@@ -840,12 +1025,30 @@ async function ask(message){
         // actions は本文の後・done の前に 1 回だけ来る。ボタンはストリームが
         // 終わってから描く(打鍵表示の途中に出すと、本文の下で位置が動く)
         if (obj.event === 'actions'){ actions = obj.items || []; continue; }
+        // 選択待ちで止まった。この後 done は来ないので、会話 ID はここで受け取る。
+        // 初回ターンで止まると、他に /api/actions/resume を叩く手立てが無い
+        if (obj.event === 'interrupt'){
+          interrupt = obj;
+          setConversation(obj.conversation_id);
+          continue;
+        }
         if (obj.event === 'done'){ setConversation(obj.conversation_id); continue; }
         if (obj.delta){ start(); type.push(obj.delta); }
       }
     }
 
     if (started) await type.finish();
+
+    /* 選択待ちで止まった場合。turn は完結していないので、選択肢も満足度も出さない。
+       行は settle で消さずに残す。ここが注文カードの置き場所になる
+       (本文も tool バッジも無いまま止まるので、消すと出す先が無くなる)。 */
+    if (interrupt){
+      closed = true;
+      if (!started) md.textContent = 'どのご注文についてでしょうか。以下からお選びください。';
+      renderOrders(bub, interrupt.orders);
+      return;
+    }
+
     settle();
     // 選択肢は満足度より先に出す。押してほしいのはこちらなので
     if (bub.isConnected) renderActions(bub, actions);
@@ -855,6 +1058,12 @@ async function ask(message){
   } catch (err){
     await fail('⚠ サーバーに接続できませんでした。サービスが起動しているか確認してください。');
   }
+}
+
+async function ask(message){
+  addRow('me').textContent = message;
+  await streamTurn('/api/chat',
+                   { user_id: userId, message, conversation_id: conversationId });
 }
 
 async function submit(){

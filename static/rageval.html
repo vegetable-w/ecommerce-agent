@@ -394,7 +394,7 @@ function renderKpi() {
        <div class="rag-sub">${esc(s || '')}</div></div>` +
     `<div class="adm-stat"><div class="k">ナレッジ外の拒否率</div>
        <div class="v${best.refusal_rate == null ? ' na' : ''}">${pct(best.refusal_rate) ?? '未実行'}</div>
-       <div class="rag-sub">D bucket 20 問</div></div>`;
+       <div class="rag-sub">D bucket 60 問</div></div>`;
 }
 
 /* ---------- 検索品質 ---------- */
@@ -526,7 +526,7 @@ function renderRun() {
   $('runBtns').innerHTML = `<span class="adm-row" style="margin-right:6px">${st}</span>` + buttons;
   $('runNote').textContent = job.running
     ? '実行中です。完了すると自動でレポートを取り直します。'
-    : '80 問 × 4 戦略で埋め込み・リランク・生成・判定の上流を実際に呼びます。数分かかり、実費が発生します。'
+    : '300 問 × 4 戦略で埋め込み・リランク・生成・判定の上流を実際に呼びます。数十分かかり、実費が発生します。'
       + (job.started_at ? `（前回の開始 ${job.started_at}）` : '');
 
   const on = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };

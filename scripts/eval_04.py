@@ -267,7 +267,7 @@ def load_samples(path: pathlib.Path = EVAL_SET) -> list[dict]:
 def check_collection(client, collection: str) -> int:
     """評価を始める前に collection が使える状態かを確かめ、件数を返す。
 
-    ここで止めないと、80 問 × 4 戦略の途中で `field section_path not exist` のような
+    ここで止めないと、300 問 × 4 戦略の途中で `field section_path not exist` のような
     検索の奥からの例外が出て、何が悪いのか分からないまま run が壊れる。
     """
     if not client.has_collection(collection):

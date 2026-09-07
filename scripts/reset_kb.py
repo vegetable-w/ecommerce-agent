@@ -21,7 +21,7 @@ async def main() -> None:
     await repository.clear_knowledge()
     print("MySQL: knowledge_chunks と qa_extraction_staging を空にした")
     client = milvus_client.get_client()
-    milvus_client.drop_collection(client)
+    milvus_client.drop(client, milvus_client.COLLECTION)
     print(f"Milvus: collection {milvus_client.COLLECTION} を削除した")
     print("初期状態に戻した。再構築は make kb-build のあと make kb-vectorize")
 

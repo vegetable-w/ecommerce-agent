@@ -1,0 +1,40 @@
+評価開始 2026-09-07T11:19:05  collection=knowledge(47 件)  サンプル 80 問 {'A_policy': 20, 'B_model': 20, 'C_colloquial': 20, 'D_absent': 20}
+戦略=['dense', 'bm25', 'hybrid', 'hybrid_rerank']  K=10  埋め込み=BAAI/bge-m3  リランク=BAAI/bge-reranker-v2-m3  生成=gpt-4o-mini
+
+Stage 1 Retrieval  Recall@10
+  戦略              A_policy      B_model       C_colloquial  overall       
+  dense           100.0%        100.0%        100.0%        100.0%        
+  bm25            100.0%        100.0%         70.0%         90.0%        
+  hybrid          100.0%        100.0%         85.0%         95.0%        
+  hybrid_rerank   100.0%        100.0%        100.0%        100.0%        
+
+Stage 1 Retrieval  MRR
+  戦略              A_policy      B_model       C_colloquial  overall       
+  dense           100.0%        100.0%         88.3%         96.1%        
+  bm25             95.0%        100.0%         36.5%         77.2%        
+  hybrid           95.0%        100.0%         68.4%         87.8%        
+  hybrid_rerank   100.0%        100.0%         92.9%         97.6%        
+
+Stage 2 Evidence Coverage(機械的な部分一致)
+  戦略              A_policy      B_model       C_colloquial  overall       
+  dense           100.0%        100.0%        100.0%        100.0%        
+  bm25            100.0%        100.0%         70.0%         90.0%        
+  hybrid          100.0%        100.0%         85.0%         95.0%        
+  hybrid_rerank   100.0%        100.0%        100.0%        100.0%        
+
+Stage 3 Generation  Answer Coverage
+  戦略              A_policy      B_model       C_colloquial  overall       
+  dense            87.5%        100.0%         82.5%         90.0%        
+  bm25             90.0%        100.0%         57.5%         82.5%        
+  hybrid           85.0%        100.0%         77.5%         87.5%        
+  hybrid_rerank    90.0%        100.0%         82.5%         90.8%        
+
+Stage 3 D bucket 回答拒否率
+  dense            95.0%  (n=20)
+  bm25             95.0%  (n=20)
+  hybrid           95.0%  (n=20)
+  hybrid_rerank    95.0%  (n=20)
+
+Stage 3 Faithfulness(hybrid_rerank)  96.2% (n=80)
+
+出力: C:\Users\81703\Desktop\ecommerce-agent\data\04\reports\rag_eval.txt / C:\Users\81703\Desktop\ecommerce-agent\data\04\reports\rag_eval.json / C:\Users\81703\Desktop\ecommerce-agent\data\04\reports\rag_eval.html

@@ -1,0 +1,6232 @@
+{
+ "meta": {
+  "generated_at": "2026-09-07T11:19:05",
+  "finished_at": "2026-09-07T11:23:18",
+  "collection": "knowledge",
+  "collection_rows": 47,
+  "samples": 80,
+  "bucket_counts": {
+   "A_policy": 20,
+   "B_model": 20,
+   "C_colloquial": 20,
+   "D_absent": 20
+  },
+  "k": 10,
+  "strategies": [
+   "dense",
+   "bm25",
+   "hybrid",
+   "hybrid_rerank"
+  ],
+  "embed_model": "BAAI/bge-m3",
+  "rerank_model": "BAAI/bge-reranker-v2-m3",
+  "chat_model": "gpt-4o-mini",
+  "generation_complete": true,
+  "errors": []
+ },
+ "retrieval": {
+  "dense": {
+   "recall_at_k": {
+    "A_policy": {
+     "value": 1.0,
+     "n": 20
+    },
+    "B_model": {
+     "value": 1.0,
+     "n": 20
+    },
+    "C_colloquial": {
+     "value": 1.0,
+     "n": 20
+    },
+    "overall": {
+     "value": 1.0,
+     "n": 60
+    }
+   },
+   "mrr": {
+    "A_policy": {
+     "value": 1.0,
+     "n": 20
+    },
+    "B_model": {
+     "value": 1.0,
+     "n": 20
+    },
+    "C_colloquial": {
+     "value": 0.8833333333333334,
+     "n": 20
+    },
+    "overall": {
+     "value": 0.961111111111111,
+     "n": 60
+    }
+   },
+   "per_sample": [
+    {
+     "id": "A1",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A2",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A3",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A4",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A5",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A6",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A7",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A8",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A9",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A10",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A11",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A12",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A13",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A14",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A15",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A16",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A17",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A18",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A19",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A20",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B1",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B2",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B3",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B4",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B5",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B6",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B7",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B8",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B9",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B10",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B11",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B12",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B13",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B14",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B15",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B16",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B17",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B18",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B19",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B20",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C1",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C2",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C3",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C4",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 0.3333333333333333
+    },
+    {
+     "id": "C5",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C6",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C7",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C8",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C9",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C10",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C11",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 0.5
+    },
+    {
+     "id": "C12",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C13",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C14",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 0.3333333333333333
+    },
+    {
+     "id": "C15",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C16",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C17",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C18",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C19",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C20",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 0.5
+    },
+    {
+     "id": "D1",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D2",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D3",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D4",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D5",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D6",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D7",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D8",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D9",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D10",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D11",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D12",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D13",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D14",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D15",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D16",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D17",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D18",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D19",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D20",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    }
+   ]
+  },
+  "bm25": {
+   "recall_at_k": {
+    "A_policy": {
+     "value": 1.0,
+     "n": 20
+    },
+    "B_model": {
+     "value": 1.0,
+     "n": 20
+    },
+    "C_colloquial": {
+     "value": 0.7,
+     "n": 20
+    },
+    "overall": {
+     "value": 0.9,
+     "n": 60
+    }
+   },
+   "mrr": {
+    "A_policy": {
+     "value": 0.95,
+     "n": 20
+    },
+    "B_model": {
+     "value": 1.0,
+     "n": 20
+    },
+    "C_colloquial": {
+     "value": 0.36547619047619045,
+     "n": 20
+    },
+    "overall": {
+     "value": 0.7718253968253969,
+     "n": 60
+    }
+   },
+   "per_sample": [
+    {
+     "id": "A1",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A2",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A3",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A4",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A5",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A6",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 0.5
+    },
+    {
+     "id": "A7",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A8",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A9",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A10",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A11",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 0.5
+    },
+    {
+     "id": "A12",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A13",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A14",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A15",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A16",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A17",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A18",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A19",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A20",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B1",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B2",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B3",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B4",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B5",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B6",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B7",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B8",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B9",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B10",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B11",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B12",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B13",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B14",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B15",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B16",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B17",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B18",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B19",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B20",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C1",
+     "bucket": "C_colloquial",
+     "recall": 0.0,
+     "rr": 0.0
+    },
+    {
+     "id": "C2",
+     "bucket": "C_colloquial",
+     "recall": 0.0,
+     "rr": 0.0
+    },
+    {
+     "id": "C3",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C4",
+     "bucket": "C_colloquial",
+     "recall": 0.0,
+     "rr": 0.0
+    },
+    {
+     "id": "C5",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C6",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C7",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C8",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 0.3333333333333333
+    },
+    {
+     "id": "C9",
+     "bucket": "C_colloquial",
+     "recall": 0.0,
+     "rr": 0.0
+    },
+    {
+     "id": "C10",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 0.3333333333333333
+    },
+    {
+     "id": "C11",
+     "bucket": "C_colloquial",
+     "recall": 0.0,
+     "rr": 0.0
+    },
+    {
+     "id": "C12",
+     "bucket": "C_colloquial",
+     "recall": 0.0,
+     "rr": 0.0
+    },
+    {
+     "id": "C13",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 0.2
+    },
+    {
+     "id": "C14",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 0.16666666666666666
+    },
+    {
+     "id": "C15",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 0.3333333333333333
+    },
+    {
+     "id": "C16",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C17",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 0.5
+    },
+    {
+     "id": "C18",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 0.2
+    },
+    {
+     "id": "C19",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 0.14285714285714285
+    },
+    {
+     "id": "C20",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 0.1
+    },
+    {
+     "id": "D1",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D2",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D3",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D4",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D5",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D6",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D7",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D8",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D9",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D10",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D11",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D12",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D13",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D14",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D15",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D16",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D17",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D18",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D19",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D20",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    }
+   ]
+  },
+  "hybrid": {
+   "recall_at_k": {
+    "A_policy": {
+     "value": 1.0,
+     "n": 20
+    },
+    "B_model": {
+     "value": 1.0,
+     "n": 20
+    },
+    "C_colloquial": {
+     "value": 0.85,
+     "n": 20
+    },
+    "overall": {
+     "value": 0.95,
+     "n": 60
+    }
+   },
+   "mrr": {
+    "A_policy": {
+     "value": 0.95,
+     "n": 20
+    },
+    "B_model": {
+     "value": 1.0,
+     "n": 20
+    },
+    "C_colloquial": {
+     "value": 0.6841666666666667,
+     "n": 20
+    },
+    "overall": {
+     "value": 0.8780555555555555,
+     "n": 60
+    }
+   },
+   "per_sample": [
+    {
+     "id": "A1",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A2",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A3",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A4",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A5",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A6",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 0.5
+    },
+    {
+     "id": "A7",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A8",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A9",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A10",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A11",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 0.5
+    },
+    {
+     "id": "A12",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A13",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A14",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A15",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A16",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A17",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A18",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A19",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A20",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B1",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B2",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B3",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B4",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B5",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B6",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B7",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B8",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B9",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B10",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B11",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B12",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B13",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B14",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B15",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B16",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B17",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B18",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B19",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B20",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C1",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 0.1
+    },
+    {
+     "id": "C2",
+     "bucket": "C_colloquial",
+     "recall": 0.0,
+     "rr": 0.0
+    },
+    {
+     "id": "C3",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C4",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 0.3333333333333333
+    },
+    {
+     "id": "C5",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C6",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C7",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C8",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C9",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C10",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C11",
+     "bucket": "C_colloquial",
+     "recall": 0.0,
+     "rr": 0.0
+    },
+    {
+     "id": "C12",
+     "bucket": "C_colloquial",
+     "recall": 0.0,
+     "rr": 0.0
+    },
+    {
+     "id": "C13",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 0.5
+    },
+    {
+     "id": "C14",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C15",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C16",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C17",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C18",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C19",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 0.5
+    },
+    {
+     "id": "C20",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 0.25
+    },
+    {
+     "id": "D1",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D2",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D3",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D4",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D5",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D6",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D7",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D8",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D9",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D10",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D11",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D12",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D13",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D14",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D15",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D16",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D17",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D18",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D19",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D20",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    }
+   ]
+  },
+  "hybrid_rerank": {
+   "recall_at_k": {
+    "A_policy": {
+     "value": 1.0,
+     "n": 20
+    },
+    "B_model": {
+     "value": 1.0,
+     "n": 20
+    },
+    "C_colloquial": {
+     "value": 1.0,
+     "n": 20
+    },
+    "overall": {
+     "value": 1.0,
+     "n": 60
+    }
+   },
+   "mrr": {
+    "A_policy": {
+     "value": 1.0,
+     "n": 20
+    },
+    "B_model": {
+     "value": 1.0,
+     "n": 20
+    },
+    "C_colloquial": {
+     "value": 0.9291666666666666,
+     "n": 20
+    },
+    "overall": {
+     "value": 0.976388888888889,
+     "n": 60
+    }
+   },
+   "per_sample": [
+    {
+     "id": "A1",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A2",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A3",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A4",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A5",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A6",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A7",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A8",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A9",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A10",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A11",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A12",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A13",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A14",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A15",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A16",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A17",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A18",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A19",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "A20",
+     "bucket": "A_policy",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B1",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B2",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B3",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B4",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B5",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B6",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B7",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B8",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B9",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B10",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B11",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B12",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B13",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B14",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B15",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B16",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B17",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B18",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B19",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "B20",
+     "bucket": "B_model",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C1",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C2",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C3",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C4",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 0.25
+    },
+    {
+     "id": "C5",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C6",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C7",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C8",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C9",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C10",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C11",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C12",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C13",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C14",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C15",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C16",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C17",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C18",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "C19",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 0.3333333333333333
+    },
+    {
+     "id": "C20",
+     "bucket": "C_colloquial",
+     "recall": 1.0,
+     "rr": 1.0
+    },
+    {
+     "id": "D1",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D2",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D3",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D4",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D5",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D6",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D7",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D8",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D9",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D10",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D11",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D12",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D13",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D14",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D15",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D16",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D17",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D18",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D19",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    },
+    {
+     "id": "D20",
+     "bucket": "D_absent",
+     "recall": null,
+     "rr": null
+    }
+   ]
+  }
+ },
+ "evidence_coverage": {
+  "dense": {
+   "coverage": {
+    "A_policy": {
+     "value": 1.0,
+     "n": 20
+    },
+    "B_model": {
+     "value": 1.0,
+     "n": 20
+    },
+    "C_colloquial": {
+     "value": 1.0,
+     "n": 20
+    },
+    "overall": {
+     "value": 1.0,
+     "n": 60
+    }
+   },
+   "per_sample": [
+    {
+     "id": "A1",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A2",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A3",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A4",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A5",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A6",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A7",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A8",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A9",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A10",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A11",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A12",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A13",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A14",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A15",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A16",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A17",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A18",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A19",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A20",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "B1",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B2",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B3",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B4",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B5",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B6",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B7",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B8",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B9",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B10",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B11",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B12",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B13",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B14",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B15",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B16",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B17",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B18",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B19",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B20",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "C1",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C2",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C3",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C4",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C5",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C6",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C7",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C8",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C9",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C10",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C11",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C12",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C13",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C14",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C15",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C16",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C17",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C18",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C19",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C20",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "D1",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D2",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D3",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D4",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D5",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D6",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D7",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D8",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D9",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D10",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D11",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D12",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D13",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D14",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D15",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D16",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D17",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D18",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D19",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D20",
+     "bucket": "D_absent",
+     "coverage": null
+    }
+   ]
+  },
+  "bm25": {
+   "coverage": {
+    "A_policy": {
+     "value": 1.0,
+     "n": 20
+    },
+    "B_model": {
+     "value": 1.0,
+     "n": 20
+    },
+    "C_colloquial": {
+     "value": 0.7,
+     "n": 20
+    },
+    "overall": {
+     "value": 0.9,
+     "n": 60
+    }
+   },
+   "per_sample": [
+    {
+     "id": "A1",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A2",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A3",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A4",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A5",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A6",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A7",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A8",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A9",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A10",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A11",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A12",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A13",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A14",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A15",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A16",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A17",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A18",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A19",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A20",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "B1",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B2",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B3",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B4",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B5",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B6",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B7",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B8",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B9",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B10",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B11",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B12",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B13",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B14",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B15",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B16",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B17",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B18",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B19",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B20",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "C1",
+     "bucket": "C_colloquial",
+     "coverage": 0.0
+    },
+    {
+     "id": "C2",
+     "bucket": "C_colloquial",
+     "coverage": 0.0
+    },
+    {
+     "id": "C3",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C4",
+     "bucket": "C_colloquial",
+     "coverage": 0.0
+    },
+    {
+     "id": "C5",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C6",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C7",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C8",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C9",
+     "bucket": "C_colloquial",
+     "coverage": 0.0
+    },
+    {
+     "id": "C10",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C11",
+     "bucket": "C_colloquial",
+     "coverage": 0.0
+    },
+    {
+     "id": "C12",
+     "bucket": "C_colloquial",
+     "coverage": 0.0
+    },
+    {
+     "id": "C13",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C14",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C15",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C16",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C17",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C18",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C19",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C20",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "D1",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D2",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D3",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D4",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D5",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D6",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D7",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D8",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D9",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D10",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D11",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D12",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D13",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D14",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D15",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D16",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D17",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D18",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D19",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D20",
+     "bucket": "D_absent",
+     "coverage": null
+    }
+   ]
+  },
+  "hybrid": {
+   "coverage": {
+    "A_policy": {
+     "value": 1.0,
+     "n": 20
+    },
+    "B_model": {
+     "value": 1.0,
+     "n": 20
+    },
+    "C_colloquial": {
+     "value": 0.85,
+     "n": 20
+    },
+    "overall": {
+     "value": 0.95,
+     "n": 60
+    }
+   },
+   "per_sample": [
+    {
+     "id": "A1",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A2",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A3",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A4",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A5",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A6",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A7",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A8",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A9",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A10",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A11",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A12",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A13",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A14",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A15",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A16",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A17",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A18",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A19",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A20",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "B1",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B2",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B3",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B4",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B5",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B6",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B7",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B8",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B9",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B10",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B11",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B12",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B13",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B14",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B15",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B16",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B17",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B18",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B19",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B20",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "C1",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C2",
+     "bucket": "C_colloquial",
+     "coverage": 0.0
+    },
+    {
+     "id": "C3",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C4",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C5",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C6",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C7",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C8",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C9",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C10",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C11",
+     "bucket": "C_colloquial",
+     "coverage": 0.0
+    },
+    {
+     "id": "C12",
+     "bucket": "C_colloquial",
+     "coverage": 0.0
+    },
+    {
+     "id": "C13",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C14",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C15",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C16",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C17",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C18",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C19",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C20",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "D1",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D2",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D3",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D4",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D5",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D6",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D7",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D8",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D9",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D10",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D11",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D12",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D13",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D14",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D15",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D16",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D17",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D18",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D19",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D20",
+     "bucket": "D_absent",
+     "coverage": null
+    }
+   ]
+  },
+  "hybrid_rerank": {
+   "coverage": {
+    "A_policy": {
+     "value": 1.0,
+     "n": 20
+    },
+    "B_model": {
+     "value": 1.0,
+     "n": 20
+    },
+    "C_colloquial": {
+     "value": 1.0,
+     "n": 20
+    },
+    "overall": {
+     "value": 1.0,
+     "n": 60
+    }
+   },
+   "per_sample": [
+    {
+     "id": "A1",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A2",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A3",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A4",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A5",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A6",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A7",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A8",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A9",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A10",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A11",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A12",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A13",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A14",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A15",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A16",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A17",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A18",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A19",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "A20",
+     "bucket": "A_policy",
+     "coverage": 1.0
+    },
+    {
+     "id": "B1",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B2",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B3",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B4",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B5",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B6",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B7",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B8",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B9",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B10",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B11",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B12",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B13",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B14",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B15",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B16",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B17",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B18",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B19",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "B20",
+     "bucket": "B_model",
+     "coverage": 1.0
+    },
+    {
+     "id": "C1",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C2",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C3",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C4",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C5",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C6",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C7",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C8",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C9",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C10",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C11",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C12",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C13",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C14",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C15",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C16",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C17",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C18",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C19",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "C20",
+     "bucket": "C_colloquial",
+     "coverage": 1.0
+    },
+    {
+     "id": "D1",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D2",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D3",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D4",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D5",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D6",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D7",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D8",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D9",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D10",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D11",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D12",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D13",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D14",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D15",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D16",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D17",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D18",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D19",
+     "bucket": "D_absent",
+     "coverage": null
+    },
+    {
+     "id": "D20",
+     "bucket": "D_absent",
+     "coverage": null
+    }
+   ]
+  }
+ },
+ "generation": {
+  "dense": {
+   "answer_coverage": {
+    "A_policy": {
+     "value": 0.875,
+     "n": 20
+    },
+    "B_model": {
+     "value": 1.0,
+     "n": 20
+    },
+    "C_colloquial": {
+     "value": 0.825,
+     "n": 20
+    },
+    "overall": {
+     "value": 0.9,
+     "n": 60
+    }
+   },
+   "refusal_rate": {
+    "value": 0.95,
+    "n": 20
+   },
+   "per_sample": [
+    {
+     "id": "A1",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A2",
+     "bucket": "A_policy",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "A3",
+     "bucket": "A_policy",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "A4",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A5",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A6",
+     "bucket": "A_policy",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "A7",
+     "bucket": "A_policy",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "A8",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": true
+    },
+    {
+     "id": "A9",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A10",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A11",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A12",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A13",
+     "bucket": "A_policy",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "A14",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A15",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A16",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A17",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A18",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A19",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A20",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B1",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B2",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B3",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B4",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B5",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B6",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B7",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B8",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B9",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B10",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B11",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B12",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B13",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B14",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B15",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B16",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B17",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B18",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B19",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B20",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C1",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "C2",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C3",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "C4",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C5",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.0,
+     "refused": true
+    },
+    {
+     "id": "C6",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": true
+    },
+    {
+     "id": "C7",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "C8",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C9",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C10",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C11",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C12",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C13",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "C14",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "C15",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C16",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C17",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C18",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C19",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C20",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "D1",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D2",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D3",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D4",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D5",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D6",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D7",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D8",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D9",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D10",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D11",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D12",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D13",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D14",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D15",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D16",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D17",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D18",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": false
+    },
+    {
+     "id": "D19",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D20",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    }
+   ]
+  },
+  "bm25": {
+   "answer_coverage": {
+    "A_policy": {
+     "value": 0.9,
+     "n": 20
+    },
+    "B_model": {
+     "value": 1.0,
+     "n": 20
+    },
+    "C_colloquial": {
+     "value": 0.575,
+     "n": 20
+    },
+    "overall": {
+     "value": 0.825,
+     "n": 60
+    }
+   },
+   "refusal_rate": {
+    "value": 0.95,
+    "n": 20
+   },
+   "per_sample": [
+    {
+     "id": "A1",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A2",
+     "bucket": "A_policy",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "A3",
+     "bucket": "A_policy",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "A4",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A5",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A6",
+     "bucket": "A_policy",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "A7",
+     "bucket": "A_policy",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "A8",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A9",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A10",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A11",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A12",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A13",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A14",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A15",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A16",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A17",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A18",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A19",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A20",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B1",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B2",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B3",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B4",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B5",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B6",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B7",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B8",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B9",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B10",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B11",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B12",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B13",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B14",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B15",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B16",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B17",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B18",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B19",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B20",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C1",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.0,
+     "refused": true
+    },
+    {
+     "id": "C2",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.0,
+     "refused": true
+    },
+    {
+     "id": "C3",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "C4",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.0,
+     "refused": true
+    },
+    {
+     "id": "C5",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C6",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C7",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "C8",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C9",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.0,
+     "refused": true
+    },
+    {
+     "id": "C10",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C11",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.5,
+     "refused": true
+    },
+    {
+     "id": "C12",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.5,
+     "refused": true
+    },
+    {
+     "id": "C13",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.0,
+     "refused": true
+    },
+    {
+     "id": "C14",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "C15",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.0,
+     "refused": true
+    },
+    {
+     "id": "C16",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C17",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C18",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C19",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C20",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "D1",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D2",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D3",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D4",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D5",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D6",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D7",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D8",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D9",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D10",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D11",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D12",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D13",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D14",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D15",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D16",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D17",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D18",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": false
+    },
+    {
+     "id": "D19",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D20",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    }
+   ]
+  },
+  "hybrid": {
+   "answer_coverage": {
+    "A_policy": {
+     "value": 0.85,
+     "n": 20
+    },
+    "B_model": {
+     "value": 1.0,
+     "n": 20
+    },
+    "C_colloquial": {
+     "value": 0.775,
+     "n": 20
+    },
+    "overall": {
+     "value": 0.875,
+     "n": 60
+    }
+   },
+   "refusal_rate": {
+    "value": 0.95,
+    "n": 20
+   },
+   "per_sample": [
+    {
+     "id": "A1",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A2",
+     "bucket": "A_policy",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "A3",
+     "bucket": "A_policy",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "A4",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A5",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A6",
+     "bucket": "A_policy",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "A7",
+     "bucket": "A_policy",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "A8",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A9",
+     "bucket": "A_policy",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "A10",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A11",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A12",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A13",
+     "bucket": "A_policy",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "A14",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A15",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A16",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A17",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A18",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A19",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A20",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B1",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B2",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B3",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B4",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B5",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B6",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B7",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B8",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B9",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B10",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B11",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B12",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B13",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B14",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B15",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B16",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B17",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B18",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B19",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B20",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C1",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "C2",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.0,
+     "refused": true
+    },
+    {
+     "id": "C3",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "C4",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C5",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C6",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C7",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "C8",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C9",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C10",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C11",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.5,
+     "refused": true
+    },
+    {
+     "id": "C12",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "C13",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "C14",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "C15",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C16",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C17",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C18",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C19",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C20",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "D1",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D2",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D3",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D4",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D5",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D6",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D7",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D8",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D9",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D10",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D11",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D12",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D13",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D14",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D15",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D16",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D17",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D18",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": false
+    },
+    {
+     "id": "D19",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D20",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    }
+   ]
+  },
+  "hybrid_rerank": {
+   "answer_coverage": {
+    "A_policy": {
+     "value": 0.9,
+     "n": 20
+    },
+    "B_model": {
+     "value": 1.0,
+     "n": 20
+    },
+    "C_colloquial": {
+     "value": 0.825,
+     "n": 20
+    },
+    "overall": {
+     "value": 0.9083333333333333,
+     "n": 60
+    }
+   },
+   "refusal_rate": {
+    "value": 0.95,
+    "n": 20
+   },
+   "per_sample": [
+    {
+     "id": "A1",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A2",
+     "bucket": "A_policy",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "A3",
+     "bucket": "A_policy",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "A4",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A5",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A6",
+     "bucket": "A_policy",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "A7",
+     "bucket": "A_policy",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "A8",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A9",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A10",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A11",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A12",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A13",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A14",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A15",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A16",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A17",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A18",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A19",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "A20",
+     "bucket": "A_policy",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B1",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B2",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B3",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B4",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B5",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B6",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B7",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B8",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B9",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B10",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B11",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B12",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B13",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B14",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B15",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B16",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B17",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B18",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B19",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "B20",
+     "bucket": "B_model",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C1",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "C2",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C3",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "C4",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "C5",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C6",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C7",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "C8",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C9",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C10",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C11",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "C12",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C13",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "C14",
+     "bucket": "C_colloquial",
+     "answer_coverage": 0.5,
+     "refused": false
+    },
+    {
+     "id": "C15",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C16",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C17",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C18",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C19",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "C20",
+     "bucket": "C_colloquial",
+     "answer_coverage": 1.0,
+     "refused": false
+    },
+    {
+     "id": "D1",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D2",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D3",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D4",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D5",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D6",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D7",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D8",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D9",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D10",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D11",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D12",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D13",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D14",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D15",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D16",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D17",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D18",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": false
+    },
+    {
+     "id": "D19",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    },
+    {
+     "id": "D20",
+     "bucket": "D_absent",
+     "answer_coverage": null,
+     "refused": true
+    }
+   ]
+  },
+  "faithfulness": {
+   "strategy": "hybrid_rerank",
+   "value": 0.9625,
+   "n": 80,
+   "per_sample": [
+    {
+     "id": "A1",
+     "bucket": "A_policy",
+     "faithful": 1.0
+    },
+    {
+     "id": "A10",
+     "bucket": "A_policy",
+     "faithful": 1.0
+    },
+    {
+     "id": "A11",
+     "bucket": "A_policy",
+     "faithful": 1.0
+    },
+    {
+     "id": "A12",
+     "bucket": "A_policy",
+     "faithful": 1.0
+    },
+    {
+     "id": "A13",
+     "bucket": "A_policy",
+     "faithful": 1.0
+    },
+    {
+     "id": "A14",
+     "bucket": "A_policy",
+     "faithful": 1.0
+    },
+    {
+     "id": "A15",
+     "bucket": "A_policy",
+     "faithful": 1.0
+    },
+    {
+     "id": "A16",
+     "bucket": "A_policy",
+     "faithful": 1.0
+    },
+    {
+     "id": "A17",
+     "bucket": "A_policy",
+     "faithful": 1.0
+    },
+    {
+     "id": "A18",
+     "bucket": "A_policy",
+     "faithful": 1.0
+    },
+    {
+     "id": "A19",
+     "bucket": "A_policy",
+     "faithful": 1.0
+    },
+    {
+     "id": "A2",
+     "bucket": "A_policy",
+     "faithful": 1.0
+    },
+    {
+     "id": "A20",
+     "bucket": "A_policy",
+     "faithful": 1.0
+    },
+    {
+     "id": "A3",
+     "bucket": "A_policy",
+     "faithful": 1.0
+    },
+    {
+     "id": "A4",
+     "bucket": "A_policy",
+     "faithful": 1.0
+    },
+    {
+     "id": "A5",
+     "bucket": "A_policy",
+     "faithful": 1.0
+    },
+    {
+     "id": "A6",
+     "bucket": "A_policy",
+     "faithful": 1.0
+    },
+    {
+     "id": "A7",
+     "bucket": "A_policy",
+     "faithful": 1.0
+    },
+    {
+     "id": "A8",
+     "bucket": "A_policy",
+     "faithful": 1.0
+    },
+    {
+     "id": "A9",
+     "bucket": "A_policy",
+     "faithful": 1.0
+    },
+    {
+     "id": "B1",
+     "bucket": "B_model",
+     "faithful": 1.0
+    },
+    {
+     "id": "B10",
+     "bucket": "B_model",
+     "faithful": 1.0
+    },
+    {
+     "id": "B11",
+     "bucket": "B_model",
+     "faithful": 1.0
+    },
+    {
+     "id": "B12",
+     "bucket": "B_model",
+     "faithful": 1.0
+    },
+    {
+     "id": "B13",
+     "bucket": "B_model",
+     "faithful": 1.0
+    },
+    {
+     "id": "B14",
+     "bucket": "B_model",
+     "faithful": 1.0
+    },
+    {
+     "id": "B15",
+     "bucket": "B_model",
+     "faithful": 1.0
+    },
+    {
+     "id": "B16",
+     "bucket": "B_model",
+     "faithful": 1.0
+    },
+    {
+     "id": "B17",
+     "bucket": "B_model",
+     "faithful": 1.0
+    },
+    {
+     "id": "B18",
+     "bucket": "B_model",
+     "faithful": 1.0
+    },
+    {
+     "id": "B19",
+     "bucket": "B_model",
+     "faithful": 1.0
+    },
+    {
+     "id": "B2",
+     "bucket": "B_model",
+     "faithful": 1.0
+    },
+    {
+     "id": "B20",
+     "bucket": "B_model",
+     "faithful": 1.0
+    },
+    {
+     "id": "B3",
+     "bucket": "B_model",
+     "faithful": 1.0
+    },
+    {
+     "id": "B4",
+     "bucket": "B_model",
+     "faithful": 1.0
+    },
+    {
+     "id": "B5",
+     "bucket": "B_model",
+     "faithful": 1.0
+    },
+    {
+     "id": "B6",
+     "bucket": "B_model",
+     "faithful": 1.0
+    },
+    {
+     "id": "B7",
+     "bucket": "B_model",
+     "faithful": 1.0
+    },
+    {
+     "id": "B8",
+     "bucket": "B_model",
+     "faithful": 1.0
+    },
+    {
+     "id": "B9",
+     "bucket": "B_model",
+     "faithful": 1.0
+    },
+    {
+     "id": "C1",
+     "bucket": "C_colloquial",
+     "faithful": 1.0
+    },
+    {
+     "id": "C10",
+     "bucket": "C_colloquial",
+     "faithful": 1.0
+    },
+    {
+     "id": "C11",
+     "bucket": "C_colloquial",
+     "faithful": 1.0
+    },
+    {
+     "id": "C12",
+     "bucket": "C_colloquial",
+     "faithful": 1.0
+    },
+    {
+     "id": "C13",
+     "bucket": "C_colloquial",
+     "faithful": 1.0
+    },
+    {
+     "id": "C14",
+     "bucket": "C_colloquial",
+     "faithful": 1.0
+    },
+    {
+     "id": "C15",
+     "bucket": "C_colloquial",
+     "faithful": 1.0
+    },
+    {
+     "id": "C16",
+     "bucket": "C_colloquial",
+     "faithful": 1.0
+    },
+    {
+     "id": "C17",
+     "bucket": "C_colloquial",
+     "faithful": 1.0
+    },
+    {
+     "id": "C18",
+     "bucket": "C_colloquial",
+     "faithful": 1.0
+    },
+    {
+     "id": "C19",
+     "bucket": "C_colloquial",
+     "faithful": 1.0
+    },
+    {
+     "id": "C2",
+     "bucket": "C_colloquial",
+     "faithful": 1.0
+    },
+    {
+     "id": "C20",
+     "bucket": "C_colloquial",
+     "faithful": 1.0
+    },
+    {
+     "id": "C3",
+     "bucket": "C_colloquial",
+     "faithful": 1.0
+    },
+    {
+     "id": "C4",
+     "bucket": "C_colloquial",
+     "faithful": 1.0
+    },
+    {
+     "id": "C5",
+     "bucket": "C_colloquial",
+     "faithful": 1.0
+    },
+    {
+     "id": "C6",
+     "bucket": "C_colloquial",
+     "faithful": 1.0
+    },
+    {
+     "id": "C7",
+     "bucket": "C_colloquial",
+     "faithful": 1.0
+    },
+    {
+     "id": "C8",
+     "bucket": "C_colloquial",
+     "faithful": 1.0
+    },
+    {
+     "id": "C9",
+     "bucket": "C_colloquial",
+     "faithful": 1.0
+    },
+    {
+     "id": "D1",
+     "bucket": "D_absent",
+     "faithful": 0.0
+    },
+    {
+     "id": "D10",
+     "bucket": "D_absent",
+     "faithful": 1.0
+    },
+    {
+     "id": "D11",
+     "bucket": "D_absent",
+     "faithful": 1.0
+    },
+    {
+     "id": "D12",
+     "bucket": "D_absent",
+     "faithful": 0.0
+    },
+    {
+     "id": "D13",
+     "bucket": "D_absent",
+     "faithful": 1.0
+    },
+    {
+     "id": "D14",
+     "bucket": "D_absent",
+     "faithful": 1.0
+    },
+    {
+     "id": "D15",
+     "bucket": "D_absent",
+     "faithful": 1.0
+    },
+    {
+     "id": "D16",
+     "bucket": "D_absent",
+     "faithful": 1.0
+    },
+    {
+     "id": "D17",
+     "bucket": "D_absent",
+     "faithful": 1.0
+    },
+    {
+     "id": "D18",
+     "bucket": "D_absent",
+     "faithful": 1.0
+    },
+    {
+     "id": "D19",
+     "bucket": "D_absent",
+     "faithful": 1.0
+    },
+    {
+     "id": "D2",
+     "bucket": "D_absent",
+     "faithful": 1.0
+    },
+    {
+     "id": "D20",
+     "bucket": "D_absent",
+     "faithful": 1.0
+    },
+    {
+     "id": "D3",
+     "bucket": "D_absent",
+     "faithful": 1.0
+    },
+    {
+     "id": "D4",
+     "bucket": "D_absent",
+     "faithful": 1.0
+    },
+    {
+     "id": "D5",
+     "bucket": "D_absent",
+     "faithful": 0.0
+    },
+    {
+     "id": "D6",
+     "bucket": "D_absent",
+     "faithful": 1.0
+    },
+    {
+     "id": "D7",
+     "bucket": "D_absent",
+     "faithful": 1.0
+    },
+    {
+     "id": "D8",
+     "bucket": "D_absent",
+     "faithful": 1.0
+    },
+    {
+     "id": "D9",
+     "bucket": "D_absent",
+     "faithful": 1.0
+    }
+   ]
+  }
+ }
+}

@@ -1,4 +1,4 @@
-.PHONY: dev test eval seed seed-conv kb-preview kb-build kb-repatch kb-vectorize kb-mine kb-reset eval-retrieval eval-mining eval-rag eval-check judge-check eval-05
+.PHONY: dev test eval seed seed-conv kb-preview kb-build kb-repatch kb-vectorize kb-mine kb-reset eval-retrieval eval-mining eval-rag eval-check judge-check eval-05 smoke-interrupt
 
 # --reload は付けない。この環境では watchfiles が入っていても変更を検知せず
 # (実測: 起動後の app/tools/business.py の更新で reload されなかった)、
@@ -66,6 +66,10 @@ eval-rag:
 # 評価セットの自己検証。MySQL の knowledge_chunks を読むだけで、上流も Milvus も使わない。
 eval-check:
 	uv run --env-file .env python scripts/validate_eval_04.py
+
+# 06 章の red line。interrupt / resume の形を実測する。上流は呼ばない。
+smoke-interrupt:
+	uv run --env-file .env python scripts/smoke_interrupt.py
 
 # 05 章の受け入れ 5 条件を実サービス上で通す。アプリと MySQL / Milvus の起動が要る。
 eval-05:

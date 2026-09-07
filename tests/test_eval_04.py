@@ -566,14 +566,32 @@ class _FakeChat(RunnableLambda):
         return RunnableLambda(_judge)
 
 
-async def _generation(monkeypatch, faithful: bool) -> dict:
-    monkeypatch.setattr(ev, "get_chat_model",
-                        lambda: _FakeChat("到着後 30 日以内なら返品できます[1]。", faithful))
+async def _generation(monkeypatch, faithful: bool, seen: list | None = None) -> dict:
+    def _factory(**kw):
+        if seen is not None:
+            seen.append(kw)
+        return _FakeChat("到着後 30 日以内なら返品できます[1]。", faithful)
+
+    monkeypatch.setattr(ev, "get_chat_model", _factory)
     samples = [{"id": "A1", "bucket": "A_policy", "query": "返品はいつまでできますか",
                 "expect_section": ["未開封の場合"], "expect_points": ["7 日以内"],
                 "should_refuse": False}]
     return await ev.run_generation(samples, {("hybrid_rerank", "A1"): _KB_HITS},
                                    ["hybrid_rerank"])
+
+
+async def test_the_judges_run_at_temperature_zero(monkeypatch):
+    """judge は 0、回答の生成は本番と同じ既定値。
+
+    judge を既定の 0.3 のまま回すと、同じ回答に対する判定が実行ごとに揺れる
+    (同一入力を 4 回流して 5/6、5/6、6/6、6/6。しかも外したケースが毎回違った)。
+    逆に生成側まで 0 にすると「本番より安定した回答」を測ることになるので、
+    2 つを取り違えていないことをここで固定する。
+    """
+    seen: list[dict] = []
+    await _generation(monkeypatch, faithful=True, seen=seen)
+    assert {"temperature": 0} in seen, seen
+    assert {} in seen, seen
 
 
 async def test_generation_keeps_the_judged_evidence_of_a_hallucination_case(monkeypatch):

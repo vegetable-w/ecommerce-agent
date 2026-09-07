@@ -423,9 +423,14 @@ async def _generate_one(model, judge, s: dict, hits: list[dict], strategy: str) 
 
 
 async def run_generation(samples: list[dict], hits_by: dict, strategies: list[str]) -> dict:
+    # 回答の生成は本番と同じ temperature(既定 0.3)で行う。ここを 0 にすると
+    # 「本番より安定した回答」を測ることになり、評価の意味が変わる。
     model = get_chat_model()
-    judge = model.with_structured_output(_Coverage)
-    faith_chain = FAITHFULNESS_PROMPT | model.with_structured_output(_Faithful)
+    # judge は 0。同じ回答に同じ判定を返してほしいので、揺れは害にしかならない
+    # (0.3 のまま同一入力を 4 回流したら 5/6、5/6、6/6、6/6 と割れた)。
+    judge_model = get_chat_model(temperature=0)
+    judge = judge_model.with_structured_output(_Coverage)
+    faith_chain = FAITHFULNESS_PROMPT | judge_model.with_structured_output(_Faithful)
     sem = asyncio.Semaphore(GEN_CONCURRENCY)
 
     async def guarded(strategy: str, s: dict) -> dict:

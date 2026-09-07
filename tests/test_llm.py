@@ -1,5 +1,5 @@
 from app.config import settings
-from app.core.llm import get_chat_model
+from app.core.llm import DEFAULT_TEMPERATURE, get_chat_model
 
 
 def test_factory_points_to_chat_upstream(monkeypatch):
@@ -20,3 +20,15 @@ def test_factory_uses_configured_request_timeout(monkeypatch):
     monkeypatch.setattr(settings, "request_timeout", 12.5)
     m = get_chat_model()
     assert m.request_timeout == settings.request_timeout
+
+
+def test_factory_default_temperature_is_for_conversation():
+    """既定は接客の返答向けの 0.3。judge 以外の呼び出し側の挙動を変えていないこと。"""
+    assert get_chat_model().temperature == DEFAULT_TEMPERATURE
+    assert DEFAULT_TEMPERATURE == 0.3
+
+
+def test_factory_forwards_temperature():
+    """judge が 0 を要求できること。ここが素通しでないと判定が実行ごとに揺れる。"""
+    assert get_chat_model(temperature=0).temperature == 0
+    assert get_chat_model(temperature=0, streaming=True).temperature == 0

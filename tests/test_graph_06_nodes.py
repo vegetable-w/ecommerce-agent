@@ -655,3 +655,182 @@ def test_order_snapshot_keeps_the_chapter_02_golden_value():
         "product": "自動猫トイレ",
         "tracking_no": "JP213502378238",
     }
+
+
+# --- 返金フローの規約検索(retrieve_policy)--------------------------------------
+
+
+def _policy_hit(i, score, q, a, section="ポリシー/返品", ctype="policy"):
+    """規約 chunk 1 件。score=None は rerank 上流が落ちた場合(rerank_score が付かない)。"""
+    h = {"id": i, "question": q, "answer": a, "section_path": section, "content_type": ctype}
+    if score is not None:
+        h["rerank_score"] = score
+    return h
+
+
+def _stub_policy(monkeypatch, per_query, queries=None):
+    """クエリ展開と検索を差し替え、呼び出し引数を記録して返す。
+
+    偽の検索にも「min_score を省略されたら rerank_min_score で足切りする」という
+    本物の search_knowledge の既定を持たせてある。素通しにすると、min_score を
+    渡し忘れた実装がそのままテストを通ってしまう(test_graph_forced_rag.py と同じ形)。
+    """
+    seen = {"searched": [], "search_kw": []}
+    qs = list(per_query) if queries is None else list(queries)
+
+    async def _fake_expand(q, **kw):
+        seen["expand_arg"] = q
+        return qs
+
+    async def _fake_search(query, **kw):
+        seen["searched"].append(query)
+        seen["search_kw"].append(kw)
+        cut = kw.get("min_score")
+        cut = settings.rerank_min_score if cut is None else cut
+        return [h for h in per_query.get(query, []) if h.get("rerank_score", 0.0) >= cut]
+
+    monkeypatch.setattr(nodes.query_understanding, "expand_queries", _fake_expand)
+    monkeypatch.setattr(nodes.retrieval, "search_knowledge", _fake_search)
+    return seen
+
+
+async def test_retrieve_policy_merges_the_same_chunk_and_keeps_the_highest_score(monkeypatch):
+    """同じ chunk を複数のクエリが引いたら 1 件にまとめ、スコアの高い方を残す。
+
+    3 つのクエリは観点違いなので同じ規約を引きやすい。そのまま並べると同じ条項が
+    3 回出て、Agent の入力が同じ文で埋まる。
+    """
+    # 同じ id に別の本文を持たせているのは「どちらの hit が残ったか」を見分けるため。
+    # 実際のナレッジベースでは同じ id なら本文も同じ。
+    seen = _stub_policy(monkeypatch, {
+        "返品 ポリシー": [_policy_hit(1, 0.7, "返品", "低いスコアで引いた方")],
+        "自己都合返品 条件": [_policy_hit(1, 0.9, "返品", "受取後7日以内は返品可能"),
+                        _policy_hit(2, 0.6, "返品送料", "品質不良の場合は当店負担")],
+        "返品 申請期限": [],
+    })
+    out = await nodes.retrieve_policy({"resolved_query": "注文1001は返品できますか",
+                                       "messages": [HumanMessage("これは返品できますか")]})
+
+    assert [c["id"] for c in out["citations"]] == [1, 2]
+    assert "受取後7日以内は返品可能" in out["evidence"]
+    assert "低いスコアで引いた方" not in out["evidence"]
+    assert seen["searched"] == ["返品 ポリシー", "自己都合返品 条件", "返品 申請期限"]
+
+
+async def test_retrieve_policy_numbers_the_evidence_in_score_order(monkeypatch):
+    """スコアの降順に並べ、evidence 本文の [n] と citations の n が同じ chunk を指すこと。"""
+    _stub_policy(monkeypatch, {
+        "q1": [_policy_hit(2, 0.6, "送料", "品質不良は当店負担")],
+        "q2": [_policy_hit(1, 0.9, "返品", "受取後7日以内は返品可能")],
+    })
+    out = await nodes.retrieve_policy({"resolved_query": "返品できますか"})
+
+    assert [(c["n"], c["id"]) for c in out["citations"]] == [(1, 1), (2, 2)]
+    assert out["evidence"] == ("[1] 返品: 受取後7日以内は返品可能\n"
+                               "[2] 送料: 品質不良は当店負担")
+    assert out["citations"][0]["section_path"] == "ポリシー/返品"
+    assert out["citations"][0]["content_type"] == "policy"
+
+
+async def test_retrieve_policy_numbers_after_the_head_tail_arrangement(monkeypatch):
+    """番号は head/tail 配置「後」の並びに振る(forced_rag / query_faq と同じ規律)。"""
+    _stub_policy(monkeypatch, {
+        "q1": [_policy_hit(10, 0.95, "q1", "a1"), _policy_hit(40, 0.80, "q4", "a4")],
+        "q2": [_policy_hit(20, 0.90, "q2", "a2"), _policy_hit(30, 0.85, "q3", "a3")],
+    })
+    out = await nodes.retrieve_policy({"resolved_query": "返品できますか"})
+
+    assert [c["id"] for c in out["citations"]] == [10, 30, 40, 20]
+    assert out["evidence"].startswith("[1] q1: a1")
+    assert out["evidence"].endswith("[4] q2: a2")
+
+
+async def test_retrieve_policy_records_the_expanded_queries_and_the_hit_count(monkeypatch):
+    """trace には展開したクエリと、重複を除いた後の件数を残す。"""
+    _stub_policy(monkeypatch, {
+        "返品 ポリシー": [_policy_hit(1, 0.9, "返品", "7日以内")],
+        "返品 条件": [_policy_hit(1, 0.8, "返品", "7日以内"), _policy_hit(2, 0.7, "送料", "当店負担")],
+        "返品 期限": [],
+    })
+    out = await nodes.retrieve_policy({"resolved_query": "返品できますか"})
+
+    assert out["trace"]["retrieve_policy"] == {
+        "queries": ["返品 ポリシー", "返品 条件", "返品 期限"], "hits": 2}
+
+
+async def test_retrieve_policy_asks_the_search_not_to_cut_by_score(monkeypatch):
+    """min_score は必ず明示する。**省略すると本当のスコアが失われる。**
+
+    search_knowledge は hybrid_rerank で min_score を省略されると rerank_min_score で
+    足切りしてから返す。こちら側は並べ替えと重複除去にそのスコアを使うので、
+    向こう側で切られると「観点違いのクエリが低めに拾った同じ条項」が黙って消える。
+    """
+    seen = _stub_policy(monkeypatch, {
+        "q1": [_policy_hit(1, 0.9, "返品", "7日以内")],
+        "q2": [_policy_hit(2, 0.05, "送料", "当店負担")],   # 既定の足切り(0.3)未満
+    })
+    out = await nodes.retrieve_policy({"resolved_query": "返品できますか"})
+
+    assert [kw.get("strategy") for kw in seen["search_kw"]] == \
+        ["hybrid_rerank", "hybrid_rerank"]
+    assert [kw.get("min_score") for kw in seen["search_kw"]] == [float("-inf")] * 2
+    assert [c["id"] for c in out["citations"]] == [1, 2]
+
+
+async def test_retrieve_policy_survives_hits_without_a_rerank_score(monkeypatch):
+    """rerank 上流が落ちると rerank_score の無い hit が返る。並べ替えで落ちないこと。
+
+    search_knowledge はリランクできなかった場合、ハイブリッド検索の並びのまま
+    rerank_score を付けずに返す(app/core/retrieval.py)。h["rerank_score"] の直接添字は
+    KeyError になり、node ではなく graph 全体が止まる。
+    """
+    _stub_policy(monkeypatch, {
+        "q1": [_policy_hit(1, None, "返品", "7日以内"), _policy_hit(2, None, "送料", "当店負担")],
+        "q2": [_policy_hit(3, 0.9, "交換", "同一商品のみ")],
+    })
+    out = await nodes.retrieve_policy({"resolved_query": "返品できますか"})
+
+    # スコア順は [3, 1, 2](付いていない 2 件は検索が返した順のまま後ろへ残る)。
+    # citations はそこへ head/tail 配置を掛けた後の並びなので 2 位が末尾へ回る
+    assert [c["id"] for c in out["citations"]] == [3, 2, 1]
+    assert out["trace"]["retrieve_policy"]["hits"] == 3
+
+
+async def test_retrieve_policy_keeps_the_scored_hit_when_the_same_chunk_lacks_a_score(monkeypatch):
+    """同じ chunk が「スコアあり」と「スコアなし」で来たら、スコアのある方を残す。"""
+    _stub_policy(monkeypatch, {
+        "q1": [_policy_hit(1, None, "返品", "リランクできなかった方")],
+        "q2": [_policy_hit(1, 0.9, "返品", "受取後7日以内は返品可能")],
+    })
+    out = await nodes.retrieve_policy({"resolved_query": "返品できますか"})
+    assert "受取後7日以内は返品可能" in out["evidence"]
+    assert "リランクできなかった方" not in out["evidence"]
+
+
+async def test_retrieve_policy_returns_empty_evidence_when_nothing_is_found(monkeypatch):
+    """1 件も引けなくても止めない。判断材料が無いことは空の evidence として伝わる。
+
+    **空でも必ず書く。** checkpointer が State を turn をまたいで保持するので、
+    書かないと前の turn の citations が残り、根拠なしの判断の横に前回の出典が並ぶ。
+    """
+    _stub_policy(monkeypatch, {"q1": [], "q2": []})
+    out = await nodes.retrieve_policy({"resolved_query": "返品できますか"})
+
+    assert out["evidence"] == ""
+    assert out["citations"] == []
+    assert out["trace"]["retrieve_policy"] == {"queries": ["q1", "q2"], "hits": 0}
+
+
+async def test_retrieve_policy_expands_the_resolved_query(monkeypatch):
+    """展開するのは coref が書き下した完全な質問。"""
+    seen = _stub_policy(monkeypatch, {"q1": []})
+    await nodes.retrieve_policy({"resolved_query": "注文1001のイヤホンは返品できますか",
+                                 "messages": [HumanMessage("これ返品できる?")]})
+    assert seen["expand_arg"] == "注文1001のイヤホンは返品できますか"
+
+
+async def test_retrieve_policy_falls_back_to_the_user_text(monkeypatch):
+    """書き下しが無ければ元の発話で展開する(coref を通らない経路でも動く)。"""
+    seen = _stub_policy(monkeypatch, {"q1": []})
+    await nodes.retrieve_policy({"messages": [HumanMessage("返品したいのですが")]})
+    assert seen["expand_arg"] == "返品したいのですが"

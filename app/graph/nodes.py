@@ -385,6 +385,74 @@ async def fetch_order(state) -> dict:
     }
 
 
+def _rerank_score(hit: dict) -> float:
+    """並べ替えと重複除去に使うスコア。無ければ 0.0。
+
+    search_knowledge は rerank 上流が落ちると、rerank_score を付けずに
+    ハイブリッド検索の並びのまま返す(app/core/retrieval.py)。
+    h["rerank_score"] の直接添字は KeyError になり、node ではなく graph 全体を止める。
+
+    **欠けている hit は 0.0 扱いにして末尾へ寄せる。** リランクの効いた hit
+    (0〜1)の方が関連度を実測できているので、そちらを先に見せる。上流が
+    完全に落ちて全件が欠けた場合は全部が同じ値になり、sorted が安定なので
+    検索が返した順(ハイブリッドの並び)がそのまま残る。
+    """
+    score = hit.get("rerank_score")
+    return 0.0 if score is None else score
+
+
+async def retrieve_policy(state) -> dict:
+    """返金フローの規約検索。1 つの質問を複数の観点へ展開してから引く。
+
+    fetch_order と同じく、Agent に「検索するかどうか」を選ばせない。返品可否の根拠は
+    規約にしか無く、引かずに答えれば一般論で断定することになるため。
+
+    forced_rag と違ってゲートは掛けない。knowledge route には回答拒否の出口
+    (fallback_reply)があるが、返金フローは fetch_order で注文が特定できていれば
+    会話を続けられるので、引けなかったことを理由に止める方が失うものが大きい。
+    判断材料が無いことは空の evidence として Agent へ伝わる。
+    """
+    query = state.get("resolved_query") or _user_text(state)
+    queries = await query_understanding.expand_queries(query)
+
+    # chunk ごとに「最もスコアの高かった hit」だけを持つ。3 つのクエリは観点違いなので
+    # 同じ規約を引きやすく、まとめずに並べると同じ条項が 3 回出て Agent の入力を埋める。
+    merged: dict = {}
+    for q in queries:
+        # **min_score は必ず明示する。** 省略すると search_knowledge が内部で
+        # rerank_min_score の足切りをしてから返し、並べ替えと重複除去に使う
+        # 「本当のスコア」が失われる(forced_rag / query_faq と同じ理由)。
+        hits = await retrieval.search_knowledge(
+            q, strategy="hybrid_rerank", min_score=_UNGATED
+        )
+        for h in hits:
+            # id が欠けた hit は question/answer で区別する。id で揃えて None に潰すと、
+            # 別の条項同士が同じ chunk と見なされて 1 件に消える。
+            key = h.get("id")
+            if key is None:
+                key = (h.get("question"), h.get("answer"))
+            cur = merged.get(key)
+            if cur is None or _rerank_score(h) > _rerank_score(cur):
+                merged[key] = h
+
+    ranked = sorted(merged.values(), key=_rerank_score, reverse=True)
+    # head/tail 配置の「後」に番号を振る。evidence 本文の [n] と citations の n が
+    # 同じ chunk を指すのは、この順番が唯一の正であるため(forced_rag と同じ規律)
+    arranged = retrieval.arrange_head_tail(ranked)
+    citations = [
+        {"n": i + 1, "id": h.get("id"), "section_path": h.get("section_path"),
+         "question": h.get("question"), "answer": h.get("answer"),
+         "content_type": h.get("content_type")}
+        for i, h in enumerate(arranged)
+    ]
+    evidence = "\n".join(f"[{c['n']}] {c['question']}: {c['answer']}" for c in citations)
+    # 1 件も引けなくても、**空の evidence / citations を明示的に書いて** 先へ進める。
+    # 書かないと checkpointer が前の turn の citations を持ち越し、根拠なしの判断の横に
+    # 前回の出典が並ぶ(_NO_EVIDENCE と同じ理由)。
+    return {"evidence": evidence, "citations": citations,
+            "trace": {"retrieve_policy": {"queries": queries, "hits": len(ranked)}}}
+
+
 # ---------------------------------------------------------------------------
 # main Agent(ReAct loop)
 # ---------------------------------------------------------------------------

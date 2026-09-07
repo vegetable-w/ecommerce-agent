@@ -1,4 +1,4 @@
-.PHONY: dev test eval seed seed-conv kb-preview kb-build kb-vectorize kb-mine kb-reset eval-retrieval eval-mining eval-rag eval-check judge-check
+.PHONY: dev test eval seed seed-conv kb-preview kb-build kb-repatch kb-vectorize kb-mine kb-reset eval-retrieval eval-mining eval-rag eval-check judge-check
 
 # --reload は付けない。この環境では watchfiles が入っていても変更を検知せず
 # (実測: 起動後の app/tools/business.py の更新で reload されなかった)、
@@ -21,6 +21,11 @@ kb-preview:
 
 kb-build:
 	uv run --env-file .env python scripts/build_kb.py
+
+# data/kb を書き換えたときの差分反映。変わっていない chunk は再度埋め込まず、
+# id も変えない(Milvus の PK が chunk id なので、同じ id で upsert すれば置き換わる)。
+kb-repatch:
+	uv run --env-file .env python scripts/repatch_kb.py
 
 kb-vectorize:
 	uv run --env-file .env python scripts/vectorize_kb.py

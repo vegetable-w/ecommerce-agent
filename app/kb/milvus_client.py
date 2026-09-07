@@ -197,6 +197,21 @@ def hybrid_search(client: MilvusClient, vector: list[float], text: str, top_k: i
     return [_hit(h) for h in res[0]]
 
 
+def delete_vectors(client: MilvusClient, ids: list[int], collection: str = COLLECTION) -> int:
+    """PK 指定で行を消す。md から節が消えたときに索引側も揃えるために使う。
+
+    collection ごと消す drop と違い、こちらは id を明示するので、呼ぶ側が
+    「何を消すか」を持っていないと何も起きない。消した件数を返す。
+    """
+    if not ids:
+        return 0
+    res = client.delete(collection, ids=ids)
+    # pymilvus 3 系は {'delete_count': n} を返す。古い版は主キーの一覧を返すことがある
+    if isinstance(res, dict):
+        return int(res.get("delete_count", len(ids)))
+    return len(ids)
+
+
 def count(client: MilvusClient, collection: str = COLLECTION) -> int:
     return client.query(collection, filter="id >= 0", output_fields=["count(*)"])[0]["count(*)"]
 

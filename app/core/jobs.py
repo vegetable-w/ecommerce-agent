@@ -69,6 +69,11 @@ JOBS: dict[str, JobSpec] = {
         "kb-build", False, "ナレッジ構築",
         "data/kb の資料を chunk 化して knowledge_chunks へ pending として登録する",
     ),
+    "kb-repatch": JobSpec(
+        "kb-repatch", False, "パッチ式の再取り込み",
+        "data/kb の変更点だけを既存の chunk へ当て直す。変わっていない chunk は"
+        "埋め込み直さず、chunk id も変えない",
+    ),
     "kb-vectorize": JobSpec(
         "kb-vectorize", False, "ベクトル化",
         "pending の chunk を埋め込み、Milvus へ upsert する(冪等・再実行可能)",

@@ -275,6 +275,53 @@ async def list_recent_chunks(limit: int = 20) -> list[KnowledgeChunk]:
         return list(result.scalars())
 
 
+async def list_all_chunks() -> list[KnowledgeChunk]:
+    """全 chunk を id 順で返す。md との差分を取る repatch から使う。"""
+    async with db.async_session() as s:
+        result = await s.execute(select(KnowledgeChunk).order_by(KnowledgeChunk.id))
+        return list(result.scalars())
+
+
+async def update_knowledge_chunk(
+    chunk_id: int, category: str, questions: str, answer: str,
+    section_path: str | None, content_type: str | None, is_key_clause: int,
+) -> bool:
+    """本文を書き換え、status を pending に戻す。id は変えない。
+
+    id を保つのは、Milvus の PK が chunk id そのものだから。同じ id で upsert すれば
+    古いベクトルがその場で置き換わり、消し忘れた古い行が検索に残ることがない
+    (新しい id を振ると、古い行を別途消さない限り二重に当たる)。
+    """
+    async with db.async_session() as s:
+        row = await s.get(KnowledgeChunk, chunk_id)
+        if row is None:
+            return False
+        row.category = category
+        row.questions = questions
+        row.answer = answer
+        row.section_path = section_path
+        row.content_type = content_type
+        row.is_key_clause = is_key_clause
+        row.vectorize_status = "pending"
+        await s.commit()
+        return True
+
+
+async def delete_knowledge_chunk(chunk_id: int) -> bool:
+    """1 行だけ消す。md から節が消えたときに使う。
+
+    前後リンクはこの関数では触らない。呼ぶ側が文書単位で張り直す
+    (1 件ずつ繋ぎ直すと、消した行を指したままの中間状態が残る)。
+    """
+    async with db.async_session() as s:
+        row = await s.get(KnowledgeChunk, chunk_id)
+        if row is None:
+            return False
+        await s.delete(row)
+        await s.commit()
+        return True
+
+
 async def list_chunk_sections() -> list[tuple[str, str]]:
     """全 chunk の (section_path, answer)。評価セットの検証(読み取り専用)から使う。
 

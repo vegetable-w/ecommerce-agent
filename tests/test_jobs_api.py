@@ -168,7 +168,7 @@ def _makefile_targets(path: pathlib.Path) -> set[str]:
 def test_registry_is_exactly_the_agreed_set():
     """登録内容を固定する。ここを増やすことは「ブラウザから叩けるコマンドを増やす」ことに等しい。"""
     assert set(jobs.JOBS) == {
-        "kb-preview", "kb-build", "kb-vectorize", "kb-mine",
+        "kb-preview", "kb-build", "kb-repatch", "kb-vectorize", "kb-mine",
         "kb-reset", "seed-conv", "eval-retrieval", "eval-mining", "eval-rag",
     }
     assert {n for n, s in jobs.JOBS.items() if s.heavy} == {"kb-mine", "kb-reset", "eval-rag"}

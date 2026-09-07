@@ -40,3 +40,15 @@ seed-conv:
 
 eval-mining:
 	uv run --env-file .env python scripts/eval_mining.py
+
+# service 名は docker-compose.yml の定義に合わせる(コンテナ名は milvus-* だがサービス名は etcd/minio/milvus)
+milvus-up:
+	docker compose up -d etcd minio milvus
+	@echo "Milvus の起動を待機中 (healthz)..."; 	for i in $$(seq 1 60); do 	  curl -sf http://localhost:9091/healthz >/dev/null 2>&1 && echo "Milvus OK" && exit 0; 	  sleep 3; done; echo "Milvus が ready になりません" && exit 1
+
+milvus-down:
+	docker compose stop etcd minio milvus
+
+smoke-rag:
+	uv run --env-file .env python scripts/smoke_milvus_bm25.py
+	uv run --env-file .env python scripts/smoke_rerank.py

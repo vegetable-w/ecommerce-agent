@@ -43,4 +43,16 @@ class Settings(BaseSettings):
     # shutil.which("make") が None になる。その場合はここに実体のパスを設定する。
     make_bin: str = "make"
 
+    # リランク上流。OpenAI protocol ではなく Jina / Cohere 系の /rerank shape を使うため、
+    # embedding とは別の設定群を持たせる(HTTP request も手書きする)。
+    rerank_base_url: str = "https://api.siliconflow.cn/v1"
+    rerank_model: str = "BAAI/bge-reranker-v2-m3"   # 上流の実名。BAAI/ prefix を含む
+    # 未設定なら埋め込みの key を使う。どちらも同じ SiliconFlow のアカウントであり、
+    # .env に同じ値を 2 度書かせない。上流を分ける場合だけ RERANK_API_KEY を設定する。
+    rerank_api_key: SecretStr | None = None
+
+    @property
+    def rerank_key(self) -> SecretStr:
+        return self.rerank_api_key or self.embed_api_key
+
 settings = Settings()

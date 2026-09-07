@@ -1,5 +1,6 @@
 """Mock business tools for querying orders, products, and logistics."""
 import random
+from datetime import datetime, timedelta
 from typing import Annotated, Literal
 
 from langchain_core.tools import InjectedToolArg, tool
@@ -26,6 +27,16 @@ class LogisticsInput(BaseModel):
     )
 
 
+# 注文日の幅(何日前か)。上限は規約の 7 日をまたぐように広く取り、
+# 一覧に「まだ返品できる注文」と「期限切れの注文」の両方が並ぶようにする。
+_ORDER_AGE_DAYS = (0, 45)
+
+
+def _days_ago(days: int) -> str:
+    """今日から days 日前を注文日の書式で返す。"""
+    return (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d 10:00")
+
+
 def order_snapshot(order_id: str) -> dict:
     """注文番号から決定的な注文の中身を作る。**注文の内容の唯一の出所。**
 
@@ -41,7 +52,12 @@ def order_snapshot(order_id: str) -> dict:
         "order_id": order_id,
         "status": rng.choice(["支払い待ち", "支払い済み", "発送済み", "配達完了"]),
         "amount": rng.randint(50, 2000),
-        "created_at": f"2026-07-{rng.randint(1, 12):02d} 10:00",
+        # 注文日は「何日前か」で決める。固定の日付にすると、時間が経つほど全注文が
+        # 古くなり、規約の「受取後 7 日以内」を満たす注文が 1 件も作れなくなる。
+        # 実測: 2026-07 固定にしていたため、返品可能と判断される経路にどうやっても
+        # 到達できず、返金フローの主シナリオが試せなかった。
+        # 幅を _ORDER_AGE_DAYS にしてあるので、一覧には新しい注文と古い注文が混ざる。
+        "created_at": _days_ago(rng.randint(*_ORDER_AGE_DAYS)),
         "product": rng.choice(["自動猫トイレ", "キャットフード 5kg", "キャットタワー", "自動給水器"]),
         # 配送伝票番号。query_logistics の唯一の入口で、注文番号からは導けない
         # (導けると「注文を引いてから配送を引く」という順序が要らなくなり、
@@ -311,12 +327,16 @@ class RefundInput(BaseModel):
 async def submit_refund(order_id: str, reason: str | None = None) -> dict:
     """返品・返金が可能だと判断できた場合に呼ぶ。**返金の実行ではない。**
 
-    このツールは「この注文は返品・返金の対象になる」というあなたの意思表示であり、
-    ユーザーへ申請フォームを提示するために使う。実際に申請が作られるのは、
-    ユーザーがその画面で送信したときだけなので、「返金を受け付けました」「返金処理を
-    開始しました」のように完了した言い方をしてはならない。
+    **これがユーザーの画面に申請フォームを出す唯一の手段である。** このツールを
+    呼ばずに「申請フォームを提示します」「手続きを進めます」と書いても、画面には
+    何も出ず、ユーザーは待たされたまま何もできない。可能だと判断したなら、
+    そう書く前にこのツールを呼ぶこと。
 
-    規約と注文の情報から可否を判断できない場合、または対象外の場合は呼ばないこと。"""
+    実際に申請が作られるのは、ユーザーがその画面で送信したときだけなので、
+    「返金を受け付けました」「返金処理を開始しました」のように完了した言い方は
+    してはならない。
+
+    規約の期限を超えている場合、または可否を判断できない場合は呼ばないこと。"""
     # ここは実行されない。app/graph/nodes.py の agent_tools が create_ticket と同じ作法で
     # 横取りし、画面の選択肢(refund_form)へ変換する。**DB には書かない。**
     # それでも本体を空にしないのは、横取りの手前でツールとして成立していないと、

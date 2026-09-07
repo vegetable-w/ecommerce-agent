@@ -646,15 +646,24 @@ async def test_order_snapshot_is_the_only_source_of_query_order():
 
 
 def test_order_snapshot_keeps_the_chapter_02_golden_value():
-    """抽出で乱数の引き順が変わっていないこと(tests/test_tools_mock.py と同じ値)。"""
-    assert business.order_snapshot("1001") == {
+    """抽出で乱数の引き順が変わっていないこと(tests/test_tools_mock.py と同じ値)。
+
+    注文日だけは「今日から何日前か」で決まるので、絶対の日付ではなく経過日数を固定する。
+    固定の日付にすると、時間が経つほど全注文が古くなり、規約の「受取後 7 日以内」を
+    満たす注文が 1 件も作れなくなる(返品可能と判断される経路に到達できなくなる)。
+    """
+    from datetime import datetime
+
+    snap = business.order_snapshot("1001")
+    assert {k: v for k, v in snap.items() if k != "created_at"} == {
         "order_id": "1001",
         "status": "支払い済み",
         "amount": 1739,
-        "created_at": "2026-07-04 10:00",
         "product": "自動猫トイレ",
         "tracking_no": "JP213502378238",
     }
+    ordered = datetime.strptime(snap["created_at"], "%Y-%m-%d %H:%M")
+    assert (datetime.now().date() - ordered.date()).days == 13
 
 
 # --- 返金フローの規約検索(retrieve_policy)--------------------------------------

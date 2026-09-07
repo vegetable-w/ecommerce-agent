@@ -175,11 +175,19 @@ async def test_query_order_golden_value():
         "order_id": "1001",
         "status": "支払い済み",
         "amount": 1739,
-        "created_at": "2026-07-04 10:00",
         "product": "自動猫トイレ",
         "tracking_no": "JP213502378238",
     }
-    assert result == expected
+    assert {k: v for k, v in result.items() if k != "created_at"} == expected
+
+    # 注文日だけは「今日から何日前か」で決まる。固定の日付にすると、時間が経つほど
+    # 全注文が古くなり、規約の「受取後 7 日以内」を満たす注文が 1 件も作れなくなる
+    # (返品可能と判断される経路に到達できなくなる)。決定的なのは日付そのものではなく
+    # **経過日数**なので、そちらを固定する。
+    from datetime import datetime
+
+    ordered = datetime.strptime(result["created_at"], "%Y-%m-%d %H:%M")
+    assert (datetime.now().date() - ordered.date()).days == 13
 
 
 @pytest.mark.asyncio

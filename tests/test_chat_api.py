@@ -356,3 +356,49 @@ def _forbid_stream(monkeypatch) -> None:
         yield  # noqa: unreachable - 非同期ジェネレータにするためだけの行
 
     monkeypatch.setattr(runtime, "stream_turn", must_not_run)
+
+
+# --- 06 章: 注文の選択待ち(interrupt) ---------------------------------------------
+
+
+_ORDERS = [
+    {"order_id": "1001", "product": "自動猫トイレ", "status": "支払い済み", "amount": 1739},
+    {"order_id": "2002", "product": "スマート体重計", "status": "発送済み", "amount": 3280},
+]
+
+
+def test_chat_interrupt_frame_carries_the_orders(monkeypatch):
+    """注文を選ばせる中断が 1 フレームの SSE として届く。
+
+    kind を落とすと画面は中断の種類で分岐できず、conversation_id を落とすと
+    初回ターンで中断されたときに /api/actions/resume を叩けない(done が来ないので
+    会話 ID を知る手立てが他に無い)。
+    """
+    _use_events(monkeypatch, [
+        {"type": "interrupt", "kind": "select_order", "orders": _ORDERS,
+         "conversation_id": 42},
+    ])
+    body = _body({"user_id": "u1", "message": "返金したいです"})
+
+    assert _payloads(body) == [
+        {"event": "interrupt", "kind": "select_order", "orders": _ORDERS,
+         "conversation_id": 42},
+    ]
+    frames = [f for f in _frames(body) if '"interrupt"' in f]
+    assert len(frames) == 1
+    assert frames[0].count("\n") == 0  # 日本語の商品名が入っても 1 フレーム 1 行
+
+
+def test_chat_interrupt_ends_the_response_without_a_done_event(monkeypatch):
+    """done は「turn が完結した」印なので中断では出さない。それでも HTTP ストリームは
+    閉じる必要があり、終端は [DONE] が受け持つ。画面が待ちっぱなしにならないこと。"""
+    _use_events(monkeypatch, [
+        {"type": "delta", "text": "対象の注文をお選びください。"},
+        {"type": "interrupt", "kind": "select_order", "orders": _ORDERS,
+         "conversation_id": 42},
+    ])
+    body = _body({"user_id": "u1", "message": "返金したいです"})
+
+    assert not any(p.get("event") == "done" for p in _payloads(body))
+    assert "event: error" not in body
+    assert body.endswith("data: [DONE]\n\n")

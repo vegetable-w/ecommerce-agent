@@ -12,6 +12,7 @@ orchestration(app/core/agent.py)は通らない。ストリーミングの入口
 import pytest
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langgraph.types import Interrupt
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -185,7 +186,10 @@ def test_agent_endpoint_forwards_request_fields_to_runtime(monkeypatch):
 
     async def fake_run(user_id, message, conversation_id):
         seen.update(user_id=user_id, message=message, conversation_id=conversation_id)
-        return {"conversation_id": conversation_id or 1, "state": {"answer": "a"}}
+        # run_turn の戻り値の形をそのまま真似る。interrupt を省くと、
+        # ハンドラが中断を読み落としても気づけない偽物になる
+        return {"conversation_id": conversation_id or 1, "state": {"answer": "a"},
+                "interrupt": None}
 
     monkeypatch.setattr(runtime, "run_turn", fake_run)
     client = TestClient(app)
@@ -360,3 +364,43 @@ def test_tool_result_view_content_must_be_a_string():
             ok=True,
             content=[{"type": "text", "text": "配送中です"}],
         )
+
+
+# --- 06 章: 注文の選択待ち(interrupt) ---------------------------------------------
+
+
+_SELECT_ORDER = {
+    "type": "select_order",
+    "orders": [
+        {"order_id": "1001", "product": "自動猫トイレ", "status": "支払い済み", "amount": 1739},
+        {"order_id": "2002", "product": "スマート体重計", "status": "発送済み", "amount": 3280},
+    ],
+}
+
+
+def test_agent_endpoint_surfaces_the_interrupt(monkeypatch):
+    """注文が特定できないと fetch_order は interrupt で止まる。回答が無いまま
+    200 を返すと、呼び出し側は「答えられなかった turn」と区別できない。
+    中断の payload をそのまま載せて、何を選ばせればよいかを伝える。"""
+    _use_graph(monkeypatch, {
+        "messages": [HumanMessage("返金したいです")],
+        "answer": "",
+        "__interrupt__": [Interrupt(value=_SELECT_ORDER)],
+    })
+    client = TestClient(app)
+    r = client.post("/api/agent", json={"user_id": "u1", "message": "返金したいです"})
+
+    assert r.status_code == 200
+    assert r.json()["interrupt"] == _SELECT_ORDER
+
+
+def test_agent_endpoint_reports_no_interrupt_as_null(monkeypatch):
+    """中断していない turn でも key は必ずある。呼び出し側に key の有無で
+    分岐させない(既定を空にする suggested_actions と同じ規約)。"""
+    _use_graph(monkeypatch, _tool_turn_state())
+    client = TestClient(app)
+    r = client.post("/api/agent", json={"user_id": "u1", "message": "注文 1001 は今どこですか"})
+
+    body = r.json()
+    assert "interrupt" in body
+    assert body["interrupt"] is None

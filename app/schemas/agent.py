@@ -51,3 +51,14 @@ class AgentResponse(BaseModel):
     # 既定を空リストにするのは、選択肢を出さないターン(大半)でも必ずこの key が
     # 存在するようにするため。呼び出し側が key の有無で分岐せずに済む。
     suggested_actions: list = Field(default_factory=list)
+    # 06 章。注文が特定できないと fetch_order は interrupt で止まり、答えの無いまま
+    # ここへ戻ってくる。中断の payload({"type": "select_order", "orders": [...]})を
+    # そのまま載せて、何を選ばせればよいかを呼び出し側へ伝える。
+    #
+    # 既定を None にするのは suggested_actions と同じ理由で、中断していないターンでも
+    # key を必ず出すため。**中身を型で縛らない**のは、中断の種類が増えたときに
+    # payload の形も変わり、ここが変更の追随点になってしまうため
+    # (何を描くかは "type" を見て画面が決める)。
+    interrupt: dict | None = Field(
+        default=None, description="ユーザーの選択待ちで停止した場合の payload。通常は null"
+    )

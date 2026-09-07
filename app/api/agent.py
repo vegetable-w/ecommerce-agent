@@ -112,6 +112,10 @@ async def run_agent(req: AgentRequest) -> AgentResponse:
             # `or []` は None 対策。suggested_actions に reducer は無く、node が None を
             # 書き戻すと key はあるが値が None の State になりうる。
             suggested_actions=state.get("suggested_actions") or [],
+            # 中断していれば注文の一覧など「何を選ばせるか」がここに入る。
+            # 判定と payload の取り出しは runtime の担当(容れ物が list と tuple で
+            # 揺れるので、State から自前で読み直さないこと)。
+            interrupt=out["interrupt"],
         )
     except ValidationError:
         logger.exception("応答組み立てに失敗 user_id=%s", req.user_id)

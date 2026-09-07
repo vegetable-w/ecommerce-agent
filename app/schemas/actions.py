@@ -4,7 +4,7 @@
 チケット作成だけ(有人対応は本章では画面上の見た目のみ。spec §6.2)。
 """
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -88,3 +88,21 @@ class CreateRefundResponse(BaseModel):
     # create-ticket と同じく、会話が「オペレーター対応」へ移ったことを伝える
     # 日本語ラベル。文言は labels から引く(app/api/actions.py 参照)。
     status: str = Field(description="返金申請後の会話状態(日本語の表示ラベル)")
+
+
+class ResumeRequest(BaseModel):
+    """中断した turn の再開(06 章)。画面が注文を 1 件選んだときに送る。
+
+    conversation_id は checkpointer の thread_id そのもので、どの中断を再開するかは
+    これだけで決まる(中断は 1 会話につき 1 つしか待たない)。
+    """
+
+    conversation_id: int = Field(description="再開する会話。checkpointer の thread_id になる")
+    # **型で縛らない。** 画面が一覧の要素をそのまま返して {"order_id": "1001"} で来ることも、
+    # 番号だけを "1001" や 1001 で返すこともある。どれで来ても同じ注文に落とすのは
+    # fetch_order の _normalize_order_id の仕事で、ここで形を決め打ちにすると
+    # 画面の実装を 1 通りに縛った上、解釈できない値を 422 として弾いてしまう
+    # (fetch_order は読めない値でも会話を止めずに聞き直す設計になっている)。
+    #
+    # 既定値を置かないので、key 自体の欠落は 422 になる(None は明示すれば通る)。
+    value: Any = Field(description="ユーザーが選んだ値。注文番号または一覧の要素そのもの")

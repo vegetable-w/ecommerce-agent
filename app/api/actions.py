@@ -6,6 +6,9 @@ agent_tools がそれを横取りして選択肢へ変換するので DB には�
 書き込みが起きるのは、ユーザーが画面のボタンを押してここへ POST したときだけ。
 
 有人対応は本章では画面上の見た目のみで、backend の処理は無い(spec §6.2)。
+
+06 章で resume を足した。こちらは DB へは書かず、中断した graph の続きを走らせる
+だけだが、押されたボタンから始まるという点で他の 2 つと同じなのでここに置く。
 """
 
 import logging
@@ -13,13 +16,16 @@ import logging
 from fastapi import APIRouter, HTTPException
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.api import sse
 from app.core import labels
 from app.db import repository
+from app.graph import runtime
 from app.schemas.actions import (
     CreateRefundRequest,
     CreateRefundResponse,
     CreateTicketRequest,
     CreateTicketResponse,
+    ResumeRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -108,3 +114,22 @@ async def create_refund_action(req: CreateRefundRequest) -> CreateRefundResponse
         ticket_no=ticket_no,
         status=labels.label(labels.CONVERSATION_STATUS, "escalated"),
     )
+
+
+@router.post("/api/actions/resume")
+async def resume_action(req: ResumeRequest):
+    """注文を選んだ後の再開ボタン。中断していた turn の続きを走らせる。
+
+    **SSE で返す。** 再開の直後には Agent の回答がそのまま続くので、/api/chat と
+    同じイベントの列になる必要がある。JSON で返すと、選択の後だけ回答が
+    ストリーミングされない画面になる。
+
+    フレームの変換もエラーの対応付けも app/api/sse.py に任せる。ここで書き起こすと
+    /api/chat と 2 か所に同じ写像が並び、片方だけ直す事故が起きる。
+
+    runtime.stream_resume は属性経由で呼ぶこと(from ... import しない)。テストの
+    monkeypatch.setattr(runtime, "stream_resume", ...) が効かなくなり、本物の上流 LLM と
+    本番相当の DB へ流れ落ちる。
+    """
+    events = runtime.stream_resume(req.conversation_id, req.value)
+    return sse.stream_response(events, context=f"conv={req.conversation_id}")

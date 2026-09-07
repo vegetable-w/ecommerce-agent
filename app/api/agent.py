@@ -3,8 +3,9 @@
 - POST /api/agent/stream : フロントエンドの主入口(SSE)
 - POST /api/agent        : プログラム/テスト用の入口(非ストリーミング JSON)
 
-オーケストレーション本体は app/core/agent.py にあり、ここは「イベント dict → SSE フレーム」
-「AgentResult → JSON」の変換と例外 → エラー表現のマッピングだけを担当する。
+/api/agent は 05 章で LangGraph の ainvoke 入口になった(spec §7 / D2)。graph の最終
+State を JSON へ写し、例外をエラー表現へ対応付けるだけを担当する。
+/api/agent/stream はまだ旧オーケストレーション(app/core/agent.py)を使う。
 """
 
 import json
@@ -14,11 +15,14 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AIMessage, ToolMessage
 from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core import agent
 from app.core.llm import get_chat_model
+from app.graph import runtime
+from app.graph.nodes import resolve_answer
 from app.schemas.agent import AgentRequest, AgentResponse, ToolCallView, ToolResultView
 
 logger = logging.getLogger(__name__)
@@ -75,46 +79,81 @@ async def agent_stream(req: AgentRequest, model: BaseChatModel = Depends(get_mod
         except Exception:
             # 既知かつ意図的な不整合(レビュー承認済み): ここは上流障害だけでなく
             # こちら側のバグも捕まえるが、文言は一律「上流モデルを一時的に利用できません」に
-            # なる。/api/agent 側では同じ状況を「サーバー側の欠陥はサーバーエラーとして出す」
-            # 方針で 500 と 502 に区別しているので、その原則とは食い違っている。
-            # それでもこうしているのは、ここが既に HTTP 200 とヘッダを送出した後であり、
-            # ステータスコードで区別する手段が物理的に残っていないため。文言を増やすより、
-            # 下流には「エラーで終わった」とだけ伝え、詳細は logger.exception に委ねる。
+            # なる。/api/agent 側では同じ状況を 500 と 502 に区別しているので、その原則とは
+            # 食い違っている。それでもこうしているのは、ここが既に HTTP 200 とヘッダを
+            # 送出した後であり、ステータスコードで区別する手段が物理的に残っていないため。
             logger.exception("エージェントオーケストレーション失敗 user_id=%s", req.user_id)
             for f in _sse_error("上流モデルを一時的に利用できません。しばらくしてからもう一度お試しください"):
                 yield f
             return
-        # 意図的な差異(「簡略化」して chapter 1 に揃えないこと): /api/chat はエラーフレームの
-        # 後にも data: [DONE] を送るが、こちらは送らずに return する。static/index.html の
+        # 意図的な差異: エラー終了では [DONE] を送らずに return する。static/index.html の
         # 解析ループは reader.read() の done(= HTTP ストリームが閉じたこと)で終了し、
-        # [DONE] は continue で読み飛ばすだけ、error 分岐は自前で後始末をするため、
-        # 省いてもフロントエンドの挙動は変わらない。正常終了とエラー終了を
-        # 「[DONE] が来たかどうか」で区別できる分、こちらの方が下流には扱いやすい。
+        # [DONE] は continue で読み飛ばすだけなので、省いてもフロントエンドの挙動は変わらない。
+        # 正常終了とエラー終了を「[DONE] が来たかどうか」で区別できる分、下流には扱いやすい。
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(
         event_stream(),
         media_type="text/event-stream",
-        # リバースプロキシによるバッファリング対策(chapter 1 の /api/chat と同じ理由)
+        # リバースプロキシによるバッファリング対策
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
+def _views_from_state(state) -> tuple[list[ToolCallView], list[ToolResultView]]:
+    """最終 State の messages から tool の呼び出しと結果を組み直す。
+
+    評価と単体テストで「モデルが何を選んだか」を見るために要る。ストリーミング側は
+    tool 名だけを流せば足りるが、こちらは引数と結果まで欲しいので messages を辿る。
+
+    `.get("id") or ""` は意図的な防御(tc["id"] への「簡略化」をしないこと):
+    langchain_core の ToolCall は id: str | None を許容しており、id を省略する
+    OpenAI 互換ゲートウェイ経由では id=None がここまで届きうる。ToolCallView.id は
+    必須の str なので、素朴な添字アクセスは ValidationError になり、DB 行も回答も
+    正しく作られた「成功したターン」が日本語メッセージのない素の 500 として捨てられる。
+
+    content は .content ではなく .text を使う(app/api/chat.py と app/graph/nodes.py で
+    既に標準化されている作法)。ToolMessage.content は str だけでなくブロック形式
+    (list[dict])もありうるため、.content のままだと ToolResultView.content: str に
+    対して ValidationError になる。.text は type="text" のブロックだけを連結し、
+    reasoning などの非公開ブロックを落とす。
+    """
+    calls, results = [], []
+    for m in state.get("messages", []):
+        if isinstance(m, AIMessage) and m.tool_calls:
+            for tc in m.tool_calls:
+                calls.append(
+                    ToolCallView(
+                        id=tc.get("id") or "", name=tc.get("name") or "", args=tc.get("args") or {}
+                    )
+                )
+        elif isinstance(m, ToolMessage):
+            results.append(
+                ToolResultView(
+                    tool_call_id=m.tool_call_id,
+                    name=m.name or "",
+                    # ToolNode も app/tools/infra.py も、失敗した tool は status="error" の
+                    # ToolMessage にする。ここを常に True にすると、評価は失敗した呼び出しを
+                    # 成功として数える。
+                    ok=(m.status != "error"),
+                    content=m.text,
+                )
+            )
+    return calls, results
+
+
 @router.post("/api/agent", response_model=AgentResponse)
 async def run_agent(req: AgentRequest) -> AgentResponse:
-    # agent.run_agent_turn と属性経由で呼ぶこと(from ... import run_agent_turn にしない)。
-    # テストの monkeypatch.setattr(agent, "run_agent_turn", ...) が効かなくなるため。
+    # runtime.run_turn は属性経由で呼ぶこと(from ... import run_turn にしない)。
+    # テストの monkeypatch.setattr(runtime, "run_turn", ...) が効かなくなるため。
     #
-    # 注意(テストを書く人向けの落とし穴): このハンドラは model を Depends で受け取らず、
-    # run_agent_turn の内部で get_chat_model() を組み立てる。したがって
-    # app.dependency_overrides[agent_api.get_model] はこちらには一切効かない
-    # (効くのは /api/agent/stream だけ)。両方のエンドポイントがフェイクになったつもりで
-    # このエンドポイントを叩くと、本物の上流 LLM を呼び、本番相当の support DB へ
-    # 書き込む。このエンドポイントを差し替えたいときは
-    # monkeypatch.setattr(agent, "run_agent_turn", ...) を使うこと。
+    # 注意(テストを書く人向けの落とし穴): このハンドラはモデルを Depends で受け取らない。
+    # graph の中の node が get_chat_model() を組み立てるので、差し替えたいときは
+    # runtime.run_turn か runtime.get_graph を monkeypatch すること。何も差し替えずに
+    # 叩くと本物の上流 LLM を呼び、本番相当の support DB へ書き込む。
     try:
-        result = await agent.run_agent_turn(req.user_id, req.message, req.conversation_id)
-    except agent.ConversationNotFound:
+        out = await runtime.run_turn(req.user_id, req.message, req.conversation_id)
+    except runtime.ConversationNotFound:
         raise HTTPException(status_code=404, detail="会話が見つかりません")
     except SQLAlchemyError:
         logger.exception("データベースエラー user_id=%s", req.user_id)
@@ -123,56 +162,30 @@ async def run_agent(req: AgentRequest) -> AgentResponse:
             detail="データベースを一時的に利用できません。しばらくしてからもう一度お試しください",
         )
     except Exception:
-        logger.exception("agent オーケストレーション失敗 user_id=%s", req.user_id)
+        logger.exception("graph オーケストレーション失敗 user_id=%s", req.user_id)
         raise HTTPException(
             status_code=502,
             detail="上流モデルを一時的に利用できません。しばらくしてからもう一度お試しください",
         )
 
-    # `.get(...) or ""` は意図的な防御。tc["id"] への「簡略化」をしないこと:
-    # langchain_core の ToolCall は id: str | None を許容しており、id を省略する
-    # OpenAI 互換ゲートウェイ経由では id=None が AgentResult.tool_calls まで届きうる。
-    # ToolCallView.id は必須の str なので、素朴な添字アクセスは ValidationError になり、
-    # DB 行もチケットも回答も正しく作られた「成功したターン」が日本語メッセージのない
-    # 素の 500 として捨てられる。
-    #
-    # 応答の組み立ては上の try とは別の except で包む。run_agent_turn の失敗(上流障害・
-    # DB 障害)と、組み立て段階の ValidationError(= こちら側の欠陥)は別物であり、
-    # 後者を except Exception に吸わせて 502「上流モデルを一時的に利用できません」に
-    # するのは嘘になる(上流は正常で、決定的に同じ結果になる再試行を促してしまう)。
-    # app/api/extract.py が解析失敗を 502 ではなく 500 とした判断と同じ。
-    # ただし「500 にする」ことと「日本語の説明を返す」ことは両立するので、素の
-    # Internal Server Error に落とさず、detail 付きの 500 として返す。
-    # 下の .text 化(ブロック形式対応)と id=None 防御により実際には到達しないはずで、
-    # 到達しないことこそが狙い。最後の砦として残す。
+    # 応答の組み立ては上の try とは別の except で包む。run_turn の失敗(上流障害・DB 障害)と、
+    # 組み立て段階の ValidationError(= こちら側の欠陥)は別物であり、後者を except Exception に
+    # 吸わせて 502「上流モデルを一時的に利用できません」にするのは嘘になる(上流は正常で、
+    # 決定的に同じ結果になる再試行を促してしまう)。app/api/extract.py が解析失敗を 502 ではなく
+    # 500 とした判断と同じ。ただし「500 にする」ことと「日本語の説明を返す」ことは両立するので、
+    # 素の Internal Server Error に落とさず detail 付きの 500 として返す。
+    # 上の防御により実際には到達しないはずで、到達しないことこそが狙い。最後の砦として残す。
     try:
+        state = out["state"]
+        calls, results = _views_from_state(state)
         return AgentResponse(
-            conversation_id=result.conversation_id,
-            answer=result.answer,
-            tool_calls=[
-                ToolCallView(
-                    id=tc.get("id") or "", name=tc.get("name") or "", args=tc.get("args") or {}
-                )
-                for tc in result.tool_calls
-            ],
-            tool_results=[
-                ToolResultView(
-                    tool_call_id=r.tool_call_id,
-                    name=r.name,
-                    ok=r.ok,
-                    # .content ではなく .text を使う(app/api/chat.py と
-                    # app/core/agent.py の3か所で既に標準化されている作法)。
-                    # ToolMessage.content は str だけでなくブロック形式(list[dict])も
-                    # ありうる。.content のままだと ToolResultView.content: str に
-                    # 対して ValidationError になり、DB 行もチケットも回答も
-                    # 正しく永続化された「成功したターン」が 500 で捨てられる。
-                    # .text は TextAccessor(str のサブクラス)を返すので pydantic の
-                    # str フィールドにそのまま入り、type="text" のブロックだけを
-                    # 連結して reasoning などの非公開ブロックを落とす。
-                    content=r.tool_message.text,
-                )
-                for r in result.tool_runs
-            ],
+            conversation_id=out["conversation_id"],
+            answer=resolve_answer(state),
+            tool_calls=calls,
+            tool_results=results,
+            # `or []` は None 対策。suggested_actions に reducer は無く、node が None を
+            # 書き戻すと key はあるが値が None の State になりうる。
+            suggested_actions=state.get("suggested_actions") or [],
         )
     except ValidationError:
         logger.exception("応答組み立てに失敗 user_id=%s", req.user_id)

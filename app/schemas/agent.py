@@ -1,4 +1,7 @@
-"""/api/agent と /api/agent/stream の入出力スキーマ。"""
+"""/api/agent と /api/chat の入出力スキーマ。
+
+05 章で入口は 2 つになった(spec D2)。どちらも同じ graph を通し、同じ形の入力を取る。
+"""
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -45,3 +48,6 @@ class AgentResponse(BaseModel):
     answer: str
     tool_calls: list[ToolCallView]
     tool_results: list[ToolResultView]
+    # 既定を空リストにするのは、選択肢を出さないターン(大半)でも必ずこの key が
+    # 存在するようにするため。呼び出し側が key の有無で分岐せずに済む。
+    suggested_actions: list = Field(default_factory=list)

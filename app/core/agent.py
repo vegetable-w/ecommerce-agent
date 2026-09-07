@@ -198,8 +198,10 @@ async def run_agent_turn(user_id, message, conversation_id, model=None) -> Agent
 async def stream_agent_turn(
     user_id, message, conversation_id, model=None
 ) -> AsyncIterator[dict]:
-    """ストリーミング出口: /api/agent/stream が SSE に変換するイベント dict を生成。
-    収束は astream、bind しない。
+    """ストリーミング出口: SSE に変換するイベント dict を生成。収束は astream、bind しない。
+
+    05 章でストリーミングの入口は graph(app/graph/runtime.py の stream_turn)へ移り、
+    /api/agent/stream は削除した。この関数はもう HTTP からは呼ばれていない。
 
     既知のトレードオフ: ツールを使わない場合は完成済み回答を一括送信し、タイプライター表示には
     ならない。turn1 ではツールを使うか判断するため非ストリーミングで完全な結果が必要であり、

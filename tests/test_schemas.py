@@ -4,21 +4,29 @@ from pydantic import ValidationError
 from app.schemas.chat import ChatRequest
 from app.schemas.extract import AfterSalesTicket, ExtractRequest, RequestType
 
+# 05 章で ChatRequest は AgentRequest と同じ 3 フィールド(user_id / message /
+# conversation_id)になった。session_id は廃止。
+
 def test_chat_request_rejects_empty_message():
     with pytest.raises(ValidationError):
-        ChatRequest(session_id="s1", message="")
+        ChatRequest(user_id="u1", message="")
 
-def test_chat_request_rejects_empty_session_id():
+def test_chat_request_rejects_empty_user_id():
     with pytest.raises(ValidationError):
-        ChatRequest(session_id="", message="msg")
+        ChatRequest(user_id="", message="msg")
 
 def test_chat_request_rejects_whitespace_only_message():
     with pytest.raises(ValidationError):
-        ChatRequest(session_id="s1", message="   ")
+        ChatRequest(user_id="u1", message="   ")
 
-def test_chat_request_rejects_whitespace_only_session_id():
+def test_chat_request_rejects_whitespace_only_user_id():
     with pytest.raises(ValidationError):
-        ChatRequest(session_id="   ", message="msg")
+        ChatRequest(user_id="   ", message="msg")
+
+def test_chat_request_conversation_id_defaults_to_none():
+    # 新規会話は conversation_id 省略で始まる。既定が None でないと、
+    # 最初のターンが存在しない会話 ID を指したまま runtime へ届く。
+    assert ChatRequest(user_id="u1", message="こんにちは").conversation_id is None
 
 def test_extract_request_rejects_empty_text():
     with pytest.raises(ValidationError):

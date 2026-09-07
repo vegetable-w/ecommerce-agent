@@ -1,103 +1,29 @@
-"""エージェントの HTTP 出口。
+"""エージェントの非ストリーミング出口。
 
-- POST /api/agent/stream : フロントエンドの主入口(SSE)
-- POST /api/agent        : プログラム/テスト用の入口(非ストリーミング JSON)
+- POST /api/agent : 評価・テスト用の入口(非ストリーミング JSON)
 
-/api/agent は 05 章で LangGraph の ainvoke 入口になった(spec §7 / D2)。graph の最終
-State を JSON へ写し、例外をエラー表現へ対応付けるだけを担当する。
-/api/agent/stream はまだ旧オーケストレーション(app/core/agent.py)を使う。
+05 章でオーケストレーションは LangGraph へ移った(spec §7 / D2)。graph の最終 State を
+JSON へ写し、例外をエラー表現へ対応付けるだけを担当する。
+
+**旧 /api/agent/stream は削除した。** entry は /api/chat(astream)と /api/agent
+(ainvoke)の 2 つだけという spec の決定に従う。ストリーミングは /api/chat が同じ形の
+イベント(tool / citations / delta / actions / done)を出すので、フロントエンド
+(static/index.html)はそちらを叩く。
 """
 
-import json
 import logging
-from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
-from langchain_core.language_models import BaseChatModel
+from fastapi import APIRouter, HTTPException
 from langchain_core.messages import AIMessage, ToolMessage
 from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.core import agent
-from app.core.llm import get_chat_model
 from app.graph import runtime
 from app.graph.nodes import resolve_answer
 from app.schemas.agent import AgentRequest, AgentResponse, ToolCallView, ToolResultView
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-
-def get_model() -> BaseChatModel:
-    return get_chat_model(streaming=True)
-
-
-def _sse(payload: dict) -> str:
-    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-
-
-def _sse_error(message: str) -> AsyncIterator[str]:
-    # "event: error\n" と "data: {...}\n\n" の2回に分けて yield するが、
-    # 連結すると `event: error\ndata: {...}\n\n` となり SSE の1フレームとして正しい
-    # (app/api/chat.py と同じ形)。
-    yield "event: error\n"
-    yield _sse({"message": message})
-
-
-@router.post("/api/agent/stream")
-async def agent_stream(req: AgentRequest, model: BaseChatModel = Depends(get_model)):
-    async def event_stream() -> AsyncIterator[str]:
-        try:
-            async for ev in agent.stream_agent_turn(
-                req.user_id, req.message, req.conversation_id, model=model
-            ):
-                if ev["type"] == "tool":
-                    yield _sse({"event": "tool", "name": ev["name"]})
-                elif ev["type"] == "citations":
-                    # 引用本文には改行が入りうる。json.dumps がそれを \n へ
-                    # エスケープするので、SSE のフレーム区切り("\n\n")とは衝突しない。
-                    # 本文を生のまま流す「簡略化」をしないこと(1 フレームが割れて
-                    # フロントエンドの JSON.parse が両方失敗し、引用が丸ごと消える)。
-                    yield _sse({"event": "citations", "items": ev["items"]})
-                elif ev["type"] == "delta":
-                    yield _sse({"delta": ev["text"]})
-                elif ev["type"] == "done":
-                    yield _sse({"event": "done", "conversation_id": ev["conversation_id"]})
-        except agent.ConversationNotFound:
-            # 注意: この例外はジェネレータの内側、つまり既に HTTP 200 と
-            # text/event-stream ヘッダを送出した後に発生する。従って 404 にはできず、
-            # エラーフレームとして返すのが唯一の選択肢になる。
-            for f in _sse_error("会話が見つかりません"):
-                yield f
-            return
-        except SQLAlchemyError:
-            logger.exception("データベースエラー user_id=%s", req.user_id)
-            for f in _sse_error("データベースを一時的に利用できません。しばらくしてからもう一度お試しください"):
-                yield f
-            return
-        except Exception:
-            # 既知かつ意図的な不整合(レビュー承認済み): ここは上流障害だけでなく
-            # こちら側のバグも捕まえるが、文言は一律「上流モデルを一時的に利用できません」に
-            # なる。/api/agent 側では同じ状況を 500 と 502 に区別しているので、その原則とは
-            # 食い違っている。それでもこうしているのは、ここが既に HTTP 200 とヘッダを
-            # 送出した後であり、ステータスコードで区別する手段が物理的に残っていないため。
-            logger.exception("エージェントオーケストレーション失敗 user_id=%s", req.user_id)
-            for f in _sse_error("上流モデルを一時的に利用できません。しばらくしてからもう一度お試しください"):
-                yield f
-            return
-        # 意図的な差異: エラー終了では [DONE] を送らずに return する。static/index.html の
-        # 解析ループは reader.read() の done(= HTTP ストリームが閉じたこと)で終了し、
-        # [DONE] は continue で読み飛ばすだけなので、省いてもフロントエンドの挙動は変わらない。
-        # 正常終了とエラー終了を「[DONE] が来たかどうか」で区別できる分、下流には扱いやすい。
-        yield "data: [DONE]\n\n"
-
-    return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
-        # リバースプロキシによるバッファリング対策
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
 
 
 def _views_from_state(state) -> tuple[list[ToolCallView], list[ToolResultView]]:

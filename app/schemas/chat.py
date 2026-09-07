@@ -1,14 +1,13 @@
-from pydantic import BaseModel, Field, field_validator
+"""/api/chat の入力スキーマ。
 
-class ChatRequest(BaseModel):
-    session_id: str = Field(min_length=1, description="会話ID。同一会話では複数ターンで再利用する")
-    message: str = Field(min_length=1, description="ユーザーの今回のメッセージ")
+05 章で /api/chat は graph のストリーミング入口になり、/api/agent とまったく同じ入力
+(user_id / message / conversation_id)を取るようになった(spec §7 / D2)。同じ検証を
+2 か所へ書き写すと片方だけ直す事故が起きるので、AgentRequest をそのまま継承する。
+1 章の session_id はここで役目を終えた。会話の同一性は conversation_id が持つ。
+"""
 
-    # min_lengthはOpenAPIスキーマのminLengthとして表出させるために残し、
-    # 空白のみの値(min_lengthを通過してしまう)はこのvalidatorで拒否する
-    @field_validator("session_id", "message")
-    @classmethod
-    def _reject_blank(cls, v: str) -> str:
-        if not v.strip():
-            raise ValueError("空白のみの値は許可されない")
-        return v
+from app.schemas.agent import AgentRequest
+
+
+class ChatRequest(AgentRequest):
+    """/api/chat のリクエストボディ。中身は AgentRequest と同一。"""

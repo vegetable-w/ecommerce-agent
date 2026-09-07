@@ -36,6 +36,8 @@ from app.core.prompts import (
     COMPLAINT_REPLY_TEXT,
     FALLBACK_REPLY_TEXT,
     REFUND_JUDGE_HINT,
+    SCRIPT_REPLY_CHITCHAT,
+    SCRIPT_REPLY_OTHER,
 )
 from app.db import repository
 from app.graph import routing
@@ -95,6 +97,24 @@ def _history_text(state, max_turns: int = 6) -> str:
 async def chitchat_reply(state) -> dict:
     """雑談: 固定文を返す。model は呼ばない。"""
     return {"answer": CHITCHAT_REPLY, "trace": {"route": "chitchat"}}
+
+
+async def script_reply(state) -> dict:
+    """雑談 / その他の出口。model を呼ばず、intent で文面を出し分ける。
+
+    雑談は買い物の話題へ戻す案内、その他は何を知りたいのかを具体的に書いてもらう依頼。
+
+    **雑談だと分かっているときだけ**挨拶側の文面を出す。買い物の話題へ案内し直す文は
+    「雑談である」ことが前提なので、分類が壊れて別の intent が届いた場合に出すと
+    的外れになる。ここへ来るのは routing.INTENT_TO_ROUTE の 雑談 / その他 の 2 つだけで、
+    それ以外は分類側の異常なので、用件を聞き直す方へ倒す(どちらに転んでも会話は進む)。
+
+    evidence が弱いときの fallback_reply とは別の出口。あちらは検索して答えられなかった
+    結果で、こちらは routing 直後に確定する。低信頼プールへも積まない(答えるべき質問が
+    そもそも無いので、ナレッジベースの穴として数えると穴の数が水増しされる)。
+    """
+    text = SCRIPT_REPLY_CHITCHAT if state.get("intent") == "雑談" else SCRIPT_REPLY_OTHER
+    return {"answer": text, "trace": {"route": "fallback_script"}}
 
 
 async def complaint_reply(state) -> dict:

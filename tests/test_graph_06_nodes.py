@@ -1043,3 +1043,67 @@ async def test_policy_retrieval_is_capped(monkeypatch):
     out = await nodes.retrieve_policy({"resolved_query": "返品できますか"})
     assert len(out["citations"]) == nodes._POLICY_TOP_K
     assert out["citations"][0]["id"] == 0          # スコアの高い順に残る
+
+
+# --- 雑談 / その他の出口(script_reply)------------------------------------------
+
+
+async def test_script_reply_guides_chitchat_back_to_shopping():
+    from app.core.prompts import SCRIPT_REPLY_CHITCHAT
+
+    out = await nodes.script_reply({"intent": "雑談", "messages": [HumanMessage("いい天気ですね")]})
+    assert out["answer"] == SCRIPT_REPLY_CHITCHAT
+    assert out["trace"]["route"] == "fallback_script"
+
+
+async def test_script_reply_asks_the_other_intent_to_be_specific():
+    from app.core.prompts import SCRIPT_REPLY_OTHER
+
+    out = await nodes.script_reply({"intent": "その他", "messages": [HumanMessage("うーん")]})
+    assert out["answer"] == SCRIPT_REPLY_OTHER
+    assert out["trace"]["route"] == "fallback_script"
+
+
+async def test_script_reply_texts_differ():
+    """2 つの文面が同じなら intent で出し分ける意味が無い。"""
+    from app.core.prompts import SCRIPT_REPLY_CHITCHAT, SCRIPT_REPLY_OTHER
+
+    assert SCRIPT_REPLY_CHITCHAT != SCRIPT_REPLY_OTHER
+
+
+@pytest.mark.parametrize("intent", ["", "未知", "配送"])
+async def test_script_reply_asks_to_be_specific_when_the_intent_is_not_chitchat(intent):
+    """雑談と確信できないものは、挨拶ではなく「具体的に」へ倒す。
+
+    ここへ来るのは 雑談 / その他 の 2 つだけ(routing.INTENT_TO_ROUTE)なので、
+    それ以外が届いた時点で分類側が壊れている。買い物の話題へ案内し直す挨拶文は
+    「雑談だと分かっている」ことが前提なので、分からないときに出すと的外れになる。
+    用件を聞き直す方が、どちらに転んでも会話が進む。
+    """
+    from app.core.prompts import SCRIPT_REPLY_OTHER
+
+    out = await nodes.script_reply({"intent": intent, "messages": [HumanMessage("?")]})
+    assert out["answer"] == SCRIPT_REPLY_OTHER
+
+
+async def test_script_reply_offers_no_actions():
+    """選択肢を出す出口ではない。雑談に有人対応の導線を付けない。"""
+    out = await nodes.script_reply({"intent": "雑談", "messages": [HumanMessage("やあ")]})
+    assert "suggested_actions" not in out
+
+
+async def test_script_reply_names_this_store():
+    """名乗る店名は既存プロンプトと同じ「STORE」であること。"""
+    from app.core.prompts import SCRIPT_REPLY_CHITCHAT
+
+    assert "STORE" in SCRIPT_REPLY_CHITCHAT
+
+
+async def test_script_reply_does_not_call_the_model(monkeypatch):
+    """model を呼ばないことがこの node の存在理由。取りに行った時点で落とす。"""
+    def _boom(*args, **kwargs):
+        raise AssertionError("script_reply が上流のモデルを呼んだ")
+
+    monkeypatch.setattr(nodes, "get_chat_model", _boom)
+    await nodes.script_reply({"intent": "雑談", "messages": [HumanMessage("やあ")]})
+    await nodes.script_reply({"intent": "その他", "messages": [HumanMessage("うーん")]})

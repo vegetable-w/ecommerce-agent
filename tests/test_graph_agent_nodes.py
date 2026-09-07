@@ -113,13 +113,18 @@ def test_knowledge_route_tells_the_model_not_to_search_again():
     assert "再度呼ばないでください" in sys
 
 
-def test_business_route_does_not_append_evidence():
-    """business route では evidence を連結しない(そもそも検索していない)。"""
-    state = {"route": "business", "evidence": "[1] 混ざってはいけない根拠",
+def test_business_route_has_no_evidence_to_append():
+    """business route では evidence が空なので何も連結されない(そもそも検索していない)。
+
+    06 章で連結の条件を「route が knowledge」から「evidence があれば」へ緩めた。
+    強制検索は forced_rag(knowledge)と retrieve_policy(refund_flow)の 2 つに増え、
+    route を条件にすると経路が増えるたびに書き足すことになるため。前 turn の evidence が
+    business route へ漏れないことは、runtime が turn の入口で evidence / citations を
+    空へ戻していること(app/graph/runtime.py の _graph_input)が担保する。
+    """
+    state = {"route": "business", "evidence": "",
              "messages": [HumanMessage("注文1001はどこ")]}
-    sys = nodes._agent_messages(state)[0].content
-    assert sys == AGENT_SYSTEM
-    assert "混ざってはいけない根拠" not in sys
+    assert nodes._agent_messages(state)[0].content == AGENT_SYSTEM
 
 
 def test_empty_evidence_is_not_appended():

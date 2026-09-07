@@ -25,7 +25,7 @@ ainvoke する。interrupt() は compiled graph の中でしか動かず、node 
 import logging
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableLambda
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
@@ -36,7 +36,7 @@ from app.core import coref as coref_mod
 from app.core import intent as intent_mod
 from app.core import query_understanding as qu
 from app.core.llm import get_chat_model
-from app.core.prompts import COREF_REWRITE_PROMPT, EXPAND_QUERIES_PROMPT
+from app.core.prompts import AGENT_SYSTEM, COREF_REWRITE_PROMPT, EXPAND_QUERIES_PROMPT
 from app.graph import nodes
 from app.graph.state import ConversationState
 from app.tools import business
@@ -834,3 +834,160 @@ async def test_retrieve_policy_falls_back_to_the_user_text(monkeypatch):
     seen = _stub_policy(monkeypatch, {"q1": []})
     await nodes.retrieve_policy({"messages": [HumanMessage("返品したいのですが")]})
     assert seen["expand_arg"] == "返品したいのですが"
+
+
+# --- 返金申請の横取り(submit_refund)と Agent への文脈注入 ------------------------
+
+
+def _forbid_tool_execution(monkeypatch):
+    """ツール実行を「呼ばれたら落ちる」に差し替える。
+
+    submit_refund は create_ticket と同じで**実行してはいけない**ツールなので、
+    「実行されていないこと」をテストの書き方ではなく仕組みで確かめる。
+    """
+
+    async def _boom(*args, **kwargs):
+        raise AssertionError("横取りすべきツールを実行した")
+
+    monkeypatch.setattr(nodes, "execute_tool_call", _boom)
+
+
+def _ai_calling(*tool_calls):
+    return AIMessage(content="", tool_calls=list(tool_calls))
+
+
+async def test_submit_refund_is_never_executed(monkeypatch):
+    """submit_refund は**実行しない**。DB にも書かない。
+
+    実際に返金申請を作るのは、ユーザーが画面のボタンを押したときだけ。Agent が
+    呼んだ時点で申請を立てると、ユーザーが望んでいない申請が運用側へ流れる
+    (create_ticket / complaint_reply と同じ方針)。
+    """
+    _forbid_tool_execution(monkeypatch)
+    tc = {"name": "submit_refund", "args": {"order_id": "1001", "reason": "初期不良"},
+          "id": "r1"}
+    out = await nodes.agent_tools({"messages": [_ai_calling(tc)], "conversation_id": 42})
+
+    assert out["suggested_actions"] == [
+        {"type": "refund_form", "draft": {"order_id": "1001", "reason": "初期不良"}}
+    ]
+
+
+async def test_intercepted_refund_answers_the_original_tool_call_id(monkeypatch):
+    """合成 ToolMessage の tool_call_id が元の tool_call と一致すること。
+
+    上流は tool_calls と ToolMessage の対応を検査しており、食い違うと 400 になって
+    loop がその場で止まる(create_ticket の横取りと同じ制約)。
+    """
+    _forbid_tool_execution(monkeypatch)
+    tc = {"name": "submit_refund", "args": {"order_id": "1001"}, "id": "call_r_abc"}
+    out = await nodes.agent_tools({"messages": [_ai_calling(tc)]})
+
+    assert len(out["messages"]) == 1
+    tm = out["messages"][0]
+    assert tm.tool_call_id == "call_r_abc"
+    assert tm.name == "submit_refund"
+    assert "返金" in tm.content
+
+
+async def test_refund_draft_falls_back_to_the_order_id_in_state(monkeypatch):
+    """args に注文番号が無ければ State の値で補う。
+
+    Agent は文脈から番号を落とすことがあり、空の draft を画面へ出すと
+    ユーザーには何の申請フォームか分からない。
+    """
+    _forbid_tool_execution(monkeypatch)
+    tc = {"name": "submit_refund", "args": {"reason": "サイズが合わない"}, "id": "r1"}
+    out = await nodes.agent_tools({"messages": [_ai_calling(tc)], "order_id": "2002"})
+
+    assert out["suggested_actions"][0]["draft"] == {"order_id": "2002",
+                                                    "reason": "サイズが合わない"}
+
+
+async def test_refund_draft_keeps_reason_none_when_the_agent_gives_none(monkeypatch):
+    """理由は任意。無ければ None のまま渡す(画面の選択肢で確定させる)。"""
+    _forbid_tool_execution(monkeypatch)
+    tc = {"name": "submit_refund", "args": {"order_id": "1001"}, "id": "r1"}
+    out = await nodes.agent_tools({"messages": [_ai_calling(tc)]})
+    assert out["suggested_actions"][0]["draft"] == {"order_id": "1001", "reason": None}
+
+
+async def test_a_ticket_and_a_refund_in_the_same_step_are_both_intercepted(monkeypatch):
+    """1 step に create_ticket と submit_refund が並んでも、両方とも横取りされること。
+
+    片方だけ横取りして片方を実行すると、実行された方が DB に書き込まれるうえ、
+    ToolMessage の対応が揃わずに上流が 400 を返す。
+    """
+    _forbid_tool_execution(monkeypatch)
+    ticket = {"name": "create_ticket", "args": {"description": "壊れていた",
+                                                "ticket_type": "after_sales"}, "id": "c1"}
+    refund = {"name": "submit_refund", "args": {"order_id": "1001"}, "id": "r1"}
+    out = await nodes.agent_tools({"messages": [_ai_calling(ticket, refund)],
+                                   "conversation_id": 7})
+
+    assert [m.tool_call_id for m in out["messages"]] == ["c1", "r1"]
+    assert [a["type"] for a in out["suggested_actions"]] == ["create_ticket", "refund_form"]
+
+
+def test_agent_messages_injects_the_order_the_policy_and_the_judgement_task():
+    """refund route では注文の中身・規約・判断の指示をまとめて system へ入れる。"""
+    msgs = nodes._agent_messages({
+        "route": "refund_flow",
+        "order_data": business.order_snapshot("1001"),
+        "evidence": "[1] 返品: 受取後7日以内は返品可能",
+        "messages": [HumanMessage("この注文は返品できますか")]})
+    sys = msgs[0]
+
+    assert isinstance(sys, SystemMessage)
+    assert sys.content.startswith(AGENT_SYSTEM)
+    assert "[1] 返品: 受取後7日以内は返品可能" in sys.content   # 規約
+    assert "自動猫トイレ" in sys.content and "1001" in sys.content  # 注文の中身
+    assert "submit_refund" in sys.content                       # 可能なら呼ぶ
+    assert "[n]" in sys.content                                 # 不可なら番号を引いて説明
+    assert "規約に無い条件" in sys.content                       # 条件をでっち上げない
+    assert msgs[1:] == [HumanMessage("この注文は返品できますか")]
+
+
+def test_agent_messages_does_not_escape_japanese_in_the_order_data():
+    """注文の中身は日本語のまま入れる。unicode escape に化けるとモデルが読む文字数が増える。"""
+    sys = nodes._agent_messages({"route": "refund_flow",
+                                 "order_data": {"status": "発送済み"}, "messages": []})[0]
+    assert "発送済み" in sys.content
+
+
+def test_agent_messages_still_injects_evidence_on_the_knowledge_route():
+    """05 の挙動を壊していないこと(条件を緩めた後も knowledge route は同じ)。"""
+    sys = nodes._agent_messages({
+        "route": "knowledge", "evidence": "[1] 送料: 3,000円以上は送料無料",
+        "messages": [HumanMessage("送料はいくらですか")]})[0]
+    assert "3,000円以上は送料無料" in sys.content
+    assert "query_faq" in sys.content and "再度呼ばないでください" in sys.content
+
+
+def test_agent_messages_does_not_inject_empty_evidence():
+    """evidence が空なら見出しごと足さない。
+
+    retrieve_policy も forced_rag も、引けなかったときは evidence="" を書く。
+    見出しだけ付いた空の evidence は「根拠はあるが中身が無い」という誤った指示になる。
+    """
+    assert nodes._agent_messages(
+        {"route": "knowledge", "evidence": "", "messages": []})[0].content == AGENT_SYSTEM
+
+    sys = nodes._agent_messages({"route": "refund_flow", "evidence": "",
+                                 "order_data": {"order_id": "1001"}, "messages": []})[0]
+    assert "retrieval 済み" not in sys.content   # evidence の見出しは出ない
+    assert "submit_refund" in sys.content        # 判断の指示は残る
+
+
+def test_agent_messages_leaves_the_business_route_alone():
+    """business route は注文の指示も規約も足さない(検索そのものをしていない)。"""
+    sys = nodes._agent_messages({"route": "business",
+                                 "messages": [HumanMessage("注文1001はどこ")]})[0]
+    assert sys.content == AGENT_SYSTEM
+
+
+def test_submit_refund_is_registered_for_the_model():
+    """モデルへ渡すツール一覧に入っていること(入っていないと呼びようがない)。"""
+    from app.tools import registry
+    assert registry.get_tool("submit_refund") is not None
+    assert "submit_refund" in {t.name for t in registry.get_all_tools()}

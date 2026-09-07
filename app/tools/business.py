@@ -297,3 +297,28 @@ async def create_ticket(
         "status": "escalated",
         "status_label": labels.label(labels.CONVERSATION_STATUS, "escalated"),
     }
+
+
+class RefundInput(BaseModel):
+    order_id: str = Field(description="返金・返品の対象となる注文番号。例: 1001")
+    reason: str | None = Field(
+        default=None,
+        description="返品・返金の理由。分かる場合だけ書く。最終的な理由は画面のフォームでユーザーが選ぶ",
+    )
+
+
+@tool(args_schema=RefundInput)
+async def submit_refund(order_id: str, reason: str | None = None) -> dict:
+    """返品・返金が可能だと判断できた場合に呼ぶ。**返金の実行ではない。**
+
+    このツールは「この注文は返品・返金の対象になる」というあなたの意思表示であり、
+    ユーザーへ申請フォームを提示するために使う。実際に申請が作られるのは、
+    ユーザーがその画面で送信したときだけなので、「返金を受け付けました」「返金処理を
+    開始しました」のように完了した言い方をしてはならない。
+
+    規約と注文の情報から可否を判断できない場合、または対象外の場合は呼ばないこと。"""
+    # ここは実行されない。app/graph/nodes.py の agent_tools が create_ticket と同じ作法で
+    # 横取りし、画面の選択肢(refund_form)へ変換する。**DB には書かない。**
+    # それでも本体を空にしないのは、横取りの手前でツールとして成立していないと、
+    # 横取りを外したときに静かに「不明なツール」へ倒れて原因が見えなくなるため。
+    return {"status": "ユーザーの確認待ち", "order_id": order_id, "reason": reason}

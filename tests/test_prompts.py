@@ -48,28 +48,35 @@ def test_agent_prompt_has_history_placeholder():
                for m in AGENT_PROMPT.messages)
 
 def test_agent_system_names_match_registry():
-    """Verify that tool names hardcoded in AGENT_SYSTEM match registry.
+    """Verify that tool names hardcoded in the prompts match registry.
 
     AGENT_SYSTEM mentions tool names by string (e.g. "query_order").
     If a tool is renamed in the registry, the prompt name must stay in sync
     or the model will be told to call a tool that no longer exists under
     that name. This test catches that desync.
+
+    06 章から、常時渡す AGENT_SYSTEM だけでは足りない。submit_refund は返金フローでしか
+    呼ばせたくないツールで、AGENT_SYSTEM に書くと全経路で「返金申請を出す」選択肢が
+    見えてしまう(注文を特定していない経路でも呼ばれる)。そのため使い方は
+    REFUND_JUDGE_HINT の側にあり、対応の検査もその 2 つを合わせて行う。
     """
+    from app.core.prompts import REFUND_JUDGE_HINT
     from app.tools.registry import get_all_tools
 
     # Get actual tool names from registry
     registry_names = {t.name for t in get_all_tools()}
 
-    # Extract tool names mentioned in AGENT_SYSTEM (query_* or create_* pattern)
-    mentioned_names = set(re.findall(r'\b(?:query|create)_[a-z_]+\b', AGENT_SYSTEM))
+    # Extract tool names mentioned in the prompts (query_* / create_* / submit_* pattern)
+    instructions = AGENT_SYSTEM + REFUND_JUDGE_HINT
+    mentioned_names = set(re.findall(r'\b(?:query|create|submit)_[a-z_]+\b', instructions))
 
-    # Forward: all registry tools should be mentioned in the prompt
+    # Forward: all registry tools should be mentioned in the prompts
     for name in registry_names:
-        assert name in mentioned_names, f"Tool '{name}' in registry but not mentioned in AGENT_SYSTEM"
+        assert name in mentioned_names, f"Tool '{name}' in registry but not mentioned in the prompts"
 
     # Reverse: all mentioned names should correspond to real tools in registry
     for name in mentioned_names:
-        assert name in registry_names, f"Tool '{name}' mentioned in AGENT_SYSTEM but not in registry"
+        assert name in registry_names, f"Tool '{name}' mentioned in the prompts but not in registry"
 
 
 # ---- 04 章: RAG 生成 / セルフチェック / 忠実性 ---------------------------------

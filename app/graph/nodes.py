@@ -35,6 +35,7 @@ from app.core.prompts import (
     CHITCHAT_REPLY_TEXT,
     COMPLAINT_REPLY_TEXT,
     FALLBACK_REPLY_TEXT,
+    REFUND_JUDGE_HINT,
 )
 from app.db import repository
 from app.graph import routing
@@ -472,16 +473,29 @@ _KNOWLEDGE_EVIDENCE_HINT = (
 
 
 def _agent_messages(state) -> list:
-    """system(knowledge route では evidence を連結)+ turn をまたいだ履歴。
+    """system(evidence があれば連結)+ turn をまたいだ履歴。
 
     evidence を system 側へ入れるのは、ToolMessage として差し込むと対応する tool_call が
-    存在せず上流に弾かれるため。空文字を連結しないのは、forced_rag が weak のときに
-    evidence="" を書くからで、見出しだけ付いた空の evidence は「根拠はあるが中身が無い」
-    という誤った指示になる。
+    存在せず上流に弾かれるため。空文字を連結しないのは、forced_rag / retrieve_policy が
+    引けなかったときに evidence="" を書くからで、見出しだけ付いた空の evidence は
+    「根拠はあるが中身が無い」という誤った指示になる。
+
+    **route で絞らず「evidence があれば連結」にしている。** 強制検索は knowledge route の
+    forced_rag と refund_flow の retrieve_policy の 2 つがあり、どちらも同じ形で
+    evidence / citations を書く。route を条件にすると、経路が増えるたびにここを
+    書き足すことになり、書き忘れた経路だけ根拠が黙って届かなくなる。
+
+    refund_flow ではさらに、対象の注文と「可否だけを判断する」指示を足す。注文の中身を
+    渡さないと、規約だけを読んで一般論で答えてしまう。
     """
     sys = AGENT_SYSTEM
-    if state.get("route") == "knowledge" and state.get("evidence"):
-        sys = AGENT_SYSTEM + _KNOWLEDGE_EVIDENCE_HINT + state["evidence"]
+    if state.get("evidence"):
+        sys = sys + _KNOWLEDGE_EVIDENCE_HINT + state["evidence"]
+    if state.get("route") == "refund_flow":
+        # ensure_ascii=False にするのは、日本語を unicode escape にすると読ませる
+        # 文字数が数倍になり、注文の中身が人にもモデルにも読めなくなるため
+        sys = sys + REFUND_JUDGE_HINT + json.dumps(state.get("order_data") or {},
+                                                   ensure_ascii=False)
     return [SystemMessage(sys), *state.get("messages", [])]
 
 
@@ -546,11 +560,11 @@ async def _record_faq_refusal(state, run) -> None:
 
 
 async def agent_tools(state) -> dict:
-    """ReAct の action step。**create_ticket だけは実行せず選択肢へ変換する。**
+    """ReAct の action step。**create_ticket と submit_refund は実行せず選択肢へ変換する。**
 
-    complaint_reply と同じ理由で、チケットは勝手に立てない(モデルが呼ぶと決めた時点で
-    作ってしまうと、ユーザーが望まないチケットで運用側の待ち行列が伸びる)。代わりに
-    そのまま create_ticket へ渡せる draft を suggested_actions へ積み、モデルには
+    complaint_reply と同じ理由で、チケットも返金申請も勝手には作らない(モデルが呼ぶと
+    決めた時点で作ってしまうと、ユーザーが望まないものが運用側の待ち行列へ積み上がる)。
+    代わりにそのまま渡せる draft を suggested_actions へ積み、モデルには
     「選択肢を提示した」と伝える合成 ToolMessage を返す。
 
     合成 ToolMessage の tool_call_id は元の tool_call と必ず一致させること。上流は
@@ -570,6 +584,18 @@ async def agent_tools(state) -> dict:
                 content="「チケット作成」の選択肢をユーザーへ提示しました。"
                         "1 文で簡潔に説明して終了し、これ以上 tool を呼ばないでください。",
                 tool_call_id=tc["id"], name="create_ticket"))
+        elif tc["name"] == "submit_refund":
+            # 注文番号は State の値で補う。モデルは文脈から番号を落とすことがあり、
+            # 空の draft を画面へ出すと、ユーザーには何の申請フォームか分からない。
+            draft = {"order_id": tc["args"].get("order_id") or state.get("order_id") or "",
+                     "reason": tc["args"].get("reason")}
+            actions.append({"type": "refund_form", "draft": draft})
+            tool_msgs.append(ToolMessage(
+                content="「返金・返品を申請する」の選択肢をユーザーへ提示しました。"
+                        "申請はまだ送信されていません。この注文が対象になる理由を"
+                        "規約の番号を引いて 1 文で説明し、画面から申請できることを"
+                        "案内して終了してください。これ以上 tool を呼ばないでください。",
+                tool_call_id=tc["id"], name="submit_refund"))
         else:
             run = await execute_tool_call(tc, state.get("conversation_id", 0))
             tool_msgs.append(run.tool_message)

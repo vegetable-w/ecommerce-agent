@@ -146,3 +146,45 @@ class LowConfidenceQuestion(Base):
     )
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class FaithCase(Base):
+    """幻覚ケース台帳。評価の実行をまたいで 1 問 1 行で積み上がる。
+
+    レポート JSON は実行のたびに作り直される成果物なので、そこにしか無い幻覚ケースは
+    次の実行で消える。同じ問いが何度も幻覚になるのか、それとも一度きりだったのかは
+    実行をまたいで数えないと分からないため、判定結果をこちらに残す。
+
+    eval_id が UNIQUE。同じ問いが再び幻覚と判定されても行は増えず、
+    repository.upsert_faith_case が最新の実行の内容で上書きして seen_count を増やす。
+
+    citations はその実行でモデルへ渡した Top-K 根拠の**全件**。回答が実際に引用するのは
+    そのうち 2〜3 件だが、判定を人が見直すときは「引用しなかった根拠に答えが載っていた」
+    ことまで確かめる必要があるので、引用された部分集合ではなく全件を残す。
+
+    server_default は DDL に合わせて宣言してあるが、repository の書き込み経路では
+    seen_count / status / 2 つの時刻を Python 側で必ず埋める。commit 直後に同じ
+    インスタンスからそれらを読み返すため(戻り値に載せる)、server_default 任せにすると
+    暗黙のリフレッシュで "sqlalchemy.exc.MissingGreenlet" になる(Conversation の
+    eager_defaults のコメントを参照)。
+    """
+
+    __tablename__ = "faith_cases"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    eval_id: Mapped[str] = mapped_column(String(16), unique=True)
+    bucket: Mapped[str] = mapped_column(String(24))
+    query: Mapped[str] = mapped_column(String(512))
+    strategy: Mapped[str] = mapped_column(String(24), server_default="hybrid_rerank")
+    answer: Mapped[str] = mapped_column(Text)
+    reason: Mapped[str] = mapped_column(Text)
+    citations: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    judge_model: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(
+        Enum("unresolved", "resolved", "no_action_needed"), server_default="unresolved"
+    )
+    seen_count: Mapped[int] = mapped_column(Integer, server_default="1")
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    resolution: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

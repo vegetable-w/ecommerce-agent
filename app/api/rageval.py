@@ -26,9 +26,18 @@ import json
 import logging
 import pathlib
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.core import jobs
+from app.db import repository
+from app.schemas.rageval import (
+    FaithCaseListResponse,
+    FaithCaseRow,
+    FaithCaseStatusRequest,
+    FaithCaseStatusResponse,
+    FaithStatus,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/rag-eval", tags=["rag-eval"])
@@ -175,3 +184,66 @@ def build_overview() -> dict:
 @router.get("/overview")
 async def overview() -> dict:
     return build_overview()
+
+
+# ---------------------------------------------------------------------------
+# 幻覚ケース台帳 (Task 19)
+#
+# 上の overview と違い、ここだけは artifact ではなく MySQL の faith_cases を読む。
+# 台帳は実行をまたいで積み上がるもので、実行ごとに作り直されるレポートには置けない。
+# ---------------------------------------------------------------------------
+
+
+@router.get("/faith-cases", response_model=FaithCaseListResponse)
+async def faith_cases(
+    status: FaithStatus | None = Query(default=None, description="status で絞り込む"),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=100),
+) -> FaithCaseListResponse:
+    """台帳の一覧。DB が落ちていても評価画面ごと 500 にはしない。
+
+    レポートが無いときに /overview が present=false という「状態」を返すのと同じ考え方で、
+    読めなかったことを error に載せた空の一覧として返す。台帳は評価画面に後から足した
+    管理用の欄であり、MySQL が落ちている間に評価指標まで見られなくなるのは割に合わない。
+
+    counts は読めなければ None にする。全部 0 の dict にしてはいけない
+    (「台帳が空」と「集計できなかった」は画面で言うべきことが違う)。
+    """
+    try:
+        result = await repository.list_faith_cases(status=status, page=page, size=size)
+    except Exception as exc:
+        logger.exception("幻覚ケース台帳を取得できない")
+        return FaithCaseListResponse(
+            rows=[], total=0, page=page, size=size, pages=0, status=status,
+            counts=None, error=f"データベースから取得できません({type(exc).__name__})",
+        )
+    return FaithCaseListResponse(
+        rows=[FaithCaseRow.model_validate(r) for r in result["rows"]],
+        total=result["total"], page=result["page"], size=result["size"],
+        pages=result["pages"], status=result["status"], counts=result["counts"],
+        error=None,
+    )
+
+
+@router.post("/faith-cases/{case_id}/status", response_model=FaithCaseStatusResponse)
+async def update_faith_case_status(
+    case_id: int, req: FaithCaseStatusRequest
+) -> FaithCaseStatusResponse:
+    """1 件の状態を人手で変える。更新後の行をそのまま返す(画面はこれで描き直す)。
+
+    status の綴り誤りはスキーマの Literal が先に 422 で弾く。ここで if を書き足して
+    400 にし直さないこと(検査が 2 か所になる)。400 にするのは対処メモの規則違反だけ。
+    """
+    try:
+        row = await repository.set_faith_case_status(case_id, req.status, req.resolution)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        logger.exception("幻覚ケースの状態を更新できない id=%s", case_id)
+        raise HTTPException(
+            status_code=503,
+            detail="データベースを一時的に利用できません。しばらくしてからもう一度お試しください",
+        ) from exc
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"ケース {case_id} は見つかりません")
+    return FaithCaseStatusResponse(case=FaithCaseRow.model_validate(row))

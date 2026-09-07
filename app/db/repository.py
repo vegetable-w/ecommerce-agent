@@ -17,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 import app.db.base as db
 from app.db.models import (
     Conversation,
+    FaithCase,
     Faq,
     KnowledgeChunk,
     LowConfidenceQuestion,
@@ -390,3 +391,209 @@ async def insert_low_confidence(
             conversation_id,
         )
         return await _insert_low_confidence(None, raw_question, source, reason)
+
+
+# ---------------------------------------------------------------------------
+# 幻覚ケース台帳 (Task 19)
+# ---------------------------------------------------------------------------
+
+# DDL の ENUM と同じ並び。画面のタブもこの順で出す。
+FAITH_STATUSES = ("unresolved", "resolved", "no_action_needed")
+# 「人が一度目を通して片を付けた」状態。再び幻覚と判定されたら unresolved へ戻す対象で
+# あり、対処メモ(resolution)が必須になる状態でもある。
+FAITH_CLOSED_STATUSES = ("resolved", "no_action_needed")
+# resolution は VARCHAR(300)。ここで弾かないと MySQL の DataError がそのまま 500 になる
+FAITH_RESOLUTION_MAX = 300
+
+
+def _faith_now() -> datetime:
+    """台帳に入れる現在時刻。秒未満は落とす。
+
+    時刻を Python 側で作るのは、first_seen_at と last_seen_at の片方だけ
+    server_default(CURRENT_TIMESTAMP)に任せると、アプリと MySQL の時計や
+    タイムゾーンがずれたときに並び順が壊れるため。
+
+    秒未満を落とすのは、対象の列が DATETIME(小数秒の精度なし)で、MySQL が
+    保存時に **四捨五入** するから。13:14:40.77 を渡すと DB には 13:14:41 が入り、
+    書き込み直後に返した行(Python 側の値)と、次に読み直した行の時刻が食い違う。
+    """
+    return datetime.now().replace(microsecond=0)
+
+
+async def upsert_faith_case(
+    eval_id: str,
+    *,
+    bucket: str,
+    query: str,
+    answer: str,
+    reason: str,
+    strategy: str = "hybrid_rerank",
+    citations: list | None = None,
+    judge_model: str | None = None,
+) -> dict:
+    """幻覚と判定された問いを台帳へ積む。eval_id ごとに 1 行。
+
+    eval_id 以外をキーワード専用にしているのは取り違え防止のため。query / answer /
+    reason はどれも日本語の長い文字列で、位置引数で並べると入れ替わっても型では気づけず、
+    台帳が静かに嘘をつく。
+
+    既存行があれば **今回の実行の内容で上書き**する。台帳の 1 行が指すのは
+    「最後に幻覚と判定されたときの姿」であって、初回の姿ではない。判定を見直す人が
+    見たいのは最新の回答と最新の根拠だからである(初回の姿を残したいなら行を増やす
+    設計になるが、それでは「同じ問いが何度も幻覚になっている」が数えられない)。
+
+    戻り値は呼び出し元(評価スクリプト)が新規 / 再発 / 継続中を区別するための dict:
+
+        {"id", "eval_id", "status", "seen_count", "created", "recurred", "previous_status"}
+
+    - created=True                      … 初めて幻覚と判定された
+    - created=False かつ recurred=True  … 対処済みだったものが再発した
+    - created=False かつ recurred=False … 未対処のまま続いている
+
+    同一 eval_id への同時 upsert は想定していない(1 回の実行の中で eval_id は一意で、
+    評価が二重に走ることもない)。万一衝突すれば uk_eval_id の IntegrityError が
+    呼び出し元へ上がる。台帳への書き込み失敗はログ 1 行に留めてレポートには影響させない、
+    というのが呼び出し側の約束なので、ここで握り潰して二重計上を作らない。
+    """
+    now = _faith_now()
+    async with db.async_session() as s:
+        row = (
+            await s.execute(select(FaithCase).where(FaithCase.eval_id == eval_id))
+        ).scalar_one_or_none()
+
+        if row is None:
+            row = FaithCase(
+                eval_id=eval_id, bucket=bucket, query=query, answer=answer, reason=reason,
+                strategy=strategy, citations=citations, judge_model=judge_model,
+                status="unresolved", seen_count=1, first_seen_at=now, last_seen_at=now,
+            )
+            s.add(row)
+            await s.commit()
+            return {
+                "id": row.id, "eval_id": eval_id, "status": "unresolved", "seen_count": 1,
+                "created": True, "recurred": False, "previous_status": None,
+            }
+
+        previous_status = row.status
+        row.bucket = bucket
+        row.query = query
+        row.answer = answer
+        row.reason = reason
+        row.strategy = strategy
+        row.citations = citations
+        row.judge_model = judge_model
+        row.seen_count = row.seen_count + 1
+        row.last_seen_at = now
+
+        recurred = previous_status in FAITH_CLOSED_STATUSES
+        if recurred:
+            # 対処済みのはずが再び幻覚になった。未対処へ戻して作業一覧に再浮上させる。
+            # これを落とすと「解決済み」の顔をしたまま再発が埋もれ、台帳を見ても
+            # 何も起きていないように見える。
+            row.status = "unresolved"
+            # resolved_at はクリアしない(DDL のコメントの通り、いつ一度片が付いた
+            # ことになっていたかが再発の判断材料になる)。
+            # resolution も**残す**。前回どう直したつもりだったかは、再発したときに
+            # 最初に読みたい情報であり、消すとその手掛かりを自ら捨てることになる。
+            # 人手で unresolved へ戻す set_faith_case_status とは扱いが違う:
+            # あちらは人が「その対処は間違いだった」と言っているので消す。
+        await s.commit()
+        return {
+            "id": row.id, "eval_id": eval_id, "status": row.status,
+            "seen_count": row.seen_count, "created": False, "recurred": recurred,
+            "previous_status": previous_status,
+        }
+
+
+async def list_faith_cases(
+    status: str | None = None, page: int = 1, size: int = 20
+) -> dict:
+    """台帳の一覧 1 ページぶん。
+
+    並び順は「未対処 → last_seen_at の新しい順 → id の大きい順」。未対処を先頭に置くのは
+    この画面が作業一覧だから。last_seen_at は DATETIME(秒精度)なので同じ秒に積まれた
+    行では引き分けになる。その場合に順序が実行ごとに揺れてページ送りで行が重複したり
+    消えたりしないよう、id で決着を付ける(id の大きい方が後に積まれた行)。
+
+    counts は **フィルタにもページにも依存しない全体の件数**。画面のタブに出す数字で
+    あり、「未対処 3 件」タブを開いた状態で resolved タブが 0 件に見えてはいけない。
+    total の方はフィルタ適用後の件数(ページ送りの母数)。
+    """
+    page = max(1, int(page))
+    size = max(1, int(size))
+    async with db.async_session() as s:
+        rows = (
+            await s.execute(
+                select(FaithCase.status, func.count()).group_by(FaithCase.status)
+            )
+        ).all()
+        # 0 件のステータスも 0 として必ず出す。キーが欠けると画面側で
+        # 「0 件」と「集計に失敗」を区別できなくなる(staging_stats と同じ方針)
+        counts = {k: 0 for k in FAITH_STATUSES}
+        for st, n in rows:
+            counts[st] = int(n)
+        counts["total"] = sum(counts[k] for k in FAITH_STATUSES)
+
+        stmt = select(FaithCase)
+        total_stmt = select(func.count()).select_from(FaithCase)
+        if status:
+            stmt = stmt.where(FaithCase.status == status)
+            total_stmt = total_stmt.where(FaithCase.status == status)
+        total = int((await s.execute(total_stmt)).scalar_one())
+
+        stmt = stmt.order_by(
+            func.if_(FaithCase.status == "unresolved", 0, 1),
+            FaithCase.last_seen_at.desc(),
+            FaithCase.id.desc(),
+        ).offset((page - 1) * size).limit(size)
+        items = list((await s.execute(stmt)).scalars())
+
+    return {
+        "rows": items,
+        "total": total,
+        "page": page,
+        "size": size,
+        # 0 件のときは 0 ページ。画面で「1 / 0」と出したくなければ表示側で丸めること
+        "pages": (total + size - 1) // size,
+        "status": status,
+        "counts": counts,
+    }
+
+
+async def set_faith_case_status(
+    case_id: int, status: str, resolution: str | None = None
+) -> FaithCase | None:
+    """台帳の状態を人手で変える。存在しない id なら None(呼び出し元が 404 にする)。
+
+    入力の不正は ValueError で返す。検査をここ 1 か所に置くことで、API からでも
+    スクリプトからでも同じ規則が効く(API 側はこれを 400 に写す)。
+    """
+    if status not in FAITH_STATUSES:
+        raise ValueError("status は " + " / ".join(FAITH_STATUSES) + " のいずれかです")
+
+    # strip() は全角スペース(U+3000)も落とす。日本語の入力では素で打てる文字なので、
+    # strip(" ") のように半角だけにすると「　」1 文字の対処メモが通ってしまう。
+    note = (resolution or "").strip()
+    if status in FAITH_CLOSED_STATUSES:
+        if not note:
+            raise ValueError(
+                "対処メモを入力してください（どう直したか / なぜ直さなくてよいか）"
+            )
+        if len(note) > FAITH_RESOLUTION_MAX:
+            raise ValueError(f"対処メモは {FAITH_RESOLUTION_MAX} 文字以内で入力してください")
+
+    async with db.async_session() as s:
+        row = await s.get(FaithCase, case_id)
+        if row is None:
+            return None
+        row.status = status
+        if status in FAITH_CLOSED_STATUSES:
+            row.resolution = note
+            row.resolved_at = _faith_now()
+        else:
+            # 人が「やはり未対処」と言った以上、その対処メモはもう有効ではないので消す。
+            # 再発(upsert_faith_case)で unresolved へ戻る場合とは扱いが違う。
+            row.resolution = None
+            row.resolved_at = None
+        await s.commit()
+        return row

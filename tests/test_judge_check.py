@@ -231,7 +231,7 @@ def _install(monkeypatch, script: dict[str, list], rows: list) -> _FakeChat:
 async def test_the_judge_runs_at_temperature_zero(monkeypatch):
     """同じ回答に同じ判定を返してほしいので、揺れは害にしかならない(eval_04 と同じ理由)。"""
     fake = _install(monkeypatch, {"A1": [False]}, [_row("A1", "resolved")])
-    assert await jc.main([]) == 0
+    assert await jc.main(["--no-probe"]) == 0
     assert fake.factory_kwargs == [{"temperature": 0}]
 
 
@@ -239,7 +239,7 @@ async def test_exit_code_is_zero_when_the_judge_agrees_with_every_human_mark(mon
     """resolved は faithful=false、no_action_needed は faithful=true が一致。"""
     fake = _install(monkeypatch, {"A1": [False], "A2": [True]},
                     [_row("A1", "resolved"), _row("A2", "no_action_needed")])
-    assert await jc.main([]) == 0
+    assert await jc.main(["--no-probe"]) == 0
     assert sorted(fake.calls) == ["A1", "A2"]
 
 
@@ -247,7 +247,7 @@ async def test_exit_code_is_one_when_the_judge_disagrees(monkeypatch, capsys):
     """1 件でも食い違えば失敗。judge の基準が動いたことに気づけないと意味が無い。"""
     _install(monkeypatch, {"A1": [True], "A2": [True]},
              [_row("A1", "resolved"), _row("A2", "no_action_needed")])
-    assert await jc.main([]) == 1
+    assert await jc.main(["--no-probe"]) == 1
     out = capsys.readouterr().out
     assert "一致率 50.0% (1/2)" in out
     assert "不一致 1 件" in out
@@ -265,7 +265,7 @@ async def test_a_failed_call_is_kept_out_of_the_denominator(monkeypatch, capsys)
     _install(monkeypatch, {"A1": [False], "A2": [None, None]},
              [_row("A1", "resolved"), _row("A2", "resolved")])
     # 失敗した 1 件は不一致に数えないので exit code は 0
-    assert await jc.main([]) == 0
+    assert await jc.main(["--no-probe"]) == 0
     out = capsys.readouterr().out
     assert "一致率 100.0% (1/1)" in out
     assert "呼び出し失敗 1 件" in out
@@ -274,7 +274,7 @@ async def test_a_failed_call_is_kept_out_of_the_denominator(monkeypatch, capsys)
 async def test_the_judge_is_retried_once_when_it_returns_nothing(monkeypatch):
     """構造化出力の None は 1 回だけやり直す。2 回目が返ればそのケースは測れる。"""
     fake = _install(monkeypatch, {"A1": [None, False]}, [_row("A1", "resolved")])
-    assert await jc.main([]) == 0
+    assert await jc.main(["--no-probe"]) == 0
     assert fake.calls == ["A1", "A1"]
 
 
@@ -282,7 +282,7 @@ async def test_a_failing_call_is_retried_once_and_no_more(monkeypatch):
     """例外の場合も同じ。何度も叩き直して上流の課金と待ち時間を増やさない。"""
     fake = _install(monkeypatch, {"A1": [RuntimeError("upstream 502"), RuntimeError("502")]},
                     [_row("A1", "resolved")])
-    assert await jc.main([]) == 0        # 測れなかっただけで不一致は 0 件
+    assert await jc.main(["--no-probe"]) == 0        # 測れなかっただけで不一致は 0 件
     assert fake.calls == ["A1", "A1"]
 
 
@@ -311,7 +311,7 @@ async def test_skipped_cases_are_reported_with_their_reason(monkeypatch, capsys)
     _install(monkeypatch, {"A1": [False]},
              [_row("A1", "resolved"), _row("A2", "unresolved"),
               _row("A3", "unresolved"), _row("A4", "resolved", citations=None)])
-    assert await jc.main([]) == 0
+    assert await jc.main(["--no-probe"]) == 0
     out = capsys.readouterr().out
     assert "幻覚ケース台帳 4 件 / 測れるケース 1 件" in out
     assert "skip 2 件: 未対処" in out
@@ -321,7 +321,7 @@ async def test_skipped_cases_are_reported_with_their_reason(monkeypatch, capsys)
 async def test_an_empty_ledger_says_so_instead_of_claiming_agreement(monkeypatch, capsys):
     """人が印を付けるまでは何も測れない。「全件一致」と紛らわしくしない。"""
     _install(monkeypatch, {}, [_row("A1", "unresolved")])
-    assert await jc.main([]) == 0
+    assert await jc.main(["--no-probe"]) == 0
     out = capsys.readouterr().out
     assert "測れるケースが 1 件もありません" in out
     assert "一致率" not in out
@@ -351,4 +351,57 @@ async def test_the_tool_never_writes_to_the_ledger(monkeypatch):
     monkeypatch.setattr("app.db.repository.upsert_faith_case", _boom)
     monkeypatch.setattr("app.db.repository.set_faith_case_status", _boom)
     _install(monkeypatch, {"A1": [False]}, [_row("A1", "resolved")])
-    assert await jc.main([]) == 0
+    assert await jc.main(["--no-probe"]) == 0
+
+
+# ---------------------------------------------------------------------------
+# 縮退の検出
+#
+# 台帳の一致率だけでは足りない理由: 台帳は 11 件中 10 件が no_action_needed
+# (人が「幻覚ではない」と判断した)なので、何を見せても faithful=true と答える
+# だけの judge も 10/11 を取ってしまう。一致率が高いことは「judge が働いている」
+# ことの証拠にならない。
+# ---------------------------------------------------------------------------
+
+class _AlwaysFaithful(RunnableLambda):
+    """何を見せても「忠実」としか答えない judge。判定を放棄した状態。"""
+
+    def __init__(self):
+        super().__init__(lambda value: value)
+
+    def with_structured_output(self, schema):
+        return RunnableLambda(
+            lambda value: ev._Faithful(faithful=True, reason="根拠に基づいている"))
+
+
+def test_probe_set_has_both_sides():
+    """幻覚側と正しい側の両方がなければ、縮退も過検出も見分けられない。"""
+    rows = jc.load_probe()
+    traps = [r for r in rows if not r["expected"]]
+    clean = [r for r in rows if r["expected"]]
+    assert traps and clean, (len(traps), len(clean))
+    assert len({r["eval_id"] for r in rows}) == len(rows)   # id の重複なし
+    for r in rows:
+        assert r["evidence"].strip() and r["answer"].strip()
+
+
+async def test_degenerate_judge_is_reported_even_when_the_ledger_agrees(monkeypatch, capsys):
+    """**このテストがこの機能の理由。**
+
+    「何でも忠実」judge は、台帳が no_action_needed だらけなので一致率では満点を取る。
+    それでも幻覚を 1 件も捕まえられていないのだから、失敗として扱わなければならない。
+    """
+    async def _list(status=None, page=1, size=20):
+        rows = [_row("A2", "no_action_needed")]
+        return {"rows": rows, "total": 1, "page": 1, "size": size, "pages": 1,
+                "status": status, "counts": {}}
+
+    monkeypatch.setattr(jc, "get_chat_model", lambda **kw: _AlwaysFaithful())
+    monkeypatch.setattr("app.db.repository.list_faith_cases", _list)
+
+    code = await jc.main([])
+    out = capsys.readouterr().out
+    assert "一致率 100.0% (1/1)" in out      # 台帳の側は満点
+    assert "幻覚側の捕捉 0/" in out
+    assert "縮退" in out
+    assert code == 1                          # それでも失敗

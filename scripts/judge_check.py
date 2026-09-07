@@ -21,6 +21,16 @@ judge の変更だけを測れる。
 
 台帳(MySQL)は**読むだけ**で 1 行も書き込まない。
 
+## 縮退の検出(probe)
+
+台帳の一致率だけでは足りない。いまの台帳は 11 件中 10 件が no_action_needed(人が
+「幻覚ではない」と判断した)なので、**何を見せても faithful=true と答えるだけの judge も
+10/11 を取ってしまう**。つまり一致率が高いことは「judge が働いている」ことを意味しない。
+
+そこで tests/data/judge_probe.jsonl に、本物の根拠に対して**故意に幻覚を混ぜた回答**と
+**正しい回答**をラベル付きで置き、毎回そちらも判定させる。幻覚側を 1 件も捕まえられない
+judge は縮退しているので、台帳の一致率がいくら高くても失敗として扱う。
+
 実行:
     PYTHONUTF8=1 uv run --env-file .env python scripts/judge_check.py
     PYTHONUTF8=1 uv run --env-file .env python scripts/judge_check.py --dry-run  # 上流を呼ばない
@@ -30,6 +40,8 @@ judge の変更だけを測れる。
 import argparse
 import asyncio
 import collections
+import json
+import pathlib
 import sys
 import unicodedata
 
@@ -250,12 +262,58 @@ def print_report(results: list[dict], summary: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
+PROBE_SET = pathlib.Path(__file__).resolve().parents[1] / "tests" / "data" / "judge_probe.jsonl"
+
+
+def load_probe(path: pathlib.Path = PROBE_SET) -> list[dict]:
+    """縮退検出用のラベル付きサンプル。judge_case が扱える形に揃えて返す。
+
+    台帳のケースと同じ dict の形にしておくのは、判定の呼び出しを 1 本の関数に保つため
+    (再試行・呼び出し失敗の扱いを 2 か所に書くと、必ず片方だけ直される)。
+    """
+    rows = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        r = json.loads(line)
+        rows.append({"eval_id": r["id"], "bucket": r["kind"], "query": r["note"],
+                     "status": None, "judge_model": None,
+                     "evidence": r["evidence"], "answer": r["answer"],
+                     "expected": bool(r["expect_faithful"])})
+    return rows
+
+
+def print_probe(results: list[dict]) -> dict:
+    """probe の結果を出し、縮退しているかどうかを返す。"""
+    judged = [r for r in results if r["actual"] is not None]
+    agreed = [r for r in judged if r["agree"]]
+    traps = [r for r in judged if not r["expected"]]          # 故意に幻覚を混ぜた側
+    caught = [r for r in traps if r["agree"]]
+
+    print("\n縮退の検出(故意に幻覚を混ぜたサンプル)")
+    for r in results:
+        mark = "-" if r["actual"] is None else ("○" if r["agree"] else "×")
+        print(f"  {mark} {_pad(r['eval_id'], 5)}{_pad(r['bucket'], 16)}"
+              f"期待={_label(r['expected'])} judge={_label(r['actual'])}  {_clip(r['query'], 40)}")
+    print(f"  正答 {len(agreed)}/{len(judged)}"
+          f"  うち幻覚側の捕捉 {len(caught)}/{len(traps)}")
+
+    degenerate = bool(traps) and not caught
+    if degenerate:
+        print("  !! 幻覚を 1 件も捕まえていません。judge が「何でも忠実」へ縮退しています。"
+              "台帳の一致率が高くても、それは判定できている証拠になりません")
+    return {"judged": len(judged), "agreed": len(agreed),
+            "traps": len(traps), "caught": len(caught), "degenerate": degenerate}
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="幻覚ケース台帳の人手ラベルを正解として judge を回帰テストする(台帳は読むだけ)")
     p.add_argument("--limit", type=int, default=0, help="先頭 N 件だけ測る(試走用)")
     p.add_argument("--concurrency", type=int, default=CONCURRENCY,
                    help="judge を同時に呼ぶ数")
+    p.add_argument("--no-probe", action="store_true",
+                   help="縮退検出のサンプルを実行しない(台帳の一致率だけを見る)")
     p.add_argument("--dry-run", action="store_true",
                    help="対象と skip の内訳だけを出す(judge を 1 回も呼ばない)")
     return p.parse_args(argv)
@@ -301,6 +359,15 @@ async def main(argv: list[str] | None = None) -> int:
     results.sort(key=lambda r: r["eval_id"])
     summary = summarize(results)
     print_report(results, summary)
+
+    probe = None
+    if not args.no_probe:
+        probe_rows = await asyncio.gather(*[guarded(c) for c in load_probe()])
+        probe = print_probe(list(probe_rows))
+
+    # 縮退は台帳の一致率では見えないので、独立した失敗条件にする
+    if probe is not None and probe["degenerate"]:
+        return 1
     return 1 if summary["mismatched"] else 0
 
 

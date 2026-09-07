@@ -1,0 +1,80 @@
+{"id":"A1","bucket":"A_policy","query":"注文金額がいくら以上であれば送料は無料になりますか。それ未満の場合の送料も教えてください","expect_section":["送料はいくらですか"],"expect_points":["3,000円以上の場合は送料無料","500円の送料"],"should_refuse":false}
+{"id":"A2","bucket":"A_policy","query":"支払いが完了してから商品が発送されるまでの目安を教えてください","expect_section":["発送までどのくらいかかりますか"],"expect_points":["支払い完了後48時間以内","在庫商品"],"should_refuse":false}
+{"id":"A3","bucket":"A_policy","query":"返金を申請する手順と、返金はどこへ戻りますか","expect_section":["返金の申請方法"],"expect_points":["審査完了後","支払い時と同じ決済方法"],"should_refuse":false}
+{"id":"A4","bucket":"A_policy","query":"銀行振込には対応していますか。注文時に利用できる決済手段を教えてください","expect_section":["利用できる支払い方法"],"expect_points":["オフラインでの銀行振込には対応していない","コンビニ払い"],"should_refuse":false}
+{"id":"A5","bucket":"A_policy","query":"購入金額に対してポイントはどのくらい付与され、どのように使えますか","expect_section":["会員ランクとポイント"],"expect_points":["100円につき1ポイント","1ポイントを1円"],"should_refuse":false}
+{"id":"A6","bucket":"A_policy","query":"電子請求書はどのくらいで届きますか","expect_section":["請求書・領収書の発行方法"],"expect_points":["3営業日以内に登録メールアドレス","宛名や必要情報"],"should_refuse":false}
+{"id":"A7","bucket":"A_policy","query":"同一の注文で使用できるショップクーポンは何枚までですか","expect_section":["クーポンと割引キャンペーンの使い方"],"expect_points":["ショップクーポンは原則1枚まで","自動適用"],"should_refuse":false}
+{"id":"A8","bucket":"A_policy","query":"北海道や沖縄への配送では追加の費用や日数がかかりますか","expect_section":["配送エリアと遠隔地域"],"expect_points":["北海道、沖縄、離島","通常より配送に時間がかかる"],"should_refuse":false}
+{"id":"A9","bucket":"A_policy","query":"発送済みの注文について配送先住所を変更できますか","expect_section":["注文内容の変更やキャンセル"],"expect_points":["発送済みの場合、配送先情報は原則変更できない","受取拒否後に返金手続き"],"should_refuse":false}
+{"id":"A10","bucket":"A_policy","query":"売り切れの商品はどのくらいで再入荷しますか。入荷を知る方法はありますか","expect_section":["欠品した商品はいつ再入荷しますか"],"expect_points":["3〜7日以内","入荷通知"],"should_refuse":false}
+{"id":"A11","bucket":"A_policy","query":"注文後に同じ商品が値下げされた場合、差額を返してもらえますか","expect_section":["価格保証の申請方法"],"expect_points":["注文後7日以内","承認された差額"],"should_refuse":false}
+{"id":"A12","bucket":"A_policy","query":"ゴールド会員の送料無料特典は月に何回まで使えますか。使わなかった分は翌月に持ち越せますか","expect_section":["会員の送料無料特典"],"expect_points":["ゴールド会員は月3回","未使用回数は翌月へ繰り越されない"],"should_refuse":false}
+{"id":"A13","bucket":"A_policy","query":"お客様都合で交換する場合、往復の送料はどちらが負担しますか","expect_section":["交換ポリシー","交換時の送料"],"expect_points":["往復送料を購入者が負担","往復送料をプラットフォームが負担"],"should_refuse":false}
+{"id":"A14","bucket":"A_policy","query":"サイズを選び間違えて注文した場合、返送料はどちらの負担になりますか","expect_section":["返品・交換時の送料負担"],"expect_points":["返送料は購入者負担","サイズやカラーの選択間違い"],"should_refuse":false}
+{"id":"A15","bucket":"A_policy","query":"保証期間内に通常の使用で故障した場合、無償で対応してもらえますか。保証期間はどのくらいですか","expect_section":["品質不良と保証"],"expect_points":["12か月間の保証対象","無償修理または交換"],"should_refuse":false}
+{"id":"A16","bucket":"A_policy","query":"配送中に商品が破損していた場合、いつまでに何を連絡すればよいですか","expect_section":["配送中の破損"],"expect_points":["受取後48時間以内","開封時の動画または写真"],"should_refuse":false}
+{"id":"A17","bucket":"A_policy","query":"開封済みの化粧品は自己都合で返品できますか","expect_section":["返品対象外の商品"],"expect_points":["開封済みの化粧品・衛生用品","品質上の問題がない場合"],"should_refuse":false}
+{"id":"A18","bucket":"A_policy","query":"予約商品のデポジットは自己都合で返金してもらえますか。残金を期限までに払わなかった場合はどうなりますか","expect_section":["予約商品とデポジット"],"expect_points":["デポジットの返金を受け付けない場合がある","残金が期限内に支払われなかった"],"should_refuse":false}
+{"id":"A19","bucket":"A_policy","query":"有人サポートの受付時間と、混雑してつながらない場合の対応を教えてください","expect_section":["オペレーターへの問い合わせ方法と受付時間"],"expect_points":["9:00〜22:00","メッセージを残して"],"should_refuse":false}
+{"id":"A20","bucket":"A_policy","query":"修理の問い合わせは初回何時間で対応され、解決までの目安は何営業日ですか","expect_section":["よくある問い合わせの対応時間"],"expect_points":["4時間","7営業日"],"should_refuse":false}
+{"id":"B1","bucket":"B_model","query":"EC-RV100 の吸引力と稼働時間を教えてください","expect_section":["EC-RV100"],"expect_points":["4,000Pa","約120分"],"should_refuse":false}
+{"id":"B2","bucket":"B_model","query":"EC-RV300 の稼働時間はどれくらいですか。自動ゴミ収集には対応していますか","expect_section":["EC-RV300"],"expect_points":["約210分","自動ゴミ収集"],"should_refuse":false}
+{"id":"B3","bucket":"B_model","query":"EC-EA10 の連続再生時間と、ノイズキャンセリングの対応可否を教えてください","expect_section":["EC-EA10"],"expect_points":["約6時間","ノイズキャンセリング：非対応"],"should_refuse":false}
+{"id":"B4","bucket":"B_model","query":"EC-HD20 の消費電力と重量を教えてください","expect_section":["EC-HD20"],"expect_points":["1,200W","約480g"],"should_refuse":false}
+{"id":"B5","bucket":"B_model","query":"EC-KB20 のキー配列と対応 OS を教えてください","expect_section":["EC-KB20"],"expect_points":["87キー","Windows / macOS"],"should_refuse":false}
+{"id":"B6","bucket":"B_model","query":"EC-CH10 の耐荷重とリクライニングの最大角度を教えてください","expect_section":["EC-CH10"],"expect_points":["100kg","最大120°"],"should_refuse":false}
+{"id":"B7","bucket":"B_model","query":"EC-PCAM1 の画質とカメラの可動範囲を教えてください","expect_section":["EC-PCAM1"],"expect_points":["2K","水平355°"],"should_refuse":false}
+{"id":"B8","bucket":"B_model","query":"EC-PW20 のフィルター交換目安と推奨清掃頻度を教えてください","expect_section":["EC-PW20"],"expect_points":["約2週間","週1回"],"should_refuse":false}
+{"id":"B9","bucket":"B_model","query":"空気清浄機 Compact の適用面積とフィルター交換目安を教えてください","expect_section":["EC-AP20"],"expect_points":["約20㎡","約6か月"],"should_refuse":false}
+{"id":"B10","bucket":"B_model","query":"空気清浄機 Plus のフィルター交換目安はどのくらいですか。対応する部屋の広さも教えてください","expect_section":["EC-AP40"],"expect_points":["約8〜12か月","約40㎡"],"should_refuse":false}
+{"id":"B11","bucket":"B_model","query":"EC-AP40 はにおいセンサーを搭載していますか。アプリからの遠隔操作はできますか","expect_section":["EC-AP40"],"expect_points":["PM2.5 / におい","遠隔操作対応"],"should_refuse":false}
+{"id":"B12","bucket":"B_model","query":"ロボット掃除機 Pro のマッピングはどこまで対応していますか。吸引力も教えてください","expect_section":["EC-RV200"],"expect_points":["複数フロアマップ対応","6,000Pa"],"should_refuse":false}
+{"id":"B13","bucket":"B_model","query":"ワイヤレスイヤホン Pro の防水性能と連続再生時間を教えてください","expect_section":["EC-EA30"],"expect_points":["IPX5","約8時間"],"should_refuse":false}
+{"id":"B14","bucket":"B_model","query":"ドリップコーヒーメーカー Basic はタイマー予約に対応していますか。最大何杯まで抽出できますか","expect_section":["EC-CM10"],"expect_points":["タイマー：非対応","約4杯"],"should_refuse":false}
+{"id":"B15","bucket":"B_model","query":"全自動コーヒーメーカー Pro の容量と、豆挽き機能の有無を教えてください","expect_section":["EC-CM30"],"expect_points":["1.2L","豆挽き"],"should_refuse":false}
+{"id":"B16","bucket":"B_model","query":"オフィスチェア Ergo の耐荷重と、ランバーサポートの調整可否を教えてください","expect_section":["EC-CH30"],"expect_points":["130kg","ランバーサポート：調整可能"],"should_refuse":false}
+{"id":"B17","bucket":"B_model","query":"ロボット掃除機 Pro は Standard と比べて何が強化されていますか","expect_section":["EC-RV200"],"expect_points":["吸引力、水拭き、マッピング精度が強化"],"should_refuse":false}
+{"id":"B18","bucket":"B_model","query":"ワイヤレスイヤホン Pro は Lite と何が違いますか","expect_section":["EC-EA30"],"expect_points":["ANC、外音取り込み、マルチポイント対応"],"should_refuse":false}
+{"id":"B19","bucket":"B_model","query":"全自動コーヒーメーカー Pro はドリップコーヒーメーカー Basic と比べて何ができますか","expect_section":["EC-CM30"],"expect_points":["豆挽き機能と予約抽出に対応"],"should_refuse":false}
+{"id":"B20","bucket":"B_model","query":"オフィスチェア Ergo は Standard と比べてどこが強化されていますか","expect_section":["EC-CH30"],"expect_points":["長時間利用向けの調整機能を強化"],"should_refuse":false}
+{"id":"C1","bucket":"C_colloquial","query":"いくら買えばタダで届けてもらえるの","expect_section":["送料はいくらですか"],"expect_points":["3,000円以上の場合は送料無料","500円の送料"],"should_refuse":false}
+{"id":"C2","bucket":"C_colloquial","query":"注文したやつ、いつ手元に来る","expect_section":["発送までどのくらいかかりますか"],"expect_points":["支払い完了後48時間以内","在庫商品"],"should_refuse":false}
+{"id":"C3","bucket":"C_colloquial","query":"カードじゃなくてコンビニで払える","expect_section":["利用できる支払い方法"],"expect_points":["コンビニ払い","オフラインでの銀行振込には対応していない"],"should_refuse":false}
+{"id":"C4","bucket":"C_colloquial","query":"気が変わったんだけど、まだ開けてないやつ返せる","expect_section":["返品ポリシーについて"],"expect_points":["未使用に近い状態","理由を問わない返品"],"should_refuse":false}
+{"id":"C5","bucket":"C_colloquial","query":"いま売り切れてるけど、また買えるようになる","expect_section":["欠品した商品はいつ再入荷しますか"],"expect_points":["3〜7日以内","限定商品や生産終了商品"],"should_refuse":false}
+{"id":"C6","bucket":"C_colloquial","query":"北海道に送ってもらうと余計にお金かかる","expect_section":["配送エリアと遠隔地域"],"expect_points":["北海道、沖縄、離島","追加送料が発生"],"should_refuse":false}
+{"id":"C7","bucket":"C_colloquial","query":"レジで使える割引券って何枚まで入れられるの","expect_section":["クーポンと割引キャンペーンの使い方"],"expect_points":["ショップクーポンは原則1枚まで","決済画面"],"should_refuse":false}
+{"id":"C8","bucket":"C_colloquial","query":"間違えて頼んじゃった。まだ発送されてなければ取り消せる。届いちゃったら受け取り拒否でもいい","expect_section":["注文内容の変更やキャンセル"],"expect_points":["未発送の注文","受取拒否後に返金手続き"],"should_refuse":false}
+{"id":"C9","bucket":"C_colloquial","query":"人と直接話したいんだけど、何時までやってる","expect_section":["オペレーターへの問い合わせ方法と受付時間"],"expect_points":["9:00〜22:00","有人チャット"],"should_refuse":false}
+{"id":"C10","bucket":"C_colloquial","query":"箱を開けたら割れてた。どうすればいい","expect_section":["配送中の破損"],"expect_points":["開封時の動画または写真","無償で再発送または返金"],"should_refuse":false}
+{"id":"C11","bucket":"C_colloquial","query":"返してもらったお金、いつ口座に戻ってくるの","expect_section":["返金時期"],"expect_points":["元の支払い方法へ行われる","決済機関の処理状況"],"should_refuse":false}
+{"id":"C12","bucket":"C_colloquial","query":"色違いにしたいんだけど取り替えてもらえる","expect_section":["交換条件"],"expect_points":["別の型番、サイズ、カラーへの変更","一度返品してから新しく注文"],"should_refuse":false}
+{"id":"C13","bucket":"C_colloquial","query":"取り替えの申し込みをしたあと、品物はどうやって送り返せばいい","expect_section":["商品交換の流れ"],"expect_points":["案内に従って商品を返送","確認完了後に交換品を発送"],"should_refuse":false}
+{"id":"C14","bucket":"C_colloquial","query":"買った家電が壊れちゃった。直してもらうには何をすればいい","expect_section":["修理受付の流れ"],"expect_points":["案内された修理拠点へ商品を発送","修理開始前に費用を案内"],"should_refuse":false}
+{"id":"C15","bucket":"C_colloquial","query":"新しく買ったスマート家電、アプリとどうやってつなぐの","expect_section":["機器の設置と初期設定"],"expect_points":["メーカー指定アプリから対象機器を追加","2.4GHz Wi-Fi のみ対応"],"should_refuse":false}
+{"id":"C16","bucket":"C_colloquial","query":"床のやつが充電できないんだけど、どうしたらいい","expect_section":["よくある故障のセルフチェック"],"expect_points":["充電ステーションの電源","接点を清掃"],"should_refuse":false}
+{"id":"C17","bucket":"C_colloquial","query":"耳につけるやつがスマホにつながらない","expect_section":["よくある故障のセルフチェック"],"expect_points":["Bluetooth 設定を一度解除","再ペアリング"],"should_refuse":false}
+{"id":"C18","bucket":"C_colloquial","query":"コーヒーが落ちてこないんだけど壊れたのかな","expect_section":["よくある故障のセルフチェック"],"expect_points":["給水タンクの水量","洗浄後に再度試す"],"should_refuse":false}
+{"id":"C19","bucket":"C_colloquial","query":"見守り用のやつがしょっちゅう圏外になる","expect_section":["よくある故障のセルフチェック"],"expect_points":["2.4GHz 帯であること","本体を再起動"],"should_refuse":false}
+{"id":"C20","bucket":"C_colloquial","query":"ランクが上だと修理や返しのときに何か優遇される","expect_section":["会員向けアフターサービス特典"],"expect_points":["優先カスタマーサポート","集荷サービス"],"should_refuse":false}
+{"id":"D1","bucket":"D_absent","query":"代金引換で支払えますか","expect_section":[],"expect_points":[],"should_refuse":true}
+{"id":"D2","bucket":"D_absent","query":"配送日時を指定して受け取ることはできますか","expect_section":[],"expect_points":[],"should_refuse":true}
+{"id":"D3","bucket":"D_absent","query":"不在のときに玄関前へ置き配してもらえますか","expect_section":[],"expect_points":[],"should_refuse":true}
+{"id":"D4","bucket":"D_absent","query":"注文した商品を実店舗で受け取れますか","expect_section":[],"expect_points":[],"should_refuse":true}
+{"id":"D5","bucket":"D_absent","query":"ギフト包装やメッセージカードを付けてもらえますか","expect_section":[],"expect_points":[],"should_refuse":true}
+{"id":"D6","bucket":"D_absent","query":"ログインパスワードを忘れた場合の再設定手順を教えてください","expect_section":[],"expect_points":[],"should_refuse":true}
+{"id":"D7","bucket":"D_absent","query":"有料で訪問設置を代行してもらうサービスはありますか","expect_section":[],"expect_points":[],"should_refuse":true}
+{"id":"D8","bucket":"D_absent","query":"古い家電の下取りはしてもらえますか","expect_section":[],"expect_points":[],"should_refuse":true}
+{"id":"D9","bucket":"D_absent","query":"毎月自動で届く定期購入のコースはありますか","expect_section":[],"expect_points":[],"should_refuse":true}
+{"id":"D10","bucket":"D_absent","query":"学生割引の制度はありますか","expect_section":[],"expect_points":[],"should_refuse":true}
+{"id":"D11","bucket":"D_absent","query":"支払いを分割払いやリボ払いにできますか","expect_section":[],"expect_points":[],"should_refuse":true}
+{"id":"D12","bucket":"D_absent","query":"法人向けに月末締め翌月払いの掛け払いは利用できますか","expect_section":[],"expect_points":[],"should_refuse":true}
+{"id":"D13","bucket":"D_absent","query":"付与されたポイントの有効期限は何年ですか","expect_section":[],"expect_points":[],"should_refuse":true}
+{"id":"D14","bucket":"D_absent","query":"貯めたポイントを家族のアカウントへ譲渡できますか","expect_section":[],"expect_points":[],"should_refuse":true}
+{"id":"D15","bucket":"D_absent","query":"シルバー会員になるには累計でいくら購入する必要がありますか","expect_section":[],"expect_points":[],"should_refuse":true}
+{"id":"D16","bucket":"D_absent","query":"EC-RV300 の販売価格はいくらですか","expect_section":[],"expect_points":[],"should_refuse":true}
+{"id":"D17","bucket":"D_absent","query":"EC-RV500 という上位モデルは取り扱っていますか","expect_section":[],"expect_points":[],"should_refuse":true}
+{"id":"D18","bucket":"D_absent","query":"空気清浄機の交換用フィルターを単体で購入したいのですが、フィルターの型番を教えてください","expect_section":[],"expect_points":[],"should_refuse":true}
+{"id":"D19","bucket":"D_absent","query":"電話で問い合わせたいので、サポートの電話番号を教えてください","expect_section":[],"expect_points":[],"should_refuse":true}
+{"id":"D20","bucket":"D_absent","query":"修理に出している間、代替機を貸してもらえますか","expect_section":[],"expect_points":[],"should_refuse":true}

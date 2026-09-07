@@ -1107,3 +1107,44 @@ async def test_script_reply_does_not_call_the_model(monkeypatch):
     monkeypatch.setattr(nodes, "get_chat_model", _boom)
     await nodes.script_reply({"intent": "雑談", "messages": [HumanMessage("やあ")]})
     await nodes.script_reply({"intent": "その他", "messages": [HumanMessage("うーん")]})
+
+
+# ---------------------------------------------------------------------------
+# 返品可否の判断に要る「今日」
+#
+# 規約の条件はどれも「受取後 7 日以内」のように日数で書かれているのに、モデルには
+# 今日が何日かが分からない。実測: 経過日数を渡さないと、返品できる注文でも
+# submit_refund を呼ばず「受取からの日数を教えてください」と聞き返して turn が
+# 終わる(5 回中 3 回)。ユーザーが「一昨日届いて」と自分で言った回だけ先へ進んだ。
+# ---------------------------------------------------------------------------
+
+def test_the_refund_context_carries_todays_date_and_elapsed_days():
+    from datetime import datetime, timedelta
+
+    ordered = datetime.now() - timedelta(days=3)
+    msgs = nodes._agent_messages({
+        "route": "refund_flow",
+        "order_data": {"order_id": "1001", "created_at": ordered.strftime("%Y-%m-%d %H:%M")},
+        "evidence": "[1] 受取後7日以内",
+        "messages": [HumanMessage("返品できますか")]})
+    sys = msgs[0].content
+    assert "本日は" in sys
+    assert "経過日数は 3 日" in sys
+    assert "尋ね直さないでください" in sys
+
+
+def test_an_unreadable_order_date_adds_nothing():
+    """日付が読めないときは黙って足さない。誤った日数を渡すより聞き返させる方がよい。"""
+    for bad in [{"created_at": "不明"}, {"created_at": None}, {}]:
+        msgs = nodes._agent_messages({
+            "route": "refund_flow", "order_data": bad,
+            "messages": [HumanMessage("返品できますか")]})
+        assert "本日は" not in msgs[0].content
+
+
+def test_the_date_note_is_only_for_the_refund_route():
+    msgs = nodes._agent_messages({
+        "route": "business",
+        "order_data": {"created_at": "2026-07-04 10:00"},
+        "messages": [HumanMessage("注文1001は?")]})
+    assert "本日は" not in msgs[0].content

@@ -21,6 +21,7 @@ app/graph/state.py の ConversationState に宣言済みのものだけにする
 import json
 import logging
 import re
+from datetime import datetime
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.types import interrupt
@@ -493,6 +494,32 @@ _KNOWLEDGE_EVIDENCE_HINT = (
 )
 
 
+def _elapsed_note(order: dict) -> str:
+    """注文からの経過日数を添える。
+
+    **これが無いと返品の可否を判断できない。** 規約の条件はどれも「受取後 7 日以内」の
+    ように日数で書かれているのに、モデルには今日が何日かが分からない。実測: 経過日数を
+    渡さないと、返品できる注文でも submit_refund を呼ばず「受取からの日数を教えて
+    ください」と聞き返して turn が終わる(5 回中 3 回)。ユーザーが「一昨日届いて」と
+    自分で言った回だけ先へ進んだ。
+
+    日付が読めないときは何も足さない。誤った日数を渡すより、モデルに聞き返させる方がよい。
+    """
+    raw = (order or {}).get("created_at") or ""
+    for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            ordered = datetime.strptime(raw, fmt)
+        except (ValueError, TypeError):
+            continue
+        today = datetime.now()
+        days = (today.date() - ordered.date()).days
+        return (f"\n\n## 日付\n本日は {today:%Y-%m-%d} です。"
+                f"この注文日({ordered:%Y-%m-%d})からの経過日数は {days} 日です。"
+                "規約の日数条件はこの経過日数で判断してください。"
+                "ユーザーに日数を尋ね直さないでください。")
+    return ""
+
+
 def _agent_messages(state) -> list:
     """system(evidence があれば連結)+ turn をまたいだ履歴。
 
@@ -515,8 +542,9 @@ def _agent_messages(state) -> list:
     if state.get("route") == "refund_flow":
         # ensure_ascii=False にするのは、日本語を unicode escape にすると読ませる
         # 文字数が数倍になり、注文の中身が人にもモデルにも読めなくなるため
-        sys = sys + REFUND_JUDGE_HINT + json.dumps(state.get("order_data") or {},
-                                                   ensure_ascii=False)
+        order = state.get("order_data") or {}
+        sys = (sys + REFUND_JUDGE_HINT + json.dumps(order, ensure_ascii=False)
+               + _elapsed_note(order))
     return [SystemMessage(sys), *state.get("messages", [])]
 
 

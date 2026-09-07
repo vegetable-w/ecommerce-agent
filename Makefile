@@ -1,4 +1,4 @@
-.PHONY: dev test eval seed seed-conv kb-preview kb-build kb-vectorize kb-mine kb-reset eval-retrieval eval-mining
+.PHONY: dev test eval seed seed-conv kb-preview kb-build kb-vectorize kb-mine kb-reset eval-retrieval eval-mining eval-rag
 
 # --reload は付けない。この環境では watchfiles が入っていても変更を検知せず
 # (実測: 起動後の app/tools/business.py の更新で reload されなかった)、
@@ -52,3 +52,8 @@ milvus-down:
 smoke-rag:
 	uv run --env-file .env python scripts/smoke_milvus_bm25.py
 	uv run --env-file .env python scripts/smoke_rerank.py
+
+# 4 戦略の RAG 評価。埋め込み / リランク / チャットの上流をすべて呼ぶため課金される。
+# 生成段を省いて決定的な Stage 1/2 だけ回すなら --no-generation を付ける。
+eval-rag:
+	uv run --env-file .env python scripts/eval_04.py

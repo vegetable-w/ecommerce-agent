@@ -51,28 +51,32 @@
     line-height:1.5; word-break:keep-all}
   .rag-xlabel.best{color:var(--accent-d); font-weight:700}
 
-  .rag-guide summary{cursor:pointer; list-style:none; margin-bottom:2px}
-  .rag-guide summary::-webkit-details-marker{display:none}
-  .rag-guide summary h2{margin:0}
-  .rag-guide summary::after{content:'（閉じる）'; font-size:13px; color:var(--muted); margin-left:8px}
-  .rag-guide:not([open]) summary::after{content:'（開く）'}
-  .rag-gcol{display:flex; flex-wrap:wrap; gap:22px}
-  .rag-gcol > div{flex:1; min-width:280px}
-  .rag-gcol h3{margin:6px 0 8px; font-size:15px; color:var(--accent-d)}
-  .rag-gcol dl{margin:0}
-  .rag-gcol dt{font-size:14px; font-weight:700; margin-top:9px;
+  /* 横棒。生成品質のように「戦略ごとに 1 つの値」を並べるところで使う。
+     bucket 別の比較は縦棒(上の .rag-chart)、単純な並列比較はこちらが読みやすい。 */
+  .rag-row{display:flex; align-items:center; gap:11px; margin-bottom:7px}
+  .rag-row .nm{flex:none; width:132px; font-size:13.5px; color:#6c6280;
     font-family:ui-monospace,Consolas,monospace}
-  .rag-gcol dd{margin:2px 0 0; font-size:13.5px; line-height:1.8; color:#6c6280}
-
-  .rag-gauge{display:flex; align-items:center; gap:12px; margin-top:6px}
-  .rag-track{flex:1; height:22px; background:#f7f2f8; border-radius:999px; overflow:hidden}
+  .rag-row.best .nm{color:var(--accent-d); font-weight:700}
+  .rag-track{flex:1; height:20px; background:#f7f2f8; border-radius:999px; overflow:hidden}
   .rag-fill{display:block; height:100%; border-radius:999px;
-    background:var(--accent);
-    background:linear-gradient(90deg,#ffd0e0,var(--accent-d));
+    background:var(--rag-c);   /* color-mix を解釈しない環境ではこちらが残る */
+    background:linear-gradient(90deg,color-mix(in srgb,var(--rag-c) 62%,#fff),var(--rag-c));
     transition:width .35s ease}
-  .rag-gauge .vl{flex:none; width:74px; text-align:right; font-size:19px; font-weight:600;
+  .rag-row .vl{flex:none; width:66px; text-align:right; font-size:15px; font-weight:600;
     font-family:ui-monospace,Consolas,monospace}
-  .rag-gauge .vl.na{font-weight:400; color:var(--muted); font-size:14px}
+  .rag-row .vl.na{font-weight:400; color:var(--muted); font-size:13px}
+
+  /* 拒否率は右側に円で出す。1 つの割合を見るだけなので、棒より円の方が量が伝わる。 */
+  .rag-split{display:flex; flex-wrap:wrap; gap:22px; align-items:flex-start}
+  .rag-split > .l{flex:1; min-width:300px}
+  .rag-split > .r{flex:none; width:230px; text-align:center}
+  .rag-donut{transform:rotate(-90deg)}
+  .rag-donut .bg{fill:none; stroke:#f2ecf4; stroke-width:16}
+  .rag-donut .fg{fill:none; stroke:var(--accent); stroke-width:16; stroke-linecap:round;
+    transition:stroke-dasharray .4s ease}
+  .rag-donutwrap{position:relative; width:170px; margin:0 auto}
+  .rag-donutwrap .mid{position:absolute; inset:0; display:grid; place-items:center;
+    font-size:29px; font-weight:600}
 
   .rag-legend{display:flex; flex-wrap:wrap; gap:16px; margin:2px 0 14px; font-size:14px; color:#6c6280}
   .rag-legend span{display:inline-flex; align-items:center; gap:7px}
@@ -127,55 +131,6 @@
 
   <div id="head"></div>
 
-  <details class="adm-card rag-guide" open>
-    <summary><h2 style="display:inline-flex">この画面の読み方</h2></summary>
-
-    <div class="rag-gcol">
-      <div>
-        <h3>4 つの検索戦略（棒の色）</h3>
-        <dl>
-          <dt>dense</dt><dd>意味で探す（ベクトル検索）。言い換えに強い。</dd>
-          <dt>bm25</dt><dd>字面で探す（キーワード一致）。型番のような固有の文字列に強い。</dd>
-          <dt>hybrid</dt><dd>上の 2 つを機械的に混ぜる（RRF 融合）。</dd>
-          <dt>hybrid_rerank</dt><dd>混ぜたうえで、質問との関係を見て並べ直す。<b>この章の推奨。</b></dd>
-        </dl>
-      </div>
-
-      <div>
-        <h3>5 つの bucket（横軸）</h3>
-        <dl>
-          <dt>A ポリシー系</dt><dd>送料・返品などを丁寧な書き言葉で聞いた 60 問。</dd>
-          <dt>B 型番・仕様</dt><dd>「EC-RV300 の稼働時間」のように型番で聞いた 60 問。</dd>
-          <dt>C 口語・言い換え</dt><dd>同じ知識を話し言葉で聞いた 60 問。<b>戦略の差がいちばん出る。</b></dd>
-          <dt>E 複数文書</dt><dd>答えるのに 2〜3 か所の根拠が要る 60 問。いちばん難しい。</dd>
-          <dt>D（グラフに無い）</dt><dd>ナレッジに答えが無い 60 問。正解が無いので順位は測らず、
-            下の「ナレッジ外の拒否率」だけで見る。</dd>
-        </dl>
-      </div>
-
-      <div>
-        <h3>指標（縦軸・すべて高いほど良い）</h3>
-        <dl>
-          <dt>MRR</dt><dd>正解の根拠が<b>何番目</b>に出たか。1 位なら 100%、2 位なら 50%。順位まで見るので戦略の差が出やすい。</dd>
-          <dt>Recall@5</dt><dd>上位 5 件の<b>どこかに</b>正解があった割合。順位は問わない。</dd>
-          <dt>Evidence Coverage</dt><dd>集めた根拠が、期待する事実をどれだけ含んでいたか（文字列の照合）。</dd>
-          <dt>Answer Coverage</dt><dd>最終的な回答が、期待する事実をどれだけ答えられたか（モデルが判定）。</dd>
-          <dt>Faithfulness</dt><dd>回答が根拠の範囲に収まっているか。低いと、根拠に無いことを書いている。</dd>
-          <dt>ナレッジ外の拒否率</dt><dd>答えが無い質問に、作り話をせず正直に断れた割合。</dd>
-        </dl>
-      </div>
-    </div>
-
-    <p class="rag-hint" style="margin-top:14px">
-      <b>いちばん短い見方：</b>まず「1 検索品質」で <b>MRR</b> を選び、<b>C 口語</b>の柱を左から右へ見る。
-      ここで bm25 が低く hybrid_rerank が高ければ、狙いどおり動いている
-      （字面が一致しない質問は、意味で探して並べ直さないと当たらない）。
-      次に「全体」の柱で総合順位を確認し、「2 生成品質」で
-      <b>答えられているか（Answer Coverage）</b>と
-      <b>作り話をしていないか（Faithfulness・拒否率）</b>を見る。
-    </p>
-  </details>
-
   <div id="report" hidden>
     <div class="adm-bar" id="kpi"></div>
 
@@ -191,18 +146,29 @@
       <h2><span class="adm-num">2</span>生成品質（Stage 3）</h2>
       <div id="genState"></div>
       <div id="gen" hidden>
-        <div class="rag-group">
-          <div class="cap">Answer Coverage（回答が期待ポイントを何割含んでいたか・回答可能 60 問）</div>
-          <div id="answerCov"></div>
-        </div>
-        <div class="rag-group">
-          <div class="cap" id="faithCap">Faithfulness（回答が根拠だけで書かれているか）</div>
-          <div id="faith"></div>
-        </div>
-        <div class="rag-group">
-          <div class="cap">ナレッジ外（D）で正しく断った割合</div>
-          <div id="refusal"></div>
-          <p class="rag-sub" id="refusalNote"></p>
+        <div class="rag-split">
+          <div class="l">
+            <div class="rag-group">
+              <div class="cap">Answer Coverage（回答が期待ポイントを何割答えられたか・回答可能 60 問）</div>
+              <div id="answerCov"></div>
+            </div>
+            <div class="rag-group">
+              <div class="cap" id="faithCap">Faithfulness（回答が根拠だけで書かれているか）</div>
+              <div id="faith"></div>
+            </div>
+          </div>
+          <div class="r">
+            <div class="cap">ナレッジ外（D）で正しく断った割合</div>
+            <div class="rag-donutwrap">
+              <svg class="rag-donut" width="170" height="170" viewBox="0 0 170 170">
+                <circle class="bg" cx="85" cy="85" r="68"></circle>
+                <circle class="fg" id="donutFg" cx="85" cy="85" r="68"
+                        stroke-dasharray="0 428" stroke-dashoffset="0"></circle>
+              </svg>
+              <div class="mid" id="donutMid">—</div>
+            </div>
+            <p class="rag-sub" id="refusalNote"></p>
+          </div>
         </div>
       </div>
     </div>
@@ -323,32 +289,13 @@ function column(name, i, value, best) {
                title="${esc(name)}: ${p}"><span class="v">${p}</span></div>`;
 }
 
-/* 戦略ごとに 1 本ずつ立てる縦棒。bucket 別ではない指標(Answer Coverage)向け。 */
-function chartByStrategy(getValue) {
-  const best = (data.best || {}).strategy;
-  const names = strategies();
-  const yaxis = TICKS.map(t => `<span style="top:${100 - t}%">${t}%</span>`).join('');
-  const grid = TICKS.map(t =>
-    `<div class="gl${t === 0 ? ' zero' : ''}" style="top:${100 - t}%"></div>`).join('');
-  const groups = names.map((n, i) =>
-    `<div class="rag-bgroup">${column(n, i, getValue(n), n === best)}</div>`).join('');
-  const labels = names.map(n =>
-    `<div class="rag-xlabel${n === best ? ' best' : ''}">${esc(n)}</div>`).join('');
-  return `<div class="rag-chart">
-    <div class="rag-yaxis">${yaxis}</div>
-    <div class="rag-plot">
-      <div class="rag-area">${grid}<div class="rag-groups">${groups}</div></div>
-      <div class="rag-xaxis">${labels}</div>
-    </div>
-  </div>`;
-}
-
-/* 単独の値はゲージ 1 本で出す。縦棒を 1 本だけ立てても比較対象が無く読みにくい。 */
-function gauge(label, value) {
+/* 横棒 1 本。戦略名 + 帯 + 数値。 */
+function bar(name, i, value, best) {
   const p = pct(value);
-  return `<div class="rag-gauge">
-    <div class="rag-track"><span class="rag-fill" style="width:${value === null ? 0 : pt(value)}%"></span></div>
-    <div class="vl${p === null ? ' na' : ''}">${p === null ? '取得不可' : p}</div>
+  return `<div class="rag-row ${cls(i)}${best ? ' best' : ''}">
+    <span class="nm">${esc(name)}</span>
+    <span class="rag-track"><span class="rag-fill" style="width:${value === null ? 0 : pt(value)}%"></span></span>
+    <span class="vl${p === null ? ' na' : ''}">${p === null ? '取得不可' : p}</span>
   </div>`;
 }
 
@@ -477,20 +424,23 @@ function renderGeneration() {
   const best = (data.best || {}).strategy;
   const names = strategies();
 
-  $('answerCov').innerHTML = chartByStrategy(name => {
+  $('answerCov').innerHTML = names.map((name, i) => {
     const ac = (g[name] || {}).answer_coverage;
-    return ac && ac.overall && typeof ac.overall.value === 'number' ? ac.overall.value : null;
-  });
+    const v = ac && ac.overall && typeof ac.overall.value === 'number' ? ac.overall.value : null;
+    return bar(name, i, v, name === best);
+  }).join('');
 
   const f = g.faithfulness || {};
   $('faithCap').textContent =
     `Faithfulness（回答が根拠だけで書かれているか）— ${f.strategy || '—'} / ${f.n ?? '—'} 問`;
-  $('faith').innerHTML = gauge(f.strategy || 'faithfulness',
-    (typeof f.value === 'number') ? f.value : null);
+  $('faith').innerHTML = bar(f.strategy || 'faithfulness', 3,
+    (typeof f.value === 'number') ? f.value : null, true);
 
   const r = (g[best] || {}).refusal_rate;
   const rv = r && typeof r.value === 'number' ? r.value : null;
-  $('refusal').innerHTML = gauge('refusal', rv);
+  const C = 2 * Math.PI * 68;
+  $('donutFg').setAttribute('stroke-dasharray', `${(rv === null ? 0 : rv) * C} ${C}`);
+  $('donutMid').textContent = pct(rv) ?? '—';
   const all = names.map(n => (g[n] || {}).refusal_rate).filter(x => x && typeof x.value === 'number');
   const same = all.length === names.length && all.every(x => x.value === rv);
   $('refusalNote').textContent = same

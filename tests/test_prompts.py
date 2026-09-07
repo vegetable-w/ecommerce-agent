@@ -70,3 +70,114 @@ def test_agent_system_names_match_registry():
     # Reverse: all mentioned names should correspond to real tools in registry
     for name in mentioned_names:
         assert name in registry_names, f"Tool '{name}' mentioned in AGENT_SYSTEM but not in registry"
+
+
+# ---- 04 章: RAG 生成 / セルフチェック / 忠実性 ---------------------------------
+
+# 各ルールを 1 つだけ特定できるアンカー。短い語(「番号」「拒否」「約束」など)は
+# 使わない: 下の DECOY のようにルールを 1 つも表現していない文でも通ってしまい、
+# assertion が同語反復になる(01 章の "ない" in PROMPT と同じ失敗)。
+_RAG_ANSWER_ANCHORS = (
+    "回答内の重要な結論には、その直後に根拠番号を付ける",   # 引用ルール
+    "根拠番号を付けられない結論は回答に含めない",           # 根拠外を書かない
+    "「現在、関連する情報を確認できませんでした」と明示したうえで",  # 回答拒否
+    "時間をおいての再試行は案内しない",                     # ツール障害との切り分け
+    "「プラットフォームの実際の処理状況に準じます」と案内する",      # 時効を約束しない
+    "補償の金額や期限を約束しない",                         # 補償を約束しない
+    "取り扱いのない商品について、仕様や価格をでっち上げない",        # 捏造しない
+)
+
+# ルールを 1 つも表現していないのに、素朴なアンカー(「番号」「evidence」「拒否」
+# 「約束」「案内」)は全部含む文字列。アンカーの識別力を測るための対照。
+_DECOY = (
+    "あなたは案内係です。evidence の番号を読み上げ、拒否されたら別の窓口へ回し、"
+    "約束の時間に集合してください。"
+)
+
+
+def test_rag_answer_anchors_are_not_tautological():
+    """アンカーがルールの存在を本当に指しているか(デコイでは落ちるか)を確かめる。"""
+    for anchor in _RAG_ANSWER_ANCHORS:
+        assert anchor not in _DECOY, f"アンカー '{anchor}' はルール抜きの文でも通る"
+
+
+def test_rag_answer_system_covers_citation_refusal_and_negative_knowledge():
+    from app.core.prompts import RAG_ANSWER_SYSTEM
+
+    for anchor in _RAG_ANSWER_ANCHORS:
+        assert anchor in RAG_ANSWER_SYSTEM
+
+
+def test_rag_answer_system_uses_japanese_shipping_facts():
+    """引用例の金額はこのナレッジベースの実際の送料ポリシー(3,000円)であること。"""
+    from app.core.prompts import RAG_ANSWER_SYSTEM
+
+    assert "3,000円以上のご注文は送料無料です[1]" in RAG_ANSWER_SYSTEM
+    assert "元" not in RAG_ANSWER_SYSTEM
+
+
+def test_rag_refusal_rule_does_not_collide_with_agent_tool_error_rule():
+    """AGENT_SYSTEM のツール障害ルールと、根拠不足の回答拒否ルールを取り違えさせない。
+
+    ツール障害(上流が落ちた)は再試行の案内が正しいが、根拠不足(検索は成功したが
+    ナレッジに該当が無い)で再試行を案内すると、直らないものを待たせることになる。
+    """
+    from app.core.prompts import AGENT_SYSTEM, RAG_ANSWER_SYSTEM, RAG_INSUFFICIENT_NOTICE
+
+    assert "しばらく時間をおいて再度お試しいただくよう案内する" in AGENT_SYSTEM
+    assert "しばらく時間をおいて再度お試し" not in RAG_ANSWER_SYSTEM
+    assert "時間をおいての再試行は案内しない" in RAG_ANSWER_SYSTEM
+    # どちらのルートでも、行き先は AGENT_SYSTEM と同じ create_ticket に揃える
+    assert "create_ticket" in RAG_ANSWER_SYSTEM
+    assert "create_ticket" in RAG_INSUFFICIENT_NOTICE
+    # ただしツール名はモデルへの指示であって、ユーザーへ見せる文面ではない
+    # (実測: この一文が無いと「オペレーター対応(create_ticket)をお願いいたします」と
+    #  そのまま出力された)
+    assert "ツール名や内部の仕組みをユーザーへの文面に書かない" in RAG_ANSWER_SYSTEM
+    assert "ツール名はユーザーへの文面に書かないでください" in RAG_INSUFFICIENT_NOTICE
+
+
+def test_rag_insufficient_notice_carries_the_instruction_in_its_text():
+    """根拠不足はフラグではなく本文で伝える。
+
+    02 章の実測: ToolMessage(status="error") の status は上流へ渡る際に落ち、
+    モデルには本文しか届かない。sufficient=False という真偽値だけでは
+    モデルは何をすべきか分からないため、指示そのものを本文に書く。
+    """
+    from app.core.prompts import RAG_INSUFFICIENT_NOTICE
+
+    assert "推測で回答を作らず" in RAG_INSUFFICIENT_NOTICE
+    assert "確認できなかったことをユーザーへ正直に伝えてください" in RAG_INSUFFICIENT_NOTICE
+    assert "時間をおいての再試行は案内しないでください" in RAG_INSUFFICIENT_NOTICE
+
+
+def test_rag_answer_prompt_renders_query_and_evidence():
+    from app.core.prompts import RAG_ANSWER_PROMPT
+
+    msgs = RAG_ANSWER_PROMPT.format_messages(
+        query="送料はいくらですか", evidence="[1] 3,000円以上のご注文は送料無料です"
+    )
+    assert msgs[0].type == "system"
+    assert "送料はいくらですか" in msgs[-1].content
+    assert "[1] 3,000円以上のご注文は送料無料です" in msgs[-1].content
+
+
+def test_faithfulness_prompt_renders_evidence_and_answer():
+    from app.core.prompts import FAITHFULNESS_PROMPT, FAITHFULNESS_SYSTEM
+
+    assert "根拠が無いことを認めた妥当な回答拒否も true とする" in FAITHFULNESS_SYSTEM
+    msgs = FAITHFULNESS_PROMPT.format_messages(
+        evidence="[1] 3,000円以上のご注文は送料無料です",
+        answer="3,000円以上で送料無料です[1]",
+    )
+    assert msgs[0].type == "system"
+    assert "[1] 3,000円以上のご注文は送料無料です" in msgs[-1].content
+    assert "3,000円以上で送料無料です[1]" in msgs[-1].content
+
+
+def test_self_check_system_defines_both_verdicts():
+    from app.core.prompts import SELF_CHECK_SYSTEM
+
+    assert "useful=true: 回答に必要な情報が evidence に含まれている" in SELF_CHECK_SYSTEM
+    assert "質問の一部にしか答えられない" in SELF_CHECK_SYSTEM
+    assert "evidence の外にある知識で補って判定しない" in SELF_CHECK_SYSTEM

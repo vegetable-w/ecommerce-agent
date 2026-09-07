@@ -49,3 +49,16 @@ async def test_staging_flow(db_session_factory):
 async def test_list_all_questions(db_session_factory):
     await repository.insert_knowledge_chunk("c", "送料はどう計算されますか", "9900円以上で無料")
     assert "送料はどう計算されますか" in await repository.list_all_questions()
+
+
+async def test_list_chunk_sections_returns_every_section_with_its_body(db_session_factory):
+    """評価セットの検証(scripts/validate_eval_04.py)が読む一覧。
+
+    section_path が無い chunk も落とさずに返す(捨てるのは呼び出し側の仕事)。
+    """
+    await repository.insert_knowledge_chunk(
+        "c", "送料はいくらですか", "3,000円以上は無料", section_path="FAQ / 送料はいくらですか")
+    await repository.insert_knowledge_chunk("c", "見出しなし", "本文だけ")
+    rows = await repository.list_chunk_sections()
+    assert ("FAQ / 送料はいくらですか", "3,000円以上は無料") in rows
+    assert ("", "本文だけ") in rows

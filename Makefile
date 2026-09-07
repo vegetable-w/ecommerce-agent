@@ -1,4 +1,4 @@
-.PHONY: dev test eval seed seed-conv kb-preview kb-build kb-vectorize kb-mine kb-reset eval-retrieval eval-mining eval-rag
+.PHONY: dev test eval seed seed-conv kb-preview kb-build kb-vectorize kb-mine kb-reset eval-retrieval eval-mining eval-rag eval-check
 
 # --reload は付けない。この環境では watchfiles が入っていても変更を検知せず
 # (実測: 起動後の app/tools/business.py の更新で reload されなかった)、
@@ -57,3 +57,7 @@ smoke-rag:
 # 生成段を省いて決定的な Stage 1/2 だけ回すなら --no-generation を付ける。
 eval-rag:
 	uv run --env-file .env python scripts/eval_04.py
+
+# 評価セットの自己検証。MySQL の knowledge_chunks を読むだけで、上流も Milvus も使わない。
+eval-check:
+	uv run --env-file .env python scripts/validate_eval_04.py

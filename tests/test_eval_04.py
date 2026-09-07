@@ -207,14 +207,121 @@ def test_metrics_separate_a_good_ranking_from_a_bad_one():
 
 
 # ---------------------------------------------------------------------------
+# 複数根拠 (expect_sections_all) の採点
+# ---------------------------------------------------------------------------
+
+
+def test_as_groups_accepts_both_the_old_and_the_new_shape():
+    assert ev.as_groups(["送料はいくらですか"]) == [["送料はいくらですか"]]
+    assert ev.as_groups([["交換ポリシー", "交換時の送料"], ["送料はいくらですか"]]) == [
+        ["交換ポリシー", "交換時の送料"], ["送料はいくらですか"]]
+    assert ev.as_groups([]) == []
+
+
+def test_expect_groups_prefers_the_multi_evidence_field():
+    """両方書かれていたら expect_sections_all を採る(load_samples のコメントと同じ順位)。"""
+    both = {"expect_section": ["旧い書き方"],
+            "expect_sections_all": [["新しい書き方 1"], ["新しい書き方 2"]]}
+    assert ev.expect_groups(both) == [["新しい書き方 1"], ["新しい書き方 2"]]
+    assert ev.expect_groups({"expect_section": ["送料はいくらですか"]}) == [["送料はいくらですか"]]
+    assert ev.expect_groups({"expect_section": []}) == []
+
+
+def test_recall_gives_partial_credit_per_group():
+    """3 グループ中 2 つ当たれば 0.667。全部揃って 1.0、1 つも当たらなければ 0.0。
+
+    変異で確認済み: 「全グループ揃ったときだけ 1.0」の all-or-nothing 実装に差し替え
+    → このテストが fail。部分点が落ちると E_multi の Recall だけが構造的に低く出る。
+    """
+    hits = [_hit("FAQ / 送料はいくらですか"), _hit("無関係な節"),
+            _hit("返品・返金ポリシー / 交換ポリシー / 交換時の送料")]
+    groups = [["送料はいくらですか"], ["交換ポリシー", "交換時の送料"], ["返品対象外の商品"]]
+    assert ev.recall_at_k(hits, groups) == pytest.approx(2 / 3)
+    assert ev.recall_at_k(hits, groups[:2]) == 1.0
+    assert ev.recall_at_k(hits, [groups[2]]) == 0.0
+
+
+def test_mrr_of_multiple_groups_is_the_mean_of_each_rank_not_the_rank_they_were_completed():
+    """MRR は各根拠の逆順位の**平均**。
+
+    「最後の 1 グループが揃った順位」の逆数を返す実装にすると、2 グループの問いは上限が
+    0.5 になり、単一根拠の bucket と並べた瞬間に検索が劣化したように見える。
+    1 位と 2 位に出たなら (1/1 + 1/2)/2 = 0.75 であって 0.5 ではない。
+
+    変異で確認済み(DATABASE_URL を存在しないホストへ向けた状態で実行):
+      * reciprocal_rank を「全グループが揃った順位の逆数」に差し替え → 3 件 fail。
+      * miss したグループを平均から外す(0 を入れない)実装に差し替え → 1 件 fail。
+    """
+    hits = [_hit("FAQ / 送料はいくらですか"), _hit("返品・返金ポリシー / 返品対象外の商品")]
+    groups = [["送料はいくらですか"], ["返品対象外の商品"]]
+    assert ev.reciprocal_rank(hits, groups) == 0.75
+
+
+def test_mrr_counts_a_group_that_was_never_retrieved_as_zero():
+    """圏外のグループを平均から外すと、半分しか引けていない問いが満点になる。"""
+    hits = [_hit("FAQ / 送料はいくらですか")]
+    assert ev.reciprocal_rank(hits, [["送料はいくらですか"], ["どこにも無い節"]]) == 0.5
+    assert ev.reciprocal_rank(hits, [["どこにも無い節"], ["これも無い"]]) == 0.0
+
+
+def test_recall_depth_is_independent_from_the_search_depth():
+    """K(検索深度)と RECALL_K は別物。7 位のヒットは MRR には効くが Recall@5 には入らない。"""
+    assert (ev.K, ev.RECALL_K) == (10, 5)
+    hits = [_hit("無関係な節")] * 6 + [_hit("FAQ / 送料はいくらですか")]
+    assert ev.recall_at_k(hits, ["送料はいくらですか"]) == 0.0
+    assert ev.reciprocal_rank(hits, ["送料はいくらですか"]) == pytest.approx(1 / 7)
+
+
+def test_the_old_single_section_format_is_scored_exactly_as_before():
+    """後方互換: expect_section の 1 節はグループ 1 個と同じ点になる。"""
+    hits = [_hit("無関係な節"), _hit("FAQ / 送料はいくらですか")]
+    assert ev.recall_at_k(hits, ["送料はいくらですか"]) == 1.0
+    assert ev.reciprocal_rank(hits, ["送料はいくらですか"]) == 0.5
+    assert ev.recall_at_k(hits, [["送料はいくらですか"]]) == 1.0
+    assert ev.reciprocal_rank(hits, [["送料はいくらですか"]]) == 0.5
+
+
+async def test_run_deterministic_publishes_recall_under_both_the_new_and_the_old_key(monkeypatch):
+    """report に出る指標キーを固定する。
+
+    新: retrieval[戦略]["recall_at_5"]、旧: 同 ["recall_at_k"](同じ値)。
+    評価ページと過去 run のトレンドが旧キーを読んでいるので、両方から読めること。
+    """
+    async def fake_search(query, strategy=None, top_k=10, min_score=None, collection=None):
+        return [_hit("商品・ショッピング FAQ / 送料はいくらですか",
+                     "1回の注文金額が3,000円以上の場合は送料無料。"),
+                _hit("返品・返金ポリシー / 返品対象外の商品", "生鮮食品は返品できない。")]
+
+    monkeypatch.setattr("app.core.retrieval.search_knowledge", fake_search)
+    samples = [{"id": "E1", "bucket": "E_multi", "query": "送料と返品対象外を教えて",
+                "expect_sections_all": [["送料はいくらですか"], ["返品対象外の商品"]],
+                "expect_points": ["3,000円以上の場合は送料無料"], "should_refuse": False}]
+
+    retrieval_out, coverage_out, hits_by = await ev.run_deterministic(
+        samples, "knowledge", ["dense"])
+
+    node = retrieval_out["dense"]
+    assert node[ev.RECALL_KEY]["E_multi"] == {"value": 1.0, "n": 1}
+    assert ev.RECALL_KEY == "recall_at_5"
+    assert node["recall_at_k"] == node[ev.RECALL_KEY]
+    assert node["mrr"]["E_multi"]["value"] == 0.75
+    assert coverage_out["dense"]["coverage"]["E_multi"]["value"] == 1.0
+
+
+# ---------------------------------------------------------------------------
 # 評価セットの読み込み
 # ---------------------------------------------------------------------------
 
 
 def test_load_samples_reads_the_real_evaluation_set():
+    """実データが BUCKETS の内側に収まっていること。
+
+    == ではなく部分集合で見る。E_multi は bucket として先に定義してあり、問題そのものは
+    後から入る。ここを == にすると「データがまだ無い」だけで指標側のテストが赤くなる。
+    """
     samples = ev.load_samples()
-    assert len(samples) == 80
-    assert {s["bucket"] for s in samples} == set(ev.BUCKETS)
+    assert samples
+    assert {s["bucket"] for s in samples} <= set(ev.BUCKETS)
 
 
 def test_load_samples_reports_the_line_number_of_broken_json(tmp_path):
@@ -223,6 +330,24 @@ def test_load_samples_reports_the_line_number_of_broken_json(tmp_path):
                  '"expect_points":[],"should_refuse":false}\nこれは JSON ではない\n',
                  encoding="utf-8")
     with pytest.raises(SystemExit, match="2 行目"):
+        ev.load_samples(p)
+
+
+def test_load_samples_accepts_the_multi_evidence_format(tmp_path):
+    p = tmp_path / "multi.jsonl"
+    p.write_text('{"id":"E1","bucket":"E_multi","query":"q",'
+                 '"expect_sections_all":[["交換ポリシー","交換時の送料"],["送料はいくらですか"]],'
+                 '"expect_points":["500円の送料"],"should_refuse":false}\n', encoding="utf-8")
+    assert ev.expect_groups(ev.load_samples(p)[0]) == [
+        ["交換ポリシー", "交換時の送料"], ["送料はいくらですか"]]
+
+
+def test_load_samples_requires_one_of_the_two_answer_formats(tmp_path):
+    """expect_section も expect_sections_all も無い行は、正解の無い採点対象になってしまう。"""
+    p = tmp_path / "noanswer.jsonl"
+    p.write_text('{"id":"A1","bucket":"A_policy","query":"q","expect_points":["x"],'
+                 '"should_refuse":false}\n', encoding="utf-8")
+    with pytest.raises(SystemExit, match="expect_sections_all"):
         ev.load_samples(p)
 
 

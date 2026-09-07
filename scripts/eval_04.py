@@ -2,7 +2,8 @@
 
 3 段構成で、前段だけでも成立するように分けてある。
 
-  Stage 1 Retrieval        : 決定的。expect_section が section_path に当たったかで Recall@K / MRR。
+  Stage 1 Retrieval        : 決定的。期待した節が section_path に当たったかで Recall / MRR。
+                             複数根拠 (expect_sections_all) はグループ単位の部分点で測る。
   Stage 2 Evidence Coverage: 決定的。Top-K の evidence 本文が expect_points を何割含むか。
   Stage 3 Generation       : チャット上流を使う。4 戦略の Answer Coverage、hybrid_rerank の
                              Faithfulness、D bucket の回答拒否率。
@@ -46,9 +47,13 @@ SELFCHECK_SET = ROOT / "tests" / "data" / "selfcheck_samples.jsonl"
 OUT_DIR = ROOT / "data" / "04" / "reports"
 
 STRATEGIES = ["dense", "bm25", "hybrid", "hybrid_rerank"]
-GRADED_BUCKETS = ["A_policy", "B_model", "C_colloquial"]
+GRADED_BUCKETS = ["A_policy", "B_model", "C_colloquial", "E_multi"]
 BUCKETS = [*GRADED_BUCKETS, "D_absent"]
-K = 10
+K = 10          # 検索深度。検索も MRR もここまでを見る
+RECALL_K = 5    # Recall だけはこの深さで測る。K とは別物なので連動させない
+# report(JSON)に出す Recall のキー名。読む側(評価ページ / トレンド)がキーで
+# 深さを判別できるように、K ではなく RECALL_K を名前へ埋める。
+RECALL_KEY = f"recall_at_{RECALL_K}"
 RETR_CONCURRENCY, GEN_CONCURRENCY, CALL_TIMEOUT = 8, 3, 45.0
 
 # 足切りなしを伝える番兵(app/tools/business.py と同じ考え方)。
@@ -94,23 +99,69 @@ def is_relevant(hit: dict, expect_section: list[str]) -> bool:
 
 
 def first_relevant_rank(hits: list[dict], expect_section: list[str]) -> int | None:
-    """正解 chunk が最初に現れた順位(1 始まり)。1 件も無ければ None。"""
+    """1 つのグループに当たる chunk が最初に現れた順位(1 始まり)。1 件も無ければ None。"""
     for i, h in enumerate(hits, 1):
         if is_relevant(h, expect_section):
             return i
     return None
 
 
-def recall_at_k(hits: list[dict], expect_section: list[str], k: int = K) -> float:
-    """上位 k 件に正解 chunk が 1 件でもあれば 1.0。正解が 1 節しかないので hit rate と同義。"""
-    rank = first_relevant_rank(hits[:k], expect_section)
-    return 1.0 if rank is not None else 0.0
+def as_groups(expect: list) -> list[list[str]]:
+    """期待値を「グループのリスト」へ揃える。グループ 1 つが根拠 chunk 1 つを表す。
+
+      * list[str]        … 旧 expect_section。グループ 1 個として扱う(後方互換)
+      * list[list[str]]  … expect_sections_all。そのまま
+
+    グループの中身は expect_section と同じ AND 条件(section_path がそのすべてを含む)で、
+    その条件に当たる chunk が 1 件でもあればそのグループは満たされたとみなす。
+    空グループは正解を指さないので落とす。
+    """
+    if not expect:
+        return []
+    if all(isinstance(e, str) for e in expect):
+        return [list(expect)]
+    return [[g] if isinstance(g, str) else list(g) for g in expect if g]
 
 
-def reciprocal_rank(hits: list[dict], expect_section: list[str], k: int = K) -> float:
-    """上位 k 件における逆順位。圏外は 0.0。"""
-    rank = first_relevant_rank(hits[:k], expect_section)
-    return 1.0 / rank if rank is not None else 0.0
+def expect_groups(sample: dict) -> list[list[str]]:
+    """1 問の期待値を as_groups に通して取り出す。
+
+    両方書かれている場合は expect_sections_all を採る。複数の根拠を宣言している以上
+    そちらが正で、expect_section は単一根拠時代の書き方とみなす。
+    """
+    return as_groups(sample.get("expect_sections_all") or sample.get("expect_section") or [])
+
+
+def recall_at_k(hits: list[dict], expect: list, k: int = RECALL_K) -> float:
+    """上位 k 件で満たせたグループ数 / 全グループ数。
+
+    グループ単位の部分点。3 グループのうち 2 つ当たれば 0.667 で、全部揃って 1.0。
+    単一根拠(グループ 1 個)なら従来どおり 0.0 か 1.0 の hit rate になる。
+    """
+    groups = as_groups(expect)
+    if not groups:
+        return 0.0
+    top = hits[:k]
+    return sum(1 for g in groups if first_relevant_rank(top, g) is not None) / len(groups)
+
+
+def reciprocal_rank(hits: list[dict], expect: list, k: int = K) -> float:
+    """各根拠 chunk の逆順位の**平均**。圏外のグループは 0 として平均に含める。
+
+    「最後の 1 グループが揃った順位」の逆数にしてはいけない。それだと 2 グループの問いは
+    どう頑張っても上限 1/2 になり、単一根拠の bucket と同じ表に並べた瞬間、検索が劣化した
+    ように見える(指標が bucket の構造を測ってしまう)。rank 1 と rank 2 に出たなら
+    (1/1 + 1/2)/2 = 0.75 であって 0.5 ではない。
+    """
+    groups = as_groups(expect)
+    if not groups:
+        return 0.0
+    top = hits[:k]
+    rrs = []
+    for g in groups:
+        rank = first_relevant_rank(top, g)
+        rrs.append(1.0 / rank if rank is not None else 0.0)
+    return sum(rrs) / len(rrs)
 
 
 def coverage_mech(points: list[str], hits: list[dict]) -> float | None:
@@ -180,10 +231,15 @@ def load_samples(path: pathlib.Path = EVAL_SET) -> list[dict]:
             r = json.loads(line)
         except json.JSONDecodeError as exc:
             raise SystemExit(f"{path.name} の {i} 行目が JSON として読めません: {exc}") from exc
-        missing = {"id", "bucket", "query", "expect_section", "expect_points",
-                   "should_refuse"} - set(r)
+        missing = {"id", "bucket", "query", "expect_points", "should_refuse"} - set(r)
         if missing:
             raise SystemExit(f"{path.name} の {i} 行目に項目が足りません: {sorted(missing)}")
+        # 正解の形式は 2 つ。単一根拠は expect_section、複数根拠は expect_sections_all。
+        # どちらか一方は必ず要る。両方あるときは expect_sections_all を採る(expect_groups と
+        # 同じ優先順位。片方だけ直して片方を消し忘れた、という取り違えを防ぐため)。
+        if "expect_section" not in r and "expect_sections_all" not in r:
+            raise SystemExit(f"{path.name} の {i} 行目に項目が足りません: "
+                             "['expect_section' か 'expect_sections_all' のどちらか]")
         rows.append(r)
     if not rows:
         raise SystemExit(f"{path} に評価サンプルがありません")
@@ -249,16 +305,19 @@ async def run_deterministic(samples: list[dict], collection: str,
         records = []
         for s in samples:
             hits = hits_by[(st, s["id"])]
+            groups = expect_groups(s)
             records.append({
                 "id": s["id"], "bucket": s["bucket"],
-                "recall": (recall_at_k(hits, s["expect_section"], K)
-                           if s["expect_section"] else None),
-                "rr": (reciprocal_rank(hits, s["expect_section"], K)
-                       if s["expect_section"] else None),
+                "recall": recall_at_k(hits, groups, RECALL_K) if groups else None,
+                "rr": reciprocal_rank(hits, groups, K) if groups else None,
                 "coverage": coverage_mech(s["expect_points"], hits[:K]),
             })
+        recall_agg = aggregate(records, "recall", GRADED_BUCKETS)
         retrieval_out[st] = {
-            "recall_at_k": aggregate(records, "recall", GRADED_BUCKETS),
+            RECALL_KEY: recall_agg,
+            # 旧キー。評価ページと過去 run のトレンドが recall_at_k を読んでいるので、
+            # 同じ値を旧名でも残す(読む側が新旧どちらでも拾えるようにするための移行措置)。
+            "recall_at_k": recall_agg,
             "mrr": aggregate(records, "rr", GRADED_BUCKETS),
             "per_sample": [{"id": r["id"], "bucket": r["bucket"], "recall": r["recall"],
                             "rr": r["rr"]} for r in records],
@@ -544,12 +603,14 @@ async def main(argv: list[str] | None = None) -> int:
     started = datetime.datetime.now().isoformat(timespec="seconds")
     _log(f"評価開始 {started}  collection={args.collection}({rows} 件)  "
          f"サンプル {len(samples)} 問 {counts}")
-    _log(f"戦略={strategies}  K={K}  埋め込み={settings.embed_model}  "
+    _log(f"戦略={strategies}  K={K}(Recall は上位 {RECALL_K} 件)  "
+         f"埋め込み={settings.embed_model}  "
          f"リランク={settings.rerank_model}  生成={settings.chat_model}")
 
     retrieval_d, coverage_d, hits_by = await run_deterministic(samples, args.collection,
                                                               strategies)
-    _table("Stage 1 Retrieval  Recall@%d" % K, retrieval_d, ["recall_at_k"], GRADED_BUCKETS)
+    _table("Stage 1 Retrieval  Recall@%d" % RECALL_K, retrieval_d, [RECALL_KEY],
+           GRADED_BUCKETS)
     _table("Stage 1 Retrieval  MRR", retrieval_d, ["mrr"], GRADED_BUCKETS)
     _table("Stage 2 Evidence Coverage(機械的な部分一致)", coverage_d, ["coverage"],
            GRADED_BUCKETS)
@@ -592,7 +653,7 @@ async def main(argv: list[str] | None = None) -> int:
             "finished_at": datetime.datetime.now().isoformat(timespec="seconds"),
             "collection": args.collection, "collection_rows": rows,
             "samples": len(samples), "bucket_counts": counts,
-            "k": K, "strategies": strategies,
+            "k": K, "recall_k": RECALL_K, "strategies": strategies,
             "embed_model": settings.embed_model, "rerank_model": settings.rerank_model,
             "chat_model": settings.chat_model,
             "generation_complete": generation_d is not None,

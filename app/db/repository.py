@@ -274,6 +274,20 @@ async def list_recent_chunks(limit: int = 20) -> list[KnowledgeChunk]:
         return list(result.scalars())
 
 
+async def list_chunk_sections() -> list[tuple[str, str]]:
+    """全 chunk の (section_path, answer)。評価セットの検証(読み取り専用)から使う。
+
+    正となるナレッジは Milvus ではなく MySQL 側なので、こちらを読む。Milvus が
+    落ちていても評価セットの妥当性は確かめられる、という切り分けのため。
+    """
+    async with db.async_session() as s:
+        rows = await s.execute(
+            select(KnowledgeChunk.section_path, KnowledgeChunk.answer)
+            .order_by(KnowledgeChunk.id)
+        )
+        return [(path or "", answer or "") for path, answer in rows]
+
+
 def chunk_fingerprint(questions: str, answer: str) -> str:
     """重複判定の指紋。questions と answer の**両方**を正規化して連結する。
 

@@ -25,6 +25,7 @@
   *{box-sizing:border-box}
   body{
     margin:0; color:var(--ink);
+    font-size:15px;
     font-family:"Hiragino Maru Gothic ProN","Yu Gothic UI",-apple-system,"Segoe UI",system-ui,sans-serif;
     background:
       radial-gradient(1000px 600px at 10% -10%, var(--bg1), transparent 60%),
@@ -32,7 +33,7 @@
       var(--bg3);
     min-height:100vh;
   }
-  .adm-wrap{max-width:1080px; margin:0 auto; padding:18px 20px 60px}
+  .adm-wrap{max-width:1140px; margin:0 auto; padding:18px 20px 60px}
 
   .adm-nav{display:flex; align-items:center; gap:10px; padding:12px 16px; margin-bottom:18px;
     background:rgba(255,255,255,.82); backdrop-filter:blur(10px);
@@ -41,9 +42,9 @@
   .adm-nav .adm-face{width:34px;height:34px;border-radius:50%;flex:none;display:grid;place-items:center;
     font-size:18px; background:linear-gradient(160deg,#ffd9e5,#ffeaf1);
     box-shadow:0 3px 10px rgba(255,143,177,.35)}
-  .adm-nav b{font-size:14.5px; margin-right:6px}
+  .adm-nav b{font-size:16px; margin-right:6px}
   .adm-nav a{
-    font-size:13px; text-decoration:none; color:var(--muted);
+    font-size:14px; text-decoration:none; color:var(--muted);
     border:1px solid var(--line); background:#fff; padding:6px 13px; border-radius:999px;
     transition:color .15s, border-color .15s}
   .adm-nav a:hover{color:var(--accent-d); border-color:#ffd3e0}
@@ -54,26 +55,26 @@
   .adm-card{background:var(--card); border:1px solid var(--line); border-radius:20px;
     padding:16px 18px; margin-bottom:14px;
     box-shadow:0 6px 20px rgba(170,140,180,.09)}
-  .adm-card > h2{margin:0 0 12px; font-size:15px; display:flex; align-items:center; gap:8px}
-  .adm-card > h2 .adm-num{width:22px;height:22px;border-radius:50%;flex:none;display:grid;place-items:center;
-    font-size:12px; color:#fff; background:linear-gradient(160deg,var(--accent),var(--accent-d))}
+  .adm-card > h2{margin:0 0 14px; font-size:17.5px; display:flex; align-items:center; gap:8px}
+  .adm-card > h2 .adm-num{width:25px;height:25px;border-radius:50%;flex:none;display:grid;place-items:center;
+    font-size:13.5px; color:#fff; background:linear-gradient(160deg,var(--accent),var(--accent-d))}
 
   .adm-bar{display:flex; flex-wrap:wrap; gap:9px; margin-bottom:14px}
-  .adm-stat{flex:1; min-width:132px; background:#fff; border:1px solid var(--line);
+  .adm-stat{flex:1; min-width:150px; background:#fff; border:1px solid var(--line);
     border-radius:16px; padding:10px 14px}
-  .adm-stat .k{font-size:11.5px; color:var(--muted)}
-  .adm-stat .v{font-size:21px; font-weight:600; line-height:1.35}
-  .adm-stat .v.na{font-size:14px; color:var(--muted); font-weight:400}
+  .adm-stat .k{font-size:13px; color:var(--muted)}
+  .adm-stat .v{font-size:27px; font-weight:600; line-height:1.3}
+  .adm-stat .v.na{font-size:16px; color:var(--muted); font-weight:400}
 
-  .adm-pill{display:inline-flex; align-items:center; gap:5px; font-size:11.5px;
-    padding:3px 10px; border-radius:999px; border:1px solid var(--line); background:#fdfafc; color:var(--muted)}
+  .adm-pill{display:inline-flex; align-items:center; gap:5px; font-size:13px;
+    padding:4px 12px; border-radius:999px; border:1px solid var(--line); background:#fdfafc; color:var(--muted)}
   .adm-pill i{width:7px;height:7px;border-radius:50%;display:block;background:var(--none)}
   .adm-pill.ok i{background:var(--ok)} .adm-pill.warn i{background:var(--warn)}
   .adm-pill.bad i{background:var(--bad)}
   .adm-pill.dashed{border-style:dashed}
 
-  .adm-btn{font:inherit; font-size:12.5px; cursor:pointer; border:1px solid var(--line);
-    background:#fff; color:var(--ink); padding:7px 14px; border-radius:999px; transition:transform .1s}
+  .adm-btn{font:inherit; font-size:14px; cursor:pointer; border:1px solid var(--line);
+    background:#fff; color:var(--ink); padding:8px 16px; border-radius:999px; transition:transform .1s}
   .adm-btn:hover:not(:disabled){border-color:#ffd3e0; color:var(--accent-d)}
   .adm-btn:active:not(:disabled){transform:translateY(1px)}
   .adm-btn:disabled{opacity:.45; cursor:not-allowed}
@@ -83,13 +84,13 @@
   .adm-btn.heavy{border-color:#ffd9d9; color:#b4444f; background:#fff6f6}
   .adm-btns{display:flex; flex-wrap:wrap; gap:8px}
 
-  .adm-tbl{width:100%; border-collapse:collapse; font-size:13px}
-  .adm-tbl th,.adm-tbl td{border-bottom:1px solid var(--line); padding:7px 9px; text-align:left; vertical-align:top}
-  .adm-tbl th{font-weight:600; color:var(--muted); font-size:11.5px; white-space:nowrap}
+  .adm-tbl{width:100%; border-collapse:collapse; font-size:14.5px}
+  .adm-tbl th,.adm-tbl td{border-bottom:1px solid var(--line); padding:9px 11px; text-align:left; vertical-align:top}
+  .adm-tbl th{font-weight:600; color:var(--muted); font-size:13px; white-space:nowrap}
   .adm-tbl tr:last-child td{border-bottom:none}
   .adm-scroll{overflow-x:auto}
 
-  .adm-in,.adm-ta{font:inherit; font-size:13.5px; color:var(--ink); background:#fff;
+  .adm-in,.adm-ta{font:inherit; font-size:14.5px; color:var(--ink); background:#fff;
     border:1.5px solid var(--line); border-radius:14px; padding:9px 13px; outline:none; width:100%}
   .adm-in:focus,.adm-ta:focus{border-color:#ffc7d8}
   .adm-ta{resize:vertical; min-height:120px; line-height:1.65; font-family:ui-monospace,Consolas,monospace; font-size:12.5px}
@@ -97,14 +98,14 @@
   select.adm-in{width:auto; min-width:130px}
 
   .adm-log{background:#2f2838; color:#f4eef7; border-radius:14px; padding:11px 13px; margin-top:10px;
-    font-family:ui-monospace,Consolas,monospace; font-size:11.5px; line-height:1.65;
+    font-family:ui-monospace,Consolas,monospace; font-size:13px; line-height:1.7;
     white-space:pre-wrap; word-break:break-all; max-height:230px; overflow:auto}
   .adm-log:empty{display:none}
 
-  .adm-note{font-size:12px; color:var(--muted); line-height:1.7; margin:6px 0 0}
+  .adm-note{font-size:13.5px; color:var(--muted); line-height:1.8; margin:7px 0 0}
   .adm-err{background:#fff4f4; border:1px solid #ffd9d9; color:#b4444f;
-    border-radius:14px; padding:9px 13px; font-size:12.5px; margin-top:8px}
-  .adm-empty{color:var(--muted); font-size:12.5px; padding:10px 2px}
+    border-radius:14px; padding:10px 14px; font-size:14px; margin-top:8px}
+  .adm-empty{color:var(--muted); font-size:14px; padding:12px 2px}
   .adm-toast{position:fixed; left:50%; bottom:26px; transform:translateX(-50%);
     background:#fff; border:1px solid var(--line); border-radius:999px; padding:10px 20px;
     font-size:13px; box-shadow:0 10px 30px rgba(160,120,170,.28); z-index:50}

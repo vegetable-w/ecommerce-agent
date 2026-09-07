@@ -12,59 +12,97 @@
   .rag-strat1{--rag-c:#ff8fb1} .rag-strat2{--rag-c:#8fd3ff}
   .rag-strat3{--rag-c:#ffc46b} .rag-strat4{--rag-c:#5ed6a4}
 
-  .rag-group{margin-bottom:13px}
-  .rag-group > .cap{font-size:12px; color:var(--muted); margin-bottom:5px}
-  .rag-row{display:flex; align-items:center; gap:9px; margin-bottom:4px}
-  .rag-row .nm{flex:none; width:118px; font-size:12px; color:#6c6280;
-    font-family:ui-monospace,Consolas,monospace}
-  .rag-row.best .nm{color:var(--accent-d); font-weight:700}
-  .rag-track{flex:1; height:15px; background:#f7f2f8; border-radius:999px; overflow:hidden}
-  .rag-fill{display:block; height:100%; border-radius:999px;
+  /* 縦棒グラフ。棒の高さは % をそのまま使い、目盛りは 0/25/50/75/100 の 5 本。
+     横棒だと戦略ごとに行が分かれて、bucket 間の比較が目で追えなかった。 */
+  /* 生成品質のセクション見出し。縦棒に置き換えたときに一度消してしまい、
+     見出しが素の div のまま出ていた。 */
+  .rag-group{margin-bottom:26px}
+  .rag-group:last-child{margin-bottom:4px}
+  .rag-group > .cap{font-size:14.5px; color:#6c6280; line-height:1.6; margin-bottom:7px}
+
+  /* 上の 26px は柱の上に出る数値ラベルの居場所。ここを詰めると 100% の柱の
+     ラベルが枠の外へ出て、真上の凡例と重なる(実測で重なった)。 */
+  .rag-chart{display:flex; gap:10px; margin:6px 0 4px; padding-top:26px}
+  .rag-yaxis{flex:none; width:44px; height:300px; position:relative}
+  .rag-yaxis span{position:absolute; right:0; transform:translateY(-50%);
+    font-size:12.5px; color:var(--muted); font-family:ui-monospace,Consolas,monospace}
+  .rag-plot{flex:1; min-width:0}
+  .rag-area{position:relative; height:300px}
+  .rag-area .gl{position:absolute; left:0; right:0; border-top:1px dashed #ece3ef}
+  .rag-area .gl.zero{border-top:1.5px solid #e0d5e4}
+
+  .rag-groups{position:absolute; inset:0; display:flex; gap:14px; align-items:flex-end}
+  .rag-bgroup{flex:1; min-width:0; height:100%; display:flex; align-items:flex-end;
+    gap:5px; padding:0 2px}
+  .rag-col{flex:1; min-width:0; position:relative; border-radius:7px 7px 0 0;
     background:var(--rag-c);   /* color-mix を解釈しない環境ではこちらが残る */
-    background:linear-gradient(90deg,color-mix(in srgb,var(--rag-c) 62%,#fff),var(--rag-c));
-    transition:width .35s ease}
-  .rag-row .vl{flex:none; width:56px; text-align:right; font-size:12.5px; font-weight:600;
+    background:linear-gradient(180deg,color-mix(in srgb,var(--rag-c) 62%,#fff),var(--rag-c));
+    transition:height .35s ease; min-height:2px}
+  .rag-col.best{outline:2px solid var(--accent-d); outline-offset:1px}
+  .rag-col .v{position:absolute; left:-3px; right:-3px; top:-21px; text-align:center;
+    font-size:12.5px; font-weight:600; font-family:ui-monospace,Consolas,monospace;
+    color:#5d5470; white-space:nowrap}
+  .rag-col.na{background:repeating-linear-gradient(45deg,#f4eff6,#f4eff6 5px,#fbf8fc 5px,#fbf8fc 10px);
+    height:100% !important; border-radius:7px}
+  .rag-col.na .v{color:var(--muted); font-weight:400; top:calc(50% - 10px)}
+
+  .rag-xaxis{display:flex; gap:14px; margin-top:9px}
+  .rag-xlabel{flex:1; min-width:0; text-align:center; font-size:13.5px; color:#6c6280;
+    line-height:1.5; word-break:keep-all}
+  .rag-xlabel.best{color:var(--accent-d); font-weight:700}
+
+  .rag-guide summary{cursor:pointer; list-style:none; margin-bottom:2px}
+  .rag-guide summary::-webkit-details-marker{display:none}
+  .rag-guide summary h2{margin:0}
+  .rag-guide summary::after{content:'（閉じる）'; font-size:13px; color:var(--muted); margin-left:8px}
+  .rag-guide:not([open]) summary::after{content:'（開く）'}
+  .rag-gcol{display:flex; flex-wrap:wrap; gap:22px}
+  .rag-gcol > div{flex:1; min-width:280px}
+  .rag-gcol h3{margin:6px 0 8px; font-size:15px; color:var(--accent-d)}
+  .rag-gcol dl{margin:0}
+  .rag-gcol dt{font-size:14px; font-weight:700; margin-top:9px;
     font-family:ui-monospace,Consolas,monospace}
-  .rag-row .vl.na{font-weight:400; color:var(--muted); font-size:11px}
+  .rag-gcol dd{margin:2px 0 0; font-size:13.5px; line-height:1.8; color:#6c6280}
 
-  .rag-legend{display:flex; flex-wrap:wrap; gap:12px; margin:2px 0 12px; font-size:11.5px; color:var(--muted)}
-  .rag-legend span{display:inline-flex; align-items:center; gap:5px}
-  .rag-legend i{width:10px; height:10px; border-radius:3px; display:block; background:var(--rag-c)}
+  .rag-gauge{display:flex; align-items:center; gap:12px; margin-top:6px}
+  .rag-track{flex:1; height:22px; background:#f7f2f8; border-radius:999px; overflow:hidden}
+  .rag-fill{display:block; height:100%; border-radius:999px;
+    background:var(--accent);
+    background:linear-gradient(90deg,#ffd0e0,var(--accent-d));
+    transition:width .35s ease}
+  .rag-gauge .vl{flex:none; width:74px; text-align:right; font-size:19px; font-weight:600;
+    font-family:ui-monospace,Consolas,monospace}
+  .rag-gauge .vl.na{font-weight:400; color:var(--muted); font-size:14px}
 
-  .rag-split{display:flex; flex-wrap:wrap; gap:18px; align-items:flex-start}
-  .rag-split > .l{flex:1; min-width:280px}
-  .rag-split > .r{flex:none; width:210px; text-align:center}
-  .rag-donut{transform:rotate(-90deg)}
-  .rag-donut .bg{fill:none; stroke:#f2ecf4; stroke-width:15}
-  .rag-donut .fg{fill:none; stroke:var(--accent); stroke-width:15; stroke-linecap:round;
-    transition:stroke-dasharray .4s ease}
-  .rag-donutwrap{position:relative; width:150px; margin:0 auto}
-  .rag-donutwrap .mid{position:absolute; inset:0; display:grid; place-items:center;
-    font-size:22px; font-weight:600}
+  .rag-legend{display:flex; flex-wrap:wrap; gap:16px; margin:2px 0 14px; font-size:14px; color:#6c6280}
+  .rag-legend span{display:inline-flex; align-items:center; gap:7px}
+  .rag-legend span.best{color:var(--accent-d); font-weight:700}
+  .rag-legend i{width:14px; height:14px; border-radius:4px; display:block; background:var(--rag-c)}
+
 
   .rag-tbl td.num{font-family:ui-monospace,Consolas,monospace; text-align:right; white-space:nowrap}
   .rag-tbl tr.best td{background:#fff6f9}
   .rag-tbl tr.best td:first-child{font-weight:700; color:var(--accent-d)}
 
   .rag-hint{background:#fbf7fd; border:1px solid var(--line); border-radius:14px;
-    padding:9px 13px; font-size:12px; color:#6c6280; line-height:1.75; margin:8px 0 0}
-  .rag-sub{font-size:11px; color:var(--muted); margin-top:2px}
+    padding:12px 15px; font-size:14px; color:#6c6280; line-height:1.85; margin:12px 0 0}
+  .rag-sub{font-size:12.5px; color:var(--muted); margin-top:3px}
   .rag-meta{display:flex; flex-wrap:wrap; gap:6px}
 
   /* 幻覚ケース台帳。カードの語彙(角丸・枠線・カプセル)は共通 CSS に合わせ、
      ここでは並びと「引用された根拠」の強調だけを足す。 */
-  .fc-n{margin-left:6px; font-family:ui-monospace,Consolas,monospace; font-size:11.5px; color:var(--muted)}
+  .fc-n{margin-left:7px; font-family:ui-monospace,Consolas,monospace; font-size:13px; color:var(--muted)}
   .adm-btn.pri .fc-n{color:#fff}
   .fc-n.na{font-family:inherit; font-size:11px}
 
   .fcase{border:1px solid var(--line); border-radius:16px; padding:11px 14px;
     margin-bottom:10px; background:#fffdfe}
   .fcase .head{display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:6px}
-  .fcase .eid{font-family:ui-monospace,Consolas,monospace; font-size:12.5px;
+  .fcase .eid{font-family:ui-monospace,Consolas,monospace; font-size:14px;
     font-weight:700; color:var(--accent-d)}
-  .fcase .q{font-size:13.5px; font-weight:600; line-height:1.7; word-break:break-word; margin-bottom:7px}
-  .fcase .lbl{font-size:11px; color:var(--muted); margin:8px 0 3px}
-  .fcase .body{font-size:12.5px; line-height:1.75; color:#5d5470;
+  .fcase .q{font-size:15px; font-weight:600; line-height:1.7; word-break:break-word; margin-bottom:7px}
+  .fcase .lbl{font-size:12.5px; color:var(--muted); margin:8px 0 3px}
+  .fcase .body{font-size:14px; line-height:1.85; color:#5d5470;
     white-space:pre-wrap; word-break:break-word}
   .fcase .why{background:#fff4f4; border:1px solid #ffd9d9; border-radius:12px; padding:8px 11px}
   .fcase .res{background:#f5fbf8; border:1px solid #d5efe3; border-radius:12px; padding:8px 11px}
@@ -73,11 +111,11 @@
   .fc-cites{margin-top:8px}
   .fc-cite{border:1px solid var(--line); border-radius:12px; padding:8px 11px; margin-top:6px; background:#fff}
   .fc-cite.used{border-color:#ffc7d8; background:#fff6f9}
-  .fc-cite .no{font-family:ui-monospace,Consolas,monospace; font-size:12px; color:var(--muted)}
+  .fc-cite .no{font-family:ui-monospace,Consolas,monospace; font-size:13.5px; color:var(--muted)}
   .fc-cite.used .no{color:var(--accent-d); font-weight:700}
-  .fc-cite .path{font-size:11px; color:var(--muted)}
-  .fc-cite .cq{font-size:12.5px; font-weight:600; margin:3px 0 4px}
-  .fc-cite .ca{font-size:12px; line-height:1.7; color:#5d5470; white-space:pre-wrap; word-break:break-word}
+  .fc-cite .path{font-size:12.5px; color:var(--muted)}
+  .fc-cite .cq{font-size:14px; font-weight:600; margin:4px 0 5px}
+  .fc-cite .ca{font-size:13.5px; line-height:1.8; color:#5d5470; white-space:pre-wrap; word-break:break-word}
 
   .fc-acts{margin-top:10px}
   .fc-note{margin-top:9px}
@@ -88,6 +126,55 @@
 <div class="adm-wrap">
 
   <div id="head"></div>
+
+  <details class="adm-card rag-guide" open>
+    <summary><h2 style="display:inline-flex">この画面の読み方</h2></summary>
+
+    <div class="rag-gcol">
+      <div>
+        <h3>4 つの検索戦略（棒の色）</h3>
+        <dl>
+          <dt>dense</dt><dd>意味で探す（ベクトル検索）。言い換えに強い。</dd>
+          <dt>bm25</dt><dd>字面で探す（キーワード一致）。型番のような固有の文字列に強い。</dd>
+          <dt>hybrid</dt><dd>上の 2 つを機械的に混ぜる（RRF 融合）。</dd>
+          <dt>hybrid_rerank</dt><dd>混ぜたうえで、質問との関係を見て並べ直す。<b>この章の推奨。</b></dd>
+        </dl>
+      </div>
+
+      <div>
+        <h3>5 つの bucket（横軸）</h3>
+        <dl>
+          <dt>A ポリシー系</dt><dd>送料・返品などを丁寧な書き言葉で聞いた 60 問。</dd>
+          <dt>B 型番・仕様</dt><dd>「EC-RV300 の稼働時間」のように型番で聞いた 60 問。</dd>
+          <dt>C 口語・言い換え</dt><dd>同じ知識を話し言葉で聞いた 60 問。<b>戦略の差がいちばん出る。</b></dd>
+          <dt>E 複数文書</dt><dd>答えるのに 2〜3 か所の根拠が要る 60 問。いちばん難しい。</dd>
+          <dt>D（グラフに無い）</dt><dd>ナレッジに答えが無い 60 問。正解が無いので順位は測らず、
+            下の「ナレッジ外の拒否率」だけで見る。</dd>
+        </dl>
+      </div>
+
+      <div>
+        <h3>指標（縦軸・すべて高いほど良い）</h3>
+        <dl>
+          <dt>MRR</dt><dd>正解の根拠が<b>何番目</b>に出たか。1 位なら 100%、2 位なら 50%。順位まで見るので戦略の差が出やすい。</dd>
+          <dt>Recall@5</dt><dd>上位 5 件の<b>どこかに</b>正解があった割合。順位は問わない。</dd>
+          <dt>Evidence Coverage</dt><dd>集めた根拠が、期待する事実をどれだけ含んでいたか（文字列の照合）。</dd>
+          <dt>Answer Coverage</dt><dd>最終的な回答が、期待する事実をどれだけ答えられたか（モデルが判定）。</dd>
+          <dt>Faithfulness</dt><dd>回答が根拠の範囲に収まっているか。低いと、根拠に無いことを書いている。</dd>
+          <dt>ナレッジ外の拒否率</dt><dd>答えが無い質問に、作り話をせず正直に断れた割合。</dd>
+        </dl>
+      </div>
+    </div>
+
+    <p class="rag-hint" style="margin-top:14px">
+      <b>いちばん短い見方：</b>まず「1 検索品質」で <b>MRR</b> を選び、<b>C 口語</b>の柱を左から右へ見る。
+      ここで bm25 が低く hybrid_rerank が高ければ、狙いどおり動いている
+      （字面が一致しない質問は、意味で探して並べ直さないと当たらない）。
+      次に「全体」の柱で総合順位を確認し、「2 生成品質」で
+      <b>答えられているか（Answer Coverage）</b>と
+      <b>作り話をしていないか（Faithfulness・拒否率）</b>を見る。
+    </p>
+  </details>
 
   <div id="report" hidden>
     <div class="adm-bar" id="kpi"></div>
@@ -104,29 +191,18 @@
       <h2><span class="adm-num">2</span>生成品質（Stage 3）</h2>
       <div id="genState"></div>
       <div id="gen" hidden>
-        <div class="rag-split">
-          <div class="l">
-            <div class="rag-group">
-              <div class="cap">Answer Coverage（回答が期待ポイントを何割含んでいたか・回答可能 60 問）</div>
-              <div id="answerCov"></div>
-            </div>
-            <div class="rag-group">
-              <div class="cap" id="faithCap">Faithfulness（回答が根拠だけで書かれているか）</div>
-              <div id="faith"></div>
-            </div>
-          </div>
-          <div class="r">
-            <div class="cap rag-sub" style="margin-bottom:6px">ナレッジ外（D）で正しく断った割合</div>
-            <div class="rag-donutwrap">
-              <svg class="rag-donut" width="150" height="150" viewBox="0 0 150 150">
-                <circle class="bg" cx="75" cy="75" r="60"></circle>
-                <circle class="fg" id="donutFg" cx="75" cy="75" r="60"
-                        stroke-dasharray="0 377" stroke-dashoffset="0"></circle>
-              </svg>
-              <div class="mid" id="donutMid">—</div>
-            </div>
-            <p class="rag-sub" id="donutNote"></p>
-          </div>
+        <div class="rag-group">
+          <div class="cap">Answer Coverage（回答が期待ポイントを何割含んでいたか・回答可能 60 問）</div>
+          <div id="answerCov"></div>
+        </div>
+        <div class="rag-group">
+          <div class="cap" id="faithCap">Faithfulness（回答が根拠だけで書かれているか）</div>
+          <div id="faith"></div>
+        </div>
+        <div class="rag-group">
+          <div class="cap">ナレッジ外（D）で正しく断った割合</div>
+          <div id="refusal"></div>
+          <p class="rag-sub" id="refusalNote"></p>
         </div>
       </div>
     </div>
@@ -236,12 +312,70 @@ function metricValue(section, strategy, key, bucket) {
   return (typeof v === 'number') ? v : null;
 }
 
-function bar(name, i, value, best) {
+/* 1 本の縦棒。値が読めなかったときは高さ 0 の細い棒ではなく、
+   斜線の枠で「取得不可」と出す(0% と読めないことは別物)。 */
+function column(name, i, value, best) {
   const p = pct(value);
-  return `<div class="rag-row ${cls(i)}${best ? ' best' : ''}">
-    <span class="nm">${esc(name)}</span>
-    <span class="rag-track"><span class="rag-fill" style="width:${value === null ? 0 : pt(value)}%"></span></span>
-    <span class="vl${p === null ? ' na' : ''}">${p === null ? '取得不可' : p}</span>
+  if (p === null) {
+    return `<div class="rag-col na" title="${esc(name)}: 取得不可"><span class="v">—</span></div>`;
+  }
+  return `<div class="rag-col ${cls(i)}${best ? ' best' : ''}" style="height:${pt(value)}%"
+               title="${esc(name)}: ${p}"><span class="v">${p}</span></div>`;
+}
+
+/* 戦略ごとに 1 本ずつ立てる縦棒。bucket 別ではない指標(Answer Coverage)向け。 */
+function chartByStrategy(getValue) {
+  const best = (data.best || {}).strategy;
+  const names = strategies();
+  const yaxis = TICKS.map(t => `<span style="top:${100 - t}%">${t}%</span>`).join('');
+  const grid = TICKS.map(t =>
+    `<div class="gl${t === 0 ? ' zero' : ''}" style="top:${100 - t}%"></div>`).join('');
+  const groups = names.map((n, i) =>
+    `<div class="rag-bgroup">${column(n, i, getValue(n), n === best)}</div>`).join('');
+  const labels = names.map(n =>
+    `<div class="rag-xlabel${n === best ? ' best' : ''}">${esc(n)}</div>`).join('');
+  return `<div class="rag-chart">
+    <div class="rag-yaxis">${yaxis}</div>
+    <div class="rag-plot">
+      <div class="rag-area">${grid}<div class="rag-groups">${groups}</div></div>
+      <div class="rag-xaxis">${labels}</div>
+    </div>
+  </div>`;
+}
+
+/* 単独の値はゲージ 1 本で出す。縦棒を 1 本だけ立てても比較対象が無く読みにくい。 */
+function gauge(label, value) {
+  const p = pct(value);
+  return `<div class="rag-gauge">
+    <div class="rag-track"><span class="rag-fill" style="width:${value === null ? 0 : pt(value)}%"></span></div>
+    <div class="vl${p === null ? ' na' : ''}">${p === null ? '取得不可' : p}</div>
+  </div>`;
+}
+
+/* 目盛りは 0/25/50/75/100 の 5 本。棒の高さは % をそのまま使うので、
+   ここで軸の最大値を変えると棒と目盛りがずれる(必ず 0〜100 のまま)。 */
+const TICKS = [100, 75, 50, 25, 0];
+
+function chart(section, key) {
+  const best = (data.best || {}).strategy;
+  const names = strategies();
+  const yaxis = TICKS.map(t =>
+    `<span style="top:${100 - t}%">${t}%</span>`).join('');
+  const grid = TICKS.map(t =>
+    `<div class="gl${t === 0 ? ' zero' : ''}" style="top:${100 - t}%"></div>`).join('');
+  const groups = BUCKETS.map(([b]) =>
+    `<div class="rag-bgroup">` +
+    names.map((n, i) => column(n, i, metricValue(section, n, key, b), n === best)).join('') +
+    `</div>`).join('');
+  const labels = BUCKETS.map(([b, blabel]) =>
+    `<div class="rag-xlabel${b === 'overall' ? ' best' : ''}">${esc(blabel)}</div>`).join('');
+
+  return `<div class="rag-chart">
+    <div class="rag-yaxis">${yaxis}</div>
+    <div class="rag-plot">
+      <div class="rag-area">${grid}<div class="rag-groups">${groups}</div></div>
+      <div class="rag-xaxis">${labels}</div>
+    </div>
   </div>`;
 }
 
@@ -312,11 +446,7 @@ function renderRetrieval() {
   const best = (data.best || {}).strategy;
   const names = strategies();
 
-  $('retrieval').innerHTML = BUCKETS.map(([b, blabel]) => `
-    <div class="rag-group">
-      <div class="cap">${esc(blabel)} — ${esc(label)}</div>
-      ${names.map((name, i) => bar(name, i, metricValue(section, name, key, b), name === best)).join('')}
-    </div>`).join('');
+  $('retrieval').innerHTML = chart(section, key);
 
   /* 注記はデータから作る。「hybrid が一番良い」と決め打ちしない
      （実測では素の RRF 融合が dense を下回っている）。 */
@@ -347,26 +477,23 @@ function renderGeneration() {
   const best = (data.best || {}).strategy;
   const names = strategies();
 
-  $('answerCov').innerHTML = names.map((name, i) => {
-    const sec = g[name] || {};
-    const ac = sec.answer_coverage && sec.answer_coverage.overall;
-    return bar(name, i, ac ? ac.value : null, name === best);
-  }).join('');
+  $('answerCov').innerHTML = chartByStrategy(name => {
+    const ac = (g[name] || {}).answer_coverage;
+    return ac && ac.overall && typeof ac.overall.value === 'number' ? ac.overall.value : null;
+  });
 
   const f = g.faithfulness || {};
   $('faithCap').textContent =
     `Faithfulness（回答が根拠だけで書かれているか）— ${f.strategy || '—'} / ${f.n ?? '—'} 問`;
-  $('faith').innerHTML = bar(f.strategy || 'faithfulness', 0,
-    (typeof f.value === 'number') ? f.value : null, true);
+  $('faith').innerHTML = gauge(f.strategy || 'faithfulness',
+    (typeof f.value === 'number') ? f.value : null);
 
   const r = (g[best] || {}).refusal_rate;
   const rv = r && typeof r.value === 'number' ? r.value : null;
-  const C = 2 * Math.PI * 60;
-  $('donutFg').setAttribute('stroke-dasharray', `${(rv === null ? 0 : rv) * C} ${C}`);
-  $('donutMid').textContent = pct(rv) ?? '—';
+  $('refusal').innerHTML = gauge('refusal', rv);
   const all = names.map(n => (g[n] || {}).refusal_rate).filter(x => x && typeof x.value === 'number');
   const same = all.length === names.length && all.every(x => x.value === rv);
-  $('donutNote').textContent = same
+  $('refusalNote').textContent = same
     ? `${best}（4 戦略とも同率）・n=${r.n}`
     : `${best}・n=${r ? r.n : '—'}`;
 }

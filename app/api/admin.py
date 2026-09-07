@@ -14,6 +14,7 @@ from collections.abc import Callable
 
 from fastapi import APIRouter
 
+from app.api import rageval
 from app.config import settings
 from app.core import jobs
 from app.db import repository
@@ -98,6 +99,25 @@ async def _jobs() -> dict:
     }
 
 
+async def _rag_eval() -> dict:
+    """RAG 評価の結論だけを 1 行ぶん。数値は app.api.rageval を通す(出所を 1 つにする)。
+
+    レポートが無いのは異常ではなく「まだ実行していない」状態なので、例外にしない。
+    ここで present=False を返し、カード自体は ok のまま出す。
+    """
+    ov = rageval.build_overview()
+    best = ov.get("best") or {}
+    return {
+        "present": ov["present"],
+        "best_strategy": best.get("strategy"),
+        "best_mrr": best.get("mrr"),
+        "refusal_rate": best.get("refusal_rate"),
+        "samples": (ov.get("meta") or {}).get("samples"),
+        "generated_at": (ov.get("meta") or {}).get("generated_at"),
+        "generation_done": ov["generation_done"],
+    }
+
+
 async def _config() -> dict:
     # 秘密は 1 つも入れない。API キーはもちろん、DATABASE_URL も
     # 資格情報を含むので出さない
@@ -121,6 +141,7 @@ async def overview() -> dict:
         await _card("vectors", "ベクトル索引 (Milvus)", _milvus),
         await _card("staging", "会話からの抽出", _staging),
         await _card("sources", "ナレッジ元資料", _sources),
+        await _card("rag_eval", "RAG 評価（4戦略比較）", _rag_eval),
         await _card("jobs", "ジョブ", _jobs),
         await _card("config", "設定", _config),
     ]

@@ -18,7 +18,9 @@ mountAdminNav('admin');
 
 /* 各モジュールの入口だけをここに集める。モジュール側の URL は変えない。 */
 const LINKS = { knowledge: '/kb', vectors: '/kb', staging: '/kb', sources: '/kb',
-                jobs: '/kb', conversations: '/', config: null };
+                jobs: '/kb', conversations: '/', rag_eval: '/rag-eval', config: null };
+
+const pct = v => (v === null || v === undefined) ? '取得不可' : (v * 100).toFixed(1) + '%';
 
 /* stats の見せ方はカードごとに違うので、ここで 1 行の要約に畳む。
    数値が読めなかった項目は「取得不可」と出す。0 と混ぜない。 */
@@ -32,6 +34,10 @@ function summarize(key, s) {
     case 'sources':       return `資料 ${n(s.files ?? (s.sources && s.sources.length))} 件`;
     case 'jobs':          return `登録ジョブ ${n(s.total ?? (s.jobs && s.jobs.length))} 件 / 実行中 ${n(s.running)}`;
     case 'conversations': return `会話 ${n(s.conversations)} 件 / メッセージ ${n(s.messages)} 件`;
+    case 'rag_eval':      return s.present
+                            ? `最良 ${esc(s.best_strategy)} / MRR ${pct(s.best_mrr)} / `
+                              + `評価 ${n(s.samples)} 問 / ナレッジ外の拒否率 ${pct(s.refusal_rate)}`
+                            : 'まだ評価を実行していません';
     default:              return Object.entries(s).slice(0, 3)
                             .map(([k, v]) => `${esc(k)}: ${esc(v)}`).join(' / ');
   }
@@ -44,6 +50,8 @@ function state(card) {
   if (card.key === 'knowledge' && s.total === 0) return pill('warn', 'データなし', true);
   if (card.key === 'knowledge' && s.pending > 0) return pill('warn', '要ベクトル化');
   if (card.key === 'vectors' && s.count === 0)   return pill('warn', 'データなし', true);
+  if (card.key === 'rag_eval' && !s.present)     return pill('warn', '未実行', true);
+  if (card.key === 'rag_eval' && !s.generation_done) return pill('warn', '生成側が未完了');
   return pill('ok', '正常');
 }
 

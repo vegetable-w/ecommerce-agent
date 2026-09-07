@@ -13,14 +13,14 @@ from app.main import app
 client = TestClient(app)
 
 
-@pytest.mark.parametrize("path", ["/", "/kb", "/admin"])
+@pytest.mark.parametrize("path", ["/", "/kb", "/admin", "/rag-eval"])
 def test_page_is_reachable(path):
     res = client.get(path)
     assert res.status_code == 200
     assert res.headers["content-type"].startswith("text/html")
 
 
-@pytest.mark.parametrize("path", ["/kb", "/admin"])
+@pytest.mark.parametrize("path", ["/kb", "/admin", "/rag-eval"])
 def test_admin_pages_load_the_shared_shell(path):
     """共通ナビを読み込まない管理画面ができると、そのページだけ導線から外れる。"""
     assert "/static/admin.js" in client.get(path).text

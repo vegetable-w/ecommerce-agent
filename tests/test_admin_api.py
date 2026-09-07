@@ -11,6 +11,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.api import admin as admin_api
+from app.api import rageval
 from app.core import jobs
 from app.db import repository
 from app.kb import milvus_client
@@ -18,7 +19,8 @@ from app.main import app
 
 session_loop = pytest.mark.asyncio(loop_scope="session")
 
-CARD_KEYS = ["conversations", "knowledge", "vectors", "staging", "sources", "jobs", "config"]
+CARD_KEYS = ["conversations", "knowledge", "vectors", "staging", "sources",
+             "rag_eval", "jobs", "config"]
 
 
 def _client() -> AsyncClient:
@@ -39,6 +41,9 @@ def _kill_everything(monkeypatch) -> None:
     monkeypatch.setattr(milvus_client, "get_client", sync_boom)
     monkeypatch.setattr(admin_api.documents, "build_chunks", sync_boom)
     monkeypatch.setattr(jobs, "status_all", sync_boom)
+    # 評価レポートはローカルのファイルなので普段は落ちないが、読めない状況
+    # (権限・破損)でもカードごとに閉じることをここで一緒に見る
+    monkeypatch.setattr(rageval, "load_report", sync_boom)
 
 
 @session_loop
@@ -91,7 +96,7 @@ async def test_one_dead_dependency_does_not_affect_other_cards(db_session_factor
     cards = {card["key"]: card for card in body["cards"]}
     assert body["degraded"] == ["vectors"]
     assert cards["vectors"]["ok"] is False
-    for key in ("conversations", "knowledge", "staging", "sources", "jobs", "config"):
+    for key in ("conversations", "knowledge", "staging", "sources", "rag_eval", "jobs", "config"):
         assert cards[key]["ok"] is True, key
         assert cards[key]["error"] is None
 
@@ -142,3 +147,50 @@ async def test_missing_make_is_reported_on_the_jobs_card_only(db_session_factory
     assert card["ok"] is True
     assert card["stats"]["make"] is None
     assert "MAKE_BIN" in card["stats"]["make_error"]
+
+
+# ---------------------------------------------------------------------------
+# RAG 評価カード
+# ---------------------------------------------------------------------------
+
+
+@session_loop
+async def test_rag_eval_card_reports_not_run_without_failing(monkeypatch, tmp_path):
+    """レポート未生成は「取得不可」ではなく「未実行」。カード自体は正常に出る。"""
+    monkeypatch.setattr(rageval, "REPORT_PATH", tmp_path / "missing.json")
+    async with _client() as c:
+        cards = {x["key"]: x for x in (await c.get("/api/admin/overview")).json()["cards"]}
+
+    card = cards["rag_eval"]
+    assert card["ok"] is True, "レポートが無いだけでカードが失敗になっている"
+    assert card["error"] is None
+    assert card["stats"]["present"] is False
+    assert card["stats"]["best_strategy"] is None
+
+
+@session_loop
+async def test_rag_eval_card_shows_the_conclusion_from_the_report(monkeypatch, tmp_path):
+    """カードの数値は /api/rag-eval と同じ経路から出す(結論を 2 か所で計算しない)。"""
+    import json
+
+    report = {
+        "meta": {"samples": 80, "generated_at": "2026-09-07T11:19:05", "generation_complete": True},
+        "retrieval": {
+            "dense": {"mrr": {"overall": {"value": 0.5, "n": 60}}},
+            "hybrid_rerank": {"mrr": {"overall": {"value": 0.9, "n": 60}}},
+        },
+        "generation": {"hybrid_rerank": {"refusal_rate": {"value": 0.95, "n": 20}}},
+    }
+    path = tmp_path / "rag_eval.json"
+    path.write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(rageval, "REPORT_PATH", path)
+
+    async with _client() as c:
+        cards = {x["key"]: x for x in (await c.get("/api/admin/overview")).json()["cards"]}
+
+    stats = cards["rag_eval"]["stats"]
+    assert stats["present"] is True
+    assert stats["best_strategy"] == "hybrid_rerank"
+    assert stats["best_mrr"] == 0.9
+    assert stats["refusal_rate"] == 0.95
+    assert stats["samples"] == 80

@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAG 評価 · STORE 管理画面</title>
+<script src="/static/admin.js"></script>
+<style>
+  /* このページ固有のものだけ。配色・角丸・カプセルは admin.js が注入する共通 CSS を使う。
+     外部ライブラリは入れない(01 章のチャット画面と同じ方針)。棒グラフもドーナツも
+     div の width と SVG の stroke-dasharray だけで描く。 */
+  .rag-strat1{--rag-c:#ff8fb1} .rag-strat2{--rag-c:#8fd3ff}
+  .rag-strat3{--rag-c:#ffc46b} .rag-strat4{--rag-c:#5ed6a4}
+
+  .rag-group{margin-bottom:13px}
+  .rag-group > .cap{font-size:12px; color:var(--muted); margin-bottom:5px}
+  .rag-row{display:flex; align-items:center; gap:9px; margin-bottom:4px}
+  .rag-row .nm{flex:none; width:118px; font-size:12px; color:#6c6280;
+    font-family:ui-monospace,Consolas,monospace}
+  .rag-row.best .nm{color:var(--accent-d); font-weight:700}
+  .rag-track{flex:1; height:15px; background:#f7f2f8; border-radius:999px; overflow:hidden}
+  .rag-fill{display:block; height:100%; border-radius:999px;
+    background:var(--rag-c);   /* color-mix を解釈しない環境ではこちらが残る */
+    background:linear-gradient(90deg,color-mix(in srgb,var(--rag-c) 62%,#fff),var(--rag-c));
+    transition:width .35s ease}
+  .rag-row .vl{flex:none; width:56px; text-align:right; font-size:12.5px; font-weight:600;
+    font-family:ui-monospace,Consolas,monospace}
+  .rag-row .vl.na{font-weight:400; color:var(--muted); font-size:11px}
+
+  .rag-legend{display:flex; flex-wrap:wrap; gap:12px; margin:2px 0 12px; font-size:11.5px; color:var(--muted)}
+  .rag-legend span{display:inline-flex; align-items:center; gap:5px}
+  .rag-legend i{width:10px; height:10px; border-radius:3px; display:block; background:var(--rag-c)}
+
+  .rag-split{display:flex; flex-wrap:wrap; gap:18px; align-items:flex-start}
+  .rag-split > .l{flex:1; min-width:280px}
+  .rag-split > .r{flex:none; width:210px; text-align:center}
+  .rag-donut{transform:rotate(-90deg)}
+  .rag-donut .bg{fill:none; stroke:#f2ecf4; stroke-width:15}
+  .rag-donut .fg{fill:none; stroke:var(--accent); stroke-width:15; stroke-linecap:round;
+    transition:stroke-dasharray .4s ease}
+  .rag-donutwrap{position:relative; width:150px; margin:0 auto}
+  .rag-donutwrap .mid{position:absolute; inset:0; display:grid; place-items:center;
+    font-size:22px; font-weight:600}
+
+  .rag-tbl td.num{font-family:ui-monospace,Consolas,monospace; text-align:right; white-space:nowrap}
+  .rag-tbl tr.best td{background:#fff6f9}
+  .rag-tbl tr.best td:first-child{font-weight:700; color:var(--accent-d)}
+
+  .rag-hint{background:#fbf7fd; border:1px solid var(--line); border-radius:14px;
+    padding:9px 13px; font-size:12px; color:#6c6280; line-height:1.75; margin:8px 0 0}
+  .rag-sub{font-size:11px; color:var(--muted); margin-top:2px}
+  .rag-meta{display:flex; flex-wrap:wrap; gap:6px}
+</style>
+</head>
+<body>
+<div class="adm-wrap">
+
+  <div id="head"></div>
+
+  <div id="report" hidden>
+    <div class="adm-bar" id="kpi"></div>
+
+    <div class="adm-card">
+      <h2><span class="adm-num">1</span>検索品質（Stage 1・2）</h2>
+      <div class="adm-btns" id="metricBtns" style="margin-bottom:11px"></div>
+      <div class="rag-legend" id="legend"></div>
+      <div id="retrieval"></div>
+      <p class="rag-hint" id="retrievalHint"></p>
+    </div>
+
+    <div class="adm-card">
+      <h2><span class="adm-num">2</span>生成品質（Stage 3）</h2>
+      <div id="genState"></div>
+      <div id="gen" hidden>
+        <div class="rag-split">
+          <div class="l">
+            <div class="rag-group">
+              <div class="cap">Answer Coverage（回答が期待ポイントを何割含んでいたか・回答可能 60 問）</div>
+              <div id="answerCov"></div>
+            </div>
+            <div class="rag-group">
+              <div class="cap" id="faithCap">Faithfulness（回答が根拠だけで書かれているか）</div>
+              <div id="faith"></div>
+            </div>
+          </div>
+          <div class="r">
+            <div class="cap rag-sub" style="margin-bottom:6px">ナレッジ外（D）で正しく断った割合</div>
+            <div class="rag-donutwrap">
+              <svg class="rag-donut" width="150" height="150" viewBox="0 0 150 150">
+                <circle class="bg" cx="75" cy="75" r="60"></circle>
+                <circle class="fg" id="donutFg" cx="75" cy="75" r="60"
+                        stroke-dasharray="0 377" stroke-dashoffset="0"></circle>
+              </svg>
+              <div class="mid" id="donutMid">—</div>
+            </div>
+            <p class="rag-sub" id="donutNote"></p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="adm-card">
+      <h2><span class="adm-num">3</span>全データ（bucket 別）</h2>
+      <div class="adm-scroll">
+        <table class="adm-tbl rag-tbl" id="full"></table>
+      </div>
+      <p class="rag-hint">
+        MRR は正解が何番目に出たかを見る指標（1 位なら 1.0）。Recall@K は K 件のどこかに正解があった割合。
+        Evidence Coverage は生成前に渡した根拠が期待ポイントを含んでいた割合。
+        全体 MRR が最高の行を強調している。
+      </p>
+    </div>
+  </div>
+
+  <div class="adm-card">
+    <h2><span class="adm-num">4</span>その場で再実行</h2>
+    <div class="adm-btns" id="runBtns"></div>
+    <p class="adm-note" id="runNote"></p>
+    <div class="adm-log" id="log"></div>
+  </div>
+
+</div>
+
+<script>
+const { mountAdminNav, getJSON, postJSON, statBox, pill, esc, toast } = window.Admin;
+mountAdminNav('rageval');
+
+const $ = id => document.getElementById(id);
+
+/* この画面は data/04/reports/rag_eval.json を読むだけ。数値はすべて API から来た値を
+   そのまま描く。ここで MRR を計算し直すと terminal の `make eval-rag` と食い違う。 */
+let data = null;
+let metric = 'mrr';
+let armed = false;      // 再実行ボタンの 2 段階目に入っているか
+let polling = null;
+
+const BUCKETS = [
+  ['A_policy', 'A ポリシー系'],
+  ['B_model', 'B 型番・仕様'],
+  ['C_colloquial', 'C 口語・言い換え'],
+  ['overall', '全体'],
+];
+
+const METRICS = [
+  ['mrr', 'MRR', 'retrieval', 'mrr',
+   '正解の根拠が何番目に出たか。1 位なら 1.0、2 位なら 0.5。戦略の差がいちばん出る指標。'],
+  ['recall_at_k', 'Recall@K', 'retrieval', 'recall_at_k',
+   '上位 K 件のどこかに正解の根拠があった割合。順位は問わない。'],
+  ['coverage', 'Evidence Coverage', 'evidence_coverage', 'coverage',
+   '生成前に渡した根拠が、期待ポイントをどれだけ含んでいたか（Stage 2）。'],
+];
+
+/* 端数の丸めを terminal の `make eval-rag` に合わせる。
+   Python の f"{v*100:5.1f}" は偶数丸め(96.25 → 96.2)、JS の toFixed は切り上げ
+   (96.25 → 96.3)。実測で Faithfulness 0.9625 がちょうどこの境界に乗り、
+   放っておくと画面 96.3% / terminal 96.2% と食い違う。数値の出所は 1 つでも、
+   見せ方が違えば「どちらが本当か」を疑わせるので、ここで揃える。 */
+function pct(v) {
+  if (v === null || v === undefined) return null;
+  const x = v * 1000;                       // 0.1% 刻み
+  const floor = Math.floor(x);
+  const tenths = (x - floor === 0.5)
+    ? (floor % 2 === 0 ? floor : floor + 1)  // 中央値は偶数側へ
+    : Math.round(x);
+  return (tenths / 10).toFixed(1) + '%';
+}
+const pt = v => (v * 100).toFixed(1);
+
+function strategies() {
+  const m = (data.meta && data.meta.strategies) || [];
+  return m.length ? m : Object.keys(data.retrieval || {});
+}
+
+/* 戦略ごとの色。順番で決めるので戦略が増えても壊れない。 */
+const cls = i => 'rag-strat' + ((i % 4) + 1);
+
+/* section[strategy][key][bucket].value を取り出すだけ。無ければ null(「取得不可」)。 */
+function metricValue(section, strategy, key, bucket) {
+  const root = data[section];
+  if (!root || !root[strategy]) return null;
+  const sub = root[strategy][key];
+  if (!sub || !sub[bucket]) return null;
+  const v = sub[bucket].value;
+  return (typeof v === 'number') ? v : null;
+}
+
+function bar(name, i, value, best) {
+  const p = pct(value);
+  return `<div class="rag-row ${cls(i)}${best ? ' best' : ''}">
+    <span class="nm">${esc(name)}</span>
+    <span class="rag-track"><span class="rag-fill" style="width:${value === null ? 0 : pt(value)}%"></span></span>
+    <span class="vl${p === null ? ' na' : ''}">${p === null ? '取得不可' : p}</span>
+  </div>`;
+}
+
+/* ---------- ヘッダー ---------- */
+function renderHead() {
+  const m = data.meta || {};
+  const job = data.job || {};
+  const stale = job.running ? pill('warn', '評価を実行中') : '';
+  $('head').innerHTML = `<div class="adm-card">
+    <h2>RAG 評価レポート ${data.present ? pill('ok', '取得済み') : pill('', '未実行', true)} ${stale}</h2>
+    <div class="rag-meta">
+      ${pill('', `最終実行 ${esc(m.generated_at || '—')}`)}
+      ${pill('', `評価セット ${m.samples ?? '—'} 問`)}
+      ${pill('', `ナレッジ ${m.collection_rows ?? '—'} chunk`)}
+      ${pill('', `K=${m.k ?? '—'}`)}
+      ${pill('', `埋め込み ${esc(m.embed_model || '—')}`)}
+      ${pill('', `リランク ${esc(m.rerank_model || '—')}`)}
+      ${pill('', `判定 ${esc(m.chat_model || '—')}`)}
+    </div>
+    <p class="adm-note">出力元：${esc(data.report_path || '')}（この画面はこのファイルを読むだけで、再計算はしません）</p>
+  </div>`;
+}
+
+/* ---------- KPI ---------- */
+function renderKpi() {
+  const best = data.best || {};
+  const s = best.strategy;
+  const col = s ? metricValue('retrieval', s, 'mrr', 'C_colloquial') : null;
+
+  /* 口語 bucket でいちばん低い戦略との差。ここは表示上の引き算で、指標そのものは
+     どちらも artifact の値をそのまま使っている。 */
+  let worst = null;
+  strategies().forEach(name => {
+    const v = metricValue('retrieval', name, 'mrr', 'C_colloquial');
+    if (v === null) return;
+    if (worst === null || v < worst.v) worst = { name, v };
+  });
+  const gap = (col !== null && worst) ? `${esc(worst.name)} 比 +${(col * 100 - worst.v * 100).toFixed(1)}pt` : '';
+
+  $('kpi').innerHTML =
+    `<div class="adm-stat"><div class="k">全体 MRR 最高</div>
+       <div class="v">${pct(best.mrr) ?? '取得不可'}</div>
+       <div class="rag-sub">${esc(s || '—')}</div></div>` +
+    `<div class="adm-stat"><div class="k">口語 bucket の MRR</div>
+       <div class="v${col === null ? ' na' : ''}">${pct(col) ?? '取得不可'}</div>
+       <div class="rag-sub">${gap}</div></div>` +
+    `<div class="adm-stat"><div class="k">Answer Coverage</div>
+       <div class="v${best.answer_coverage == null ? ' na' : ''}">${pct(best.answer_coverage) ?? '未実行'}</div>
+       <div class="rag-sub">${esc(s || '')}</div></div>` +
+    `<div class="adm-stat"><div class="k">ナレッジ外の拒否率</div>
+       <div class="v${best.refusal_rate == null ? ' na' : ''}">${pct(best.refusal_rate) ?? '未実行'}</div>
+       <div class="rag-sub">D bucket 20 問</div></div>`;
+}
+
+/* ---------- 検索品質 ---------- */
+function renderMetricButtons() {
+  $('metricBtns').innerHTML = METRICS.map(([key, label]) =>
+    `<button class="adm-btn${key === metric ? ' pri' : ''}" data-metric="${key}">${label}</button>`).join('');
+  $('metricBtns').querySelectorAll('[data-metric]').forEach(b =>
+    b.addEventListener('click', () => { metric = b.dataset.metric; renderMetricButtons(); renderRetrieval(); }));
+
+  $('legend').innerHTML = strategies().map((name, i) =>
+    `<span class="${cls(i)}"><i></i>${esc(name)}</span>`).join('');
+}
+
+function renderRetrieval() {
+  const [, label, section, key, note] = METRICS.find(m => m[0] === metric);
+  const best = (data.best || {}).strategy;
+  const names = strategies();
+
+  $('retrieval').innerHTML = BUCKETS.map(([b, blabel]) => `
+    <div class="rag-group">
+      <div class="cap">${esc(blabel)} — ${esc(label)}</div>
+      ${names.map((name, i) => bar(name, i, metricValue(section, name, key, b), name === best)).join('')}
+    </div>`).join('');
+
+  /* 注記はデータから作る。「hybrid が一番良い」と決め打ちしない
+     （実測では素の RRF 融合が dense を下回っている）。 */
+  const overall = {};
+  names.forEach(n => { overall[n] = metricValue(section, n, key, 'overall'); });
+  const extra = [];
+  if (overall.hybrid != null && overall.dense != null && overall.hybrid < overall.dense) {
+    extra.push(`このレポートでは hybrid（${pct(overall.hybrid)}）が dense（${pct(overall.dense)}）を下回っている。` +
+      `語彙側（bm25 ${pct(overall.bm25) ?? '—'}）が弱い状態で RRF 融合すると、強いベクトル側の順位が引き下げられるため。` +
+      `リランクを挟んだ hybrid_rerank（${pct(overall.hybrid_rerank) ?? '—'}）で回復している。`);
+  }
+  $('retrievalHint').innerHTML = esc(note) + (extra.length ? '<br>' + esc(extra[0]) : '');
+}
+
+/* ---------- 生成品質 ---------- */
+function renderGeneration() {
+  const g = data.generation;
+  if (!g || !data.generation_done) {
+    $('gen').hidden = true;
+    $('genState').innerHTML = `<div class="adm-err">
+      生成品質（Stage 3）は今回の実行では未完了です。検索側（Stage 1・2）の数値はそのまま表示しています。
+      もう一度「RAG 評価を再実行」すると補完できます。</div>`;
+    return;
+  }
+  $('genState').innerHTML = '';
+  $('gen').hidden = false;
+
+  const best = (data.best || {}).strategy;
+  const names = strategies();
+
+  $('answerCov').innerHTML = names.map((name, i) => {
+    const sec = g[name] || {};
+    const ac = sec.answer_coverage && sec.answer_coverage.overall;
+    return bar(name, i, ac ? ac.value : null, name === best);
+  }).join('');
+
+  const f = g.faithfulness || {};
+  $('faithCap').textContent =
+    `Faithfulness（回答が根拠だけで書かれているか）— ${f.strategy || '—'} / ${f.n ?? '—'} 問`;
+  $('faith').innerHTML = bar(f.strategy || 'faithfulness', 0,
+    (typeof f.value === 'number') ? f.value : null, true);
+
+  const r = (g[best] || {}).refusal_rate;
+  const rv = r && typeof r.value === 'number' ? r.value : null;
+  const C = 2 * Math.PI * 60;
+  $('donutFg').setAttribute('stroke-dasharray', `${(rv === null ? 0 : rv) * C} ${C}`);
+  $('donutMid').textContent = pct(rv) ?? '—';
+  const all = names.map(n => (g[n] || {}).refusal_rate).filter(x => x && typeof x.value === 'number');
+  const same = all.length === names.length && all.every(x => x.value === rv);
+  $('donutNote').textContent = same
+    ? `${best}（4 戦略とも同率）・n=${r.n}`
+    : `${best}・n=${r ? r.n : '—'}`;
+}
+
+/* ---------- 全データ ---------- */
+function renderFull() {
+  const best = (data.best || {}).strategy;
+  const cells = (section, key, name) => BUCKETS.map(([b]) => {
+    const v = metricValue(section, name, key, b);
+    return `<td class="num">${pct(v) ?? '—'}</td>`;
+  }).join('');
+
+  const head = `<thead><tr><th>戦略</th><th>指標</th>` +
+    BUCKETS.map(([, l]) => `<th style="text-align:right">${esc(l)}</th>`).join('') + '</tr></thead>';
+
+  const rows = strategies().map(name => {
+    const b = name === best ? ' class="best"' : '';
+    const gen = (data.generation || {})[name] || {};
+    const genCells = BUCKETS.map(([bk]) => {
+      const ac = gen.answer_coverage && gen.answer_coverage[bk];
+      return `<td class="num">${ac ? pct(ac.value) : '—'}</td>`;
+    }).join('');
+    return `<tr${b}><td rowspan="4">${esc(name)}</td><td>MRR</td>${cells('retrieval', 'mrr', name)}</tr>
+      <tr${b}><td>Recall@K</td>${cells('retrieval', 'recall_at_k', name)}</tr>
+      <tr${b}><td>Evidence Cov.</td>${cells('evidence_coverage', 'coverage', name)}</tr>
+      <tr${b}><td>Answer Cov.</td>${genCells}</tr>`;
+  }).join('');
+
+  $('full').innerHTML = head + `<tbody>${rows}</tbody>`;
+}
+
+/* ---------- 再実行（2 段階確認）---------- */
+function renderRun() {
+  const job = data && data.job ? data.job : { name: 'eval-rag' };
+  const st = job.running ? pill('warn', '実行中')
+    : (job.exit_code === 0 ? pill('ok', '正常終了')
+    : (job.exit_code == null ? pill('', '未実行', true) : pill('bad', `終了コード ${job.exit_code}`)));
+
+  const buttons = job.running
+    ? `<button class="adm-btn heavy" id="btnStop">停止する</button>
+       <button class="adm-btn" id="btnTail">ログを取り直す</button>`
+    : (armed
+      ? `<button class="adm-btn heavy" id="btnGo">本当に実行する（数分・上流課金あり）</button>
+         <button class="adm-btn" id="btnCancel">やめる</button>`
+      : `<button class="adm-btn pri" id="btnArm">RAG 評価を再実行</button>
+         <button class="adm-btn" id="btnTail">ログを見る</button>`);
+
+  $('runBtns').innerHTML = `<span class="adm-row" style="margin-right:6px">${st}</span>` + buttons;
+  $('runNote').textContent = job.running
+    ? '実行中です。完了すると自動でレポートを取り直します。'
+    : '80 問 × 4 戦略で埋め込み・リランク・生成・判定の上流を実際に呼びます。数分かかり、実費が発生します。'
+      + (job.started_at ? `（前回の開始 ${job.started_at}）` : '');
+
+  const on = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
+  on('btnArm', () => { armed = true; renderRun(); });
+  on('btnCancel', () => { armed = false; renderRun(); });
+  on('btnGo', run);
+  on('btnTail', () => showLog());
+  on('btnStop', async () => {
+    try { await postJSON('/api/jobs/eval-rag/stop'); toast('停止しました'); refresh(); }
+    catch (e) { toast(e.message); }
+  });
+}
+
+async function run() {
+  armed = false;
+  try {
+    await postJSON('/api/jobs/eval-rag');
+    toast('RAG 評価を開始しました');
+    startPolling();
+  } catch (e) { toast(e.message); }
+  refresh();
+}
+
+async function showLog() {
+  try {
+    const d = await getJSON('/api/jobs/eval-rag');
+    $('log').textContent = d.log || '(ログがありません)';
+  } catch (e) { toast(e.message); }
+}
+
+/* 実行中は 1.5 秒ごとにログを取り直し、終わったらレポートごと取り直す。 */
+function startPolling() {
+  clearInterval(polling);
+  polling = setInterval(async () => {
+    try {
+      const d = await getJSON('/api/jobs/eval-rag');
+      $('log').textContent = d.log || '';
+      if (!d.running) { clearInterval(polling); polling = null; toast('評価が終了しました'); refresh(); }
+    } catch { clearInterval(polling); polling = null; }
+  }, 1500);
+}
+
+/* ---------- 起動 ---------- */
+async function refresh() {
+  try {
+    data = await getJSON('/api/rag-eval/overview');
+  } catch (e) {
+    /* 落ちているのは API 側。ボタンだけは出したままにして、白画面にはしない。 */
+    $('head').innerHTML = `<div class="adm-card">
+      <div class="adm-err">評価レポートを取得できませんでした: ${esc(e.message)}</div></div>`;
+    $('report').hidden = true;
+    renderRun();
+    return;
+  }
+
+  renderHead();
+  if (!data.present) {
+    $('report').hidden = true;
+    $('head').insertAdjacentHTML('beforeend',
+      `<div class="adm-card"><div class="adm-empty">${esc(data.message || 'レポートがありません。')}</div></div>`);
+  } else {
+    $('report').hidden = false;
+    renderKpi();
+    renderMetricButtons();
+    renderRetrieval();
+    renderGeneration();
+    renderFull();
+  }
+  renderRun();
+  if (data.job && data.job.running) startPolling();
+}
+
+refresh();
+</script>
+</body>
+</html>

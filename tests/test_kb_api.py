@@ -16,6 +16,7 @@ from collections import Counter
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.core import jobs
 from app.db import repository
 from app.kb import documents, milvus_client, sources
 from app.main import app
@@ -266,7 +267,9 @@ async def test_overview_survives_milvus_being_unreachable(db_session_factory, mo
     assert body["staging"]["total"] == 0
     assert [s["name"] for s in body["sources"]] == list(sources.SOURCE_TYPES)
     assert all(s["chunks"] > 0 for s in body["sources"])
-    assert len(body["jobs"]) == 8
+    # 数を直書きするとジョブを 1 つ増やすたびに無関係なテストが赤くなる。
+    # ここで見たいのは「登録済みのジョブが全部載っていること」。
+    assert {j["name"] for j in body["jobs"]} == set(jobs.JOBS)
 
 
 @session_loop

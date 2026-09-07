@@ -93,6 +93,11 @@ JOBS: dict[str, JobSpec] = {
         "eval-mining", False, "抽出の評価",
         "抽出済みサンプルに対する重複排除の挙動を測る",
     ),
+    "eval-rag": JobSpec(
+        "eval-rag", True, "RAG 評価（4戦略比較）",
+        "80 問 × 4 戦略で埋め込み・リランク・生成・判定の上流を実際に呼ぶ。"
+        "Milvus と構築済みナレッジが必要で、数分かかり課金される",
+    ),
 }
 
 

@@ -192,9 +192,9 @@ async def test_coref_is_passthrough():
 
 
 async def test_classify_intent_writes_intent_and_trace(monkeypatch):
-    async def fake_classify(query):
+    async def fake_classify(query, history=""):
         assert query == "注文はどこですか"
-        return "配送"
+        return {"intent": "配送", "confidence": 0.9}
 
     monkeypatch.setattr(nodes.intent_mod, "classify", fake_classify)
     out = await nodes.classify_intent(_state("注文はどこですか"))
@@ -222,17 +222,14 @@ async def test_weak_clears_evidence_and_citations(monkeypatch):
     assert out["citations"] == []
 
 
-async def test_classify_intent_also_writes_route():
+async def test_classify_intent_also_writes_route(monkeypatch):
     """conditional edge は State を書けないので、route はここで確定させる。"""
-    async def _fake(q):
-        return "苦情"
-    import app.core.intent as intent_mod
-    orig = intent_mod.classify
-    nodes.intent_mod.classify = _fake
-    try:
-        out = await nodes.classify_intent({"messages": [HumanMessage("苦情です")]})
-    finally:
-        nodes.intent_mod.classify = orig
+    async def _fake(q, history=""):
+        return {"intent": "苦情", "confidence": 0.95}
+
+    monkeypatch.setattr(nodes.intent_mod, "classify", _fake)
+    out = await nodes.classify_intent({"messages": [HumanMessage("苦情です")]})
     assert out["intent"] == "苦情"
+    # 06 で苦情は有人対応の出口(05 の complaint から名前が変わっている)
     assert out["route"] == "escalate"
     assert out["trace"]["route"] == "escalate"

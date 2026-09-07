@@ -68,6 +68,15 @@ class Settings(BaseSettings):
     # (公式の MySQL checkpointer が無いため。spec D1)。data/ は gitignore 済み。
     checkpointer_db_path: str = "data/05_checkpoints.sqlite"
 
+    # --- 06 intent 分類 ---
+    # intent 分類。精度優先で既定は chat_model と同じものを使う。
+    # 小さい model + confidence による段階的なエスカレーションは 09 章で使う想定で、
+    # ここでは設定の置き場所だけ用意する(本章では runtime の切り替えを実装しない)。
+    intent_model: str = ""            # 空なら chat_model
+    intent_small_model: str = ""      # 低コスト側。本章では未使用
+    intent_mode: str = "accuracy"     # accuracy | cost
+    intent_conf_threshold: float = 0.6
+
     @property
     def rerank_key(self) -> SecretStr:
         return self.rerank_api_key or self.embed_api_key

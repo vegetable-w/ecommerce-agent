@@ -63,6 +63,25 @@ def _user_text(state) -> str:
     return ""
 
 
+def _history_text(state, max_turns: int = 6) -> str:
+    """直近の会話を短いテキストにする。**今回の発話は含めない**。
+
+    含めると、分類器が「いまの発話」と「履歴」を区別できず、同じ文が 2 回出る。
+
+    本文が str でない message(block の list)は読み飛ばす。文脈の補助でしかない
+    ここで整形に失敗して node ごと落とすのは割に合わない。
+    """
+    msgs = state.get("messages", [])
+    prior = msgs[:-1] if msgs else []
+    lines = []
+    for m in prior[-max_turns:]:
+        role = "ユーザー" if isinstance(m, HumanMessage) else "サポート"
+        text = m.content if isinstance(m.content, str) else ""
+        if text:
+            lines.append(f"{role}:{text}")
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # 決定的な出口
 # ---------------------------------------------------------------------------
@@ -131,17 +150,27 @@ async def coref(state) -> dict:
 
 
 async def classify_intent(state) -> dict:
-    """発話を 7 分類のいずれか 1 語に落とす。routing 表を引くのは後続の route_by_intent。
+    """発話を 8 分類のいずれか 1 語 + confidence に落とす。routing 表を引くのは後続の route_by_intent。
 
-    intent.classify は上流が落ちても例外を投げず「雑談」へ倒すので、ここでは握らない。
+    分類するのは resolved_query(coref が指示対象を解決して書き下した完全な質問)。
+    無ければ元の発話へ倒す。「それいくらだった?」のような発話は、書き下す前に分類すると
+    どの分類にも寄らず、確信度だけが下がる。
+
+    intent.classify は上流が落ちても例外を投げず「その他」へ倒すので、ここでは握らない。
+
+    **trace の key は intent_confidence にすること。** confidence は confidence_check が
+    strong / weak を入れる key で、trace の reducer は同じ key を後勝ちで上書きするため、
+    ぶつけると knowledge route の trace からどちらかが黙って消える。
     """
-    intent = await intent_mod.classify(_user_text(state))
+    query = state.get("resolved_query") or _user_text(state)
+    r = await intent_mod.classify(query, _history_text(state))
+    intent, conf = r["intent"], r["confidence"]
     # route も一緒に確定させて State へ書く。conditional edge(route_by_intent)は
     # 分岐先を返すだけで State を書けないので、ここで持たないと ConversationState の
     # route field を誰も埋めないまま残る(log node と trace が読めなくなる)。
     route = routing.route_by_intent({"intent": intent})
-    return {"intent": intent, "route": route,
-            "trace": {"intent": intent, "route": route}}
+    return {"intent": intent, "intent_confidence": conf, "route": route,
+            "trace": {"intent": intent, "intent_confidence": conf, "route": route}}
 
 
 async def forced_rag(state) -> dict:

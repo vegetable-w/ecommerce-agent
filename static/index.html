@@ -158,6 +158,57 @@
   .fb button.dim{opacity:.35}
   .fb .thanks{font-size:11.5px; color:var(--muted)}
 
+  /* 選択肢ボタン。苦情のとき backend が返してきた「有人対応 / チケット作成」を
+     吹き出しの下に並べる。押した後は .fb と同じく薄くして押せないことを示す。 */
+  .acts{display:flex; flex-wrap:wrap; gap:8px; margin-top:10px}
+  .act{
+    font:inherit; font-size:13px; cursor:pointer; line-height:1;
+    border:1px solid #ffd9e5; background:#fff2f6; color:var(--accent-d);
+    padding:8px 14px; border-radius:999px;
+    transition:transform .1s, background .15s, opacity .15s;
+  }
+  .act:hover:not(:disabled){background:#ffe3ec}
+  .act:active:not(:disabled){transform:translateY(1px)}
+  .act:disabled{cursor:default; opacity:.45; background:#fff; color:var(--muted); border-color:var(--line)}
+
+  /* チケット作成フォーム。外部ライブラリは入れず、自前で画面に重ねる。 */
+  .mask{
+    position:fixed; inset:0; z-index:10; display:grid; place-items:center; padding:16px;
+    background:rgba(61,53,80,.3); backdrop-filter:blur(2px); animation:pop .18s ease-out;
+  }
+  .sheet{
+    width:min(420px,100%); background:#fff; border:1px solid var(--line); border-radius:22px;
+    padding:20px 20px 16px; box-shadow:0 24px 60px rgba(160,120,170,.32);
+  }
+  .sheet h3{margin:0 0 4px; font-size:16px}
+  .sheet .lead{margin:0 0 14px; font-size:12px; color:var(--muted)}
+  .field{display:block; margin-bottom:12px}
+  .field .cap{display:block; font-size:12.5px; margin-bottom:5px}
+  .field .cap i{font-style:normal; font-size:11px; color:var(--accent-d); margin-left:5px}
+  /* 素の textarea 規則(入力欄用)を打ち消す。あちらは枠なしの行内入力の想定。 */
+  .sheet select,.sheet textarea{
+    width:100%; font:inherit; font-size:14px; color:var(--ink); flex:none;
+    background:#fffdfe; border:1.5px solid var(--line); border-radius:14px;
+    padding:9px 12px; outline:none; transition:border-color .15s;
+  }
+  .sheet select:focus,.sheet textarea:focus{border-color:#ffc7d8}
+  .sheet textarea{resize:vertical; min-height:88px; max-height:220px; line-height:1.7}
+  /* 高さを固定しておく。出た瞬間にボタンが下へずれると押し間違える。 */
+  .sheet .warn{min-height:17px; margin:0 0 10px; font-size:12px; color:#b4444f}
+  .sheet .btns{display:flex; justify-content:flex-end; gap:9px}
+  .sheet .btns button{
+    font:inherit; font-size:13.5px; cursor:pointer; border-radius:999px; padding:9px 18px;
+    transition:transform .1s, opacity .15s;
+  }
+  .sheet .btns button:active:not(:disabled){transform:translateY(1px)}
+  .sheet .btns .ghost{background:#fff; border:1px solid var(--line); color:var(--muted)}
+  .sheet .btns .ghost:hover{border-color:#ffd3e0; color:var(--accent-d)}
+  .sheet .btns .go{
+    border:none; color:#fff; background:linear-gradient(160deg,var(--accent),var(--accent-d));
+    box-shadow:0 4px 12px rgba(255,143,177,.45);
+  }
+  .sheet .btns button:disabled{opacity:.5; cursor:not-allowed; box-shadow:none; transform:none}
+
   /* ツール履歴バッジ。既存の .hint と同じカプセル語彙で、点線にして「補足情報」であることを示す。 */
   .tools:empty{display:none}
   .tools{display:flex; flex-direction:column; align-items:flex-start; gap:5px; margin-bottom:8px}
@@ -474,15 +525,23 @@ function renderMd(src){
 
 /* 本文中の [1] [2] を押せる上付きに変える。
    renderMd は毎フレーム innerHTML を作り直すので、ここも毎フレーム掛け直す。
-   テキストノードだけを見て回るのは、コードブロックや既存のタグを壊さないため。 */
-const CITE_RE = /\[(\d{1,2})\]/g;
+   テキストノードだけを見て回るのは、コードブロックや既存のタグを壊さないため。
+
+   括弧も数字も全角のことがある(モデルは【1】とも書く。実測では半角と混ざる)。
+   判定用の HAS_CITE を g 無しで別に持つのは、g 付きの正規表現に .test() を掛けると
+   lastIndex が進み、次のテキストノードを途中から調べて引用を取りこぼすため。 */
+const HAS_CITE = /[\[【［]([0-9０-９]{1,2})[\]】］]/;
+const CITE_RE  = new RegExp(HAS_CITE.source, 'g');
+
+// 上付きの表示と data-n は半角に揃える。出典の照合は citations の n(数値)と行う。
+const halfDigits = t => t.replace(/[０-９]/g, d => String.fromCharCode(d.charCodeAt(0) - 0xfee0));
 
 function markCitations(root){
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode(node){
       // code / pre の中の [1] は引用ではなくコードなので触らない
       if (node.parentElement.closest('code, pre, .cite')) return NodeFilter.FILTER_REJECT;
-      return CITE_RE.test(node.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+      return HAS_CITE.test(node.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
     },
   });
   const targets = [];
@@ -490,7 +549,10 @@ function markCitations(root){
   for (const node of targets){
     const span = document.createElement('span');
     span.innerHTML = esc(node.nodeValue).replace(
-      CITE_RE, (_, n) => `<sup class="cite" data-n="${n}">[${n}]</sup>`
+      CITE_RE, (_, n) => {
+        const h = halfDigits(n);
+        return `<sup class="cite" data-n="${h}">[${h}]</sup>`;
+      }
     );
     node.replaceWith(...span.childNodes);
   }
@@ -536,6 +598,135 @@ function addFeedbackBar(bub){
   bub.appendChild(bar);
 }
 
+/* 選択肢ボタン。backend は苦情のとき「有人対応 / チケット作成」を提案するだけで、
+   何も実行しない。動くのはここでユーザーが押したときだけ(spec §6)。
+   返ってきた items にあるものだけを描き、2 つは互いに独立して押せる。 */
+function renderActions(bub, items){
+  if (bub.querySelector('.acts')) return;
+  const bar = document.createElement('div');
+  bar.className = 'acts';
+
+  for (const a of items || []){
+    if (a.type === 'transfer_human'){
+      const b = addActionButton(bar, '有人対応');
+      // 本章では実際の有人窓口には繋がない。画面上の切り替えだけ(spec §6.2)
+      b.addEventListener('click', () => {
+        b.disabled = true;
+        addHint('有人サポートへ切り替えました');
+        addRow('bot').textContent =
+          'こんにちは。カスタマーサポート担当です。どのようなご用件でしょうか。';
+      });
+    } else if (a.type === 'create_ticket'){
+      const b = addActionButton(bar, 'チケット作成');
+      // a.draft は backend 側の「提案」。フォームには入れない(spec §6.3)
+      b.addEventListener('click', () => openTicketForm(b));
+    }
+  }
+
+  if (!bar.children.length) return;
+  bub.appendChild(bar); scroll();
+}
+
+function addActionButton(bar, text){
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'act'; b.textContent = text;
+  bar.appendChild(b);
+  return b;
+}
+
+/* チケット作成フォーム。種別も内容も、その場でユーザーに入力してもらう。
+   backend の draft を初期値に入れないのは、モデルの言い換えが本人の申告として
+   tickets に残ってしまうため(spec §6.3)。
+   閉じ方(キャンセル / 背景 / Esc)はどれもチケットを作らず、ボタンは押せる状態へ戻す。 */
+function openTicketForm(btn){
+  btn.disabled = true;                       // 開いている間は二重に開かせない
+
+  const mask = document.createElement('div');
+  mask.className = 'mask';
+  // 種別は表示だけ日本語で、value は DB の ENUM と同じ英語の識別子を送る
+  mask.innerHTML = `
+    <div class="sheet" role="dialog" aria-modal="true" aria-label="チケット作成">
+      <h3>チケット作成</h3>
+      <p class="lead">担当者がお調べいたします。種別とご用件をご記入ください。</p>
+      <label class="field">
+        <span class="cap">お問い合わせ種別<i>必須</i></span>
+        <select class="f-type">
+          <option value="">選択してください</option>
+          <option value="after_sales">アフターサービス</option>
+          <option value="complaint">苦情</option>
+          <option value="inquiry">問い合わせ</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="cap">お問い合わせ内容<i>必須</i></span>
+        <textarea class="f-desc" rows="4" placeholder="ご状況をご記入ください"></textarea>
+      </label>
+      <p class="warn"></p>
+      <div class="btns">
+        <button type="button" class="ghost">キャンセル</button>
+        <button type="button" class="go">作成する</button>
+      </div>
+    </div>`;
+  document.body.appendChild(mask);
+
+  const sel  = mask.querySelector('.f-type');
+  const desc = mask.querySelector('.f-desc');
+  const warn = mask.querySelector('.warn');
+  const go   = mask.querySelector('.go');
+
+  const close = (created) => {
+    document.removeEventListener('keydown', onKey);
+    mask.remove();
+    btn.disabled = created;                  // 作れたときだけ押せないままにする
+    if (!busy) input.focus();
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(false); };
+
+  document.addEventListener('keydown', onKey);
+  mask.addEventListener('click', e => { if (e.target === mask) close(false); });
+  mask.querySelector('.ghost').addEventListener('click', () => close(false));
+
+  go.addEventListener('click', async () => {
+    // 必須チェックは送信前にここで行う。backend も 422 で弾くが、往復させない
+    if (!sel.value){ warn.textContent = 'お問い合わせ種別を選択してください'; sel.focus(); return; }
+    if (!desc.value.trim()){ warn.textContent = 'お問い合わせ内容をご記入ください'; desc.focus(); return; }
+    if (!conversationId){ warn.textContent = '会話を特定できませんでした。もう一度お試しください'; return; }
+
+    warn.textContent = '';
+    go.disabled = true; go.textContent = '送信中…';
+    const restore = () => { go.disabled = false; go.textContent = '作成する'; };
+
+    try{
+      const res = await fetch('/api/actions/create-ticket', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          conversation_id: conversationId,
+          description: desc.value.trim(),
+          ticket_type: sel.value,
+        })
+      });
+      if (!res.ok){
+        // 入力し直せるようにフォームは開いたままにする(閉じると書いた内容が消える)
+        warn.textContent = res.status === 422
+          ? '入力内容をご確認ください'
+          : 'チケットを作成できませんでした。しばらくしてからもう一度お試しください';
+        restore();
+        return;
+      }
+      const data = await res.json();
+      close(true);
+      // ticket_no は DB 由来。textContent なのでそのまま入れてよい
+      addHint('チケットを作成しました ' + data.ticket_no);
+    } catch {
+      warn.textContent = 'サーバーに接続できませんでした';
+      restore();
+    }
+  });
+
+  sel.focus();
+}
+
 function setBusy(v){
   busy = v;
   send.disabled = v;
@@ -561,7 +752,7 @@ async function ask(message){
   const bub   = row.querySelector('.bub');
 
   let type = null, started = false, badged = false, closed = false;
-  let citations = [];
+  let citations = [], actions = [];
 
   // 印は毎フレーム作り直されるので、個々の sup ではなく吹き出しに 1 つだけ委譲する
   bub.addEventListener('click', (e) => {
@@ -646,6 +837,9 @@ async function ask(message){
 
         if (obj.event === 'tool'){ addTool(obj.name); continue; }
         if (obj.event === 'citations'){ citations = obj.items || []; continue; }
+        // actions は本文の後・done の前に 1 回だけ来る。ボタンはストリームが
+        // 終わってから描く(打鍵表示の途中に出すと、本文の下で位置が動く)
+        if (obj.event === 'actions'){ actions = obj.items || []; continue; }
         if (obj.event === 'done'){ setConversation(obj.conversation_id); continue; }
         if (obj.delta){ start(); type.push(obj.delta); }
       }
@@ -653,6 +847,8 @@ async function ask(message){
 
     if (started) await type.finish();
     settle();
+    // 選択肢は満足度より先に出す。押してほしいのはこちらなので
+    if (bub.isConnected) renderActions(bub, actions);
     // answer が出た場合だけ満足度を出す。拒否やエラーの吹き出しには付けない
     if (started) addFeedbackBar(bub);
 

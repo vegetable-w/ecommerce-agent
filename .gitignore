@@ -29,3 +29,8 @@ log/
 # 本地文档，不上传远端（设计稿、实现计划、开发追记）
 docs/
 dev-notes/
+
+# LangGraph の checkpointer(05 章)。会話の途中状態そのものなので追跡しない。
+# data/ 配下は data/kb と data/04/reports を追跡しているので、拡張子で絞る。
+data/*.sqlite
+data/*.sqlite-*

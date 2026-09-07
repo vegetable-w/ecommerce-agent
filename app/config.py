@@ -59,6 +59,15 @@ class Settings(BaseSettings):
     rerank_top_k: int = Field(default=10, gt=0)
     rerank_min_score: float = 0.3
 
+    # --- 05 graph orchestration ---
+    # ReAct loop の最大 step 数。超えたら打ち切って fallback へ倒す。
+    max_agent_steps: int = Field(default=6, gt=0)
+    # token 使用量は State に積むが、loop の停止条件には使わない。
+    # cost control は 09 章で Langfuse と合わせて設計する。
+    # LangGraph の checkpointer は sqlite。business DB(MySQL)とは役割を分ける
+    # (公式の MySQL checkpointer が無いため。spec D1)。data/ は gitignore 済み。
+    checkpointer_db_path: str = "data/05_checkpoints.sqlite"
+
     @property
     def rerank_key(self) -> SecretStr:
         return self.rerank_api_key or self.embed_api_key

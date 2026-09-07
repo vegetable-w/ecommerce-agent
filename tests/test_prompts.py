@@ -169,7 +169,13 @@ def test_rag_answer_prompt_renders_query_and_evidence():
 def test_faithfulness_prompt_renders_evidence_and_answer():
     from app.core.prompts import FAITHFULNESS_PROMPT, FAITHFULNESS_SYSTEM
 
-    assert "根拠が無いことを認めた妥当な回答拒否も true とする" in FAITHFULNESS_SYSTEM
+    # 文言そのものではなく、judge の判定を左右する取り決めが載っていることを見る。
+    # 実測: これらが抜けると judge は「答えていない/足りない」を理由に回答拒否を
+    # 幻覚と呼び、人手の判断との一致率が 10/11 から 0/11 へ落ちる。
+    assert "回答拒否" in FAITHFULNESS_SYSTEM          # 拒否は事実の主張ではない
+    assert "網羅" in FAITHFULNESS_SYSTEM              # 網羅性は忠実性ではない
+    assert "条件のすり替え" in FAITHFULNESS_SYSTEM      # 幻覚の類型 B
+    assert "でっち上げた数値" in FAITHFULNESS_SYSTEM     # 幻覚の類型 A
     msgs = FAITHFULNESS_PROMPT.format_messages(
         evidence="[1] 3,000円以上のご注文は送料無料です",
         answer="3,000円以上で送料無料です[1]",

@@ -25,7 +25,7 @@ def _forbid_upstream(monkeypatch):
     def _boom(*args, **kwargs):
         raise AssertionError("決定的な出口 node が上流のモデルを呼んだ")
 
-    for mod in (llm, intent, selfcheck, query_understanding):
+    for mod in (llm, intent, selfcheck, query_understanding, nodes):
         monkeypatch.setattr(mod, "get_chat_model", _boom)
 
 

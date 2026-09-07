@@ -8,6 +8,8 @@ node は 2 種類に分かれる。
 - **上流を使う node**(classify_intent / forced_rag): 分類と検索を行う。どちらも
   上流が落ちても例外を投げない下位実装(app/core/intent.py、app/core/query_understanding.py、
   app/core/selfcheck.py)の上に乗せ、障害を graph 全体の停止に化けさせない。
+- **ReAct loop の 2 node**(agent_llm / agent_tools): 両者を routing.should_continue が
+  つないで loop になる。graph の中で唯一「次に何をするか」をモデルが決める場所。
 
 State に無い key を返しても LangGraph が黙って捨てるため、返す key は
 app/graph/state.py の ConversationState に宣言済みのものだけにすること。
@@ -15,18 +17,22 @@ app/graph/state.py の ConversationState に宣言済みのものだけにする
 
 import logging
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from app.config import settings
 from app.core import intent as intent_mod
 from app.core import query_understanding, retrieval, selfcheck
+from app.core.llm import get_chat_model
 from app.core.prompts import (
+    AGENT_SYSTEM,
     CHITCHAT_REPLY_TEXT,
     COMPLAINT_REPLY_TEXT,
     FALLBACK_REPLY_TEXT,
 )
 from app.db import repository
 from app.graph import routing
+from app.tools.infra import execute_tool_call
+from app.tools.registry import get_all_tools
 
 logger = logging.getLogger(__name__)
 
@@ -204,3 +210,92 @@ async def confidence_check(state) -> dict:
     """
     decision = "strong" if state.get("evidence_strong") else "weak"
     return {"trace": {"confidence": decision}}
+
+
+# ---------------------------------------------------------------------------
+# main Agent(ReAct loop)
+# ---------------------------------------------------------------------------
+
+
+# knowledge route で system の末尾に足す指示。evidence 本文はこの後ろへ連結する。
+# 「query_faq を再度呼ぶな」と書くのは、forced_rag が既に引き終えた検索をモデルが
+# もう一度やり直すため。同じ根拠を取り直すだけで 1 step と 1 回分の課金を捨てる上、
+# 2 度目の検索結果は State の citations と番号がずれるので、本文の [n] が
+# frontend の出典と食い違う。
+_KNOWLEDGE_EVIDENCE_HINT = (
+    "\n\n## retrieval 済みの knowledge evidence"
+    "(この evidence に基づいて回答し、重要な結論の後に [1] のような source number を付けてください。"
+    "evidence はすでに取得済みなので query_faq を再度呼ばないでください。"
+    "必要であれば注文 / 配送など他の tool は呼び出せます。)\n"
+)
+
+
+def _agent_messages(state) -> list:
+    """system(knowledge route では evidence を連結)+ turn をまたいだ履歴。
+
+    evidence を system 側へ入れるのは、ToolMessage として差し込むと対応する tool_call が
+    存在せず上流に弾かれるため。空文字を連結しないのは、forced_rag が weak のときに
+    evidence="" を書くからで、見出しだけ付いた空の evidence は「根拠はあるが中身が無い」
+    という誤った指示になる。
+    """
+    sys = AGENT_SYSTEM
+    if state.get("route") == "knowledge" and state.get("evidence"):
+        sys = AGENT_SYSTEM + _KNOWLEDGE_EVIDENCE_HINT + state["evidence"]
+    return [SystemMessage(sys), *state.get("messages", [])]
+
+
+async def agent_llm(state, config=None) -> dict:
+    """ReAct の reasoning step。tool を bind した model を呼び、steps と token を加算する。
+
+    config をそのまま ainvoke へ渡すのは、LangGraph が stream 用の callback を config に
+    載せて node へ渡すため。落とすと token が frontend へ流れない。
+
+    steps は「model を何回呼んだか」で、routing.should_continue の停止条件になる。
+    tokens_used は trace と集計のためだけで、loop の制御には使わない。usage_metadata は
+    上流によっては付かない(None)ので、無ければ 0 を足す。ここで落とすと、
+    token を報告しない上流に繋いだ瞬間に graph 全体が止まる。
+    """
+    model = get_chat_model(streaming=True).bind_tools(get_all_tools())
+    ai: AIMessage = await model.ainvoke(_agent_messages(state), config)
+    used = (ai.usage_metadata or {}).get("total_tokens", 0)
+    return {
+        "messages": [ai],
+        "steps": state.get("steps", 0) + 1,
+        "tokens_used": state.get("tokens_used", 0) + used,
+    }
+
+
+async def agent_tools(state) -> dict:
+    """ReAct の action step。**create_ticket だけは実行せず選択肢へ変換する。**
+
+    complaint_reply と同じ理由で、チケットは勝手に立てない(モデルが呼ぶと決めた時点で
+    作ってしまうと、ユーザーが望まないチケットで運用側の待ち行列が伸びる)。代わりに
+    そのまま create_ticket へ渡せる draft を suggested_actions へ積み、モデルには
+    「選択肢を提示した」と伝える合成 ToolMessage を返す。
+
+    合成 ToolMessage の tool_call_id は元の tool_call と必ず一致させること。上流は
+    tool_calls と ToolMessage の対応を検査しており、欠けても食い違っても 400 になる。
+    """
+    last = state["messages"][-1]
+    tool_msgs = []
+    actions = list(state.get("suggested_actions", []))
+    for tc in last.tool_calls:
+        if tc["name"] == "create_ticket":
+            # ticket_type は DB の ENUM と同じ英語の識別子(spec §6.1)。
+            # 既定を inquiry にするのは、種別を外すなら一般問い合わせが最も無害なため。
+            draft = {"description": tc["args"].get("description", ""),
+                     "ticket_type": tc["args"].get("ticket_type", "inquiry")}
+            actions.append({"type": "create_ticket", "draft": draft})
+            tool_msgs.append(ToolMessage(
+                content="「チケット作成」の選択肢をユーザーへ提示しました。"
+                        "1 文で簡潔に説明して終了し、これ以上 tool を呼ばないでください。",
+                tool_call_id=tc["id"], name="create_ticket"))
+        else:
+            run = await execute_tool_call(tc, state.get("conversation_id", 0))
+            tool_msgs.append(run.tool_message)
+    out = {"messages": tool_msgs}
+    # 1 件も無いときに書かないのは、suggested_actions に reducer が無く後勝ちの
+    # 上書きになるため。空リストを返すと、前の step で積んだ選択肢が消える。
+    if actions:
+        out["suggested_actions"] = actions
+    return out

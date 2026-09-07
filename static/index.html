@@ -117,6 +117,47 @@
   .send:disabled{opacity:.4; cursor:not-allowed; box-shadow:none}
   .tip{text-align:center; font-size:11px; color:var(--muted); margin:8px 0 0}
 
+  /* 引用。本文中の [n] を上付きの押せる印にする */
+  .cite{
+    display:inline-block; cursor:pointer; font-size:10.5px; line-height:1;
+    vertical-align:super; margin:0 1px; padding:2px 5px; border-radius:7px;
+    color:var(--accent-d); background:#fff2f6; border:1px solid #ffd9e5;
+    transition:background .12s, transform .1s;
+  }
+  .cite:hover{background:#ffe3ec}
+  .cite:active{transform:translateY(1px)}
+
+  /* 出典パネル。吹き出しの下にそのまま開く(別ウィンドウにしない) */
+  .src{
+    margin-top:9px; border:1px solid var(--line); border-radius:14px;
+    background:#fffdfe; padding:10px 13px; animation:pop .18s ease-out;
+  }
+  .src .head{display:flex; align-items:center; gap:8px; margin-bottom:6px}
+  .src .path{font-size:11px; color:var(--muted); flex:1; word-break:break-word}
+  .src .close{
+    border:none; background:none; cursor:pointer; font:inherit; font-size:15px;
+    color:var(--muted); line-height:1; padding:2px 4px;
+  }
+  .src .close:hover{color:var(--accent-d)}
+  .src .q{font-size:13px; font-weight:600; margin-bottom:4px}
+  .src .a{font-size:12.5px; line-height:1.75; color:#5d5470; white-space:pre-wrap; word-break:break-word}
+
+  /* 満足度。押せるのは 1 回だけ */
+  .fb{display:flex; align-items:center; gap:7px; margin-top:9px}
+  .fb button{
+    font:inherit; font-size:13px; cursor:pointer; line-height:1;
+    border:1px solid var(--line); background:#fff; padding:5px 11px; border-radius:999px;
+    transition:transform .1s, opacity .15s;
+  }
+  .fb button:hover:not(:disabled){border-color:#ffd3e0}
+  .fb button:active:not(:disabled){transform:translateY(1px)}
+  .fb button:disabled{cursor:default}
+  .fb button.active{border-color:transparent; color:#fff;
+                    background:linear-gradient(160deg,var(--accent),var(--accent-d));
+                    box-shadow:0 3px 9px rgba(255,143,177,.4)}
+  .fb button.dim{opacity:.35}
+  .fb .thanks{font-size:11.5px; color:var(--muted)}
+
   /* ツール履歴バッジ。既存の .hint と同じカプセル語彙で、点線にして「補足情報」であることを示す。 */
   .tools:empty{display:none}
   .tools{display:flex; flex-direction:column; align-items:flex-start; gap:5px; margin-bottom:8px}
@@ -255,6 +296,7 @@ function typer(el){
       text += queue.slice(0, step);
       queue = queue.slice(step);
       el.innerHTML = renderMd(text);
+      markCitations(el);
       // caret は最後のブロックの中に置く。直下に足すと改行して独りだけ次の行に出る。
       let last = el.lastElementChild;
       while (last && last.lastElementChild) last = last.lastElementChild;
@@ -367,6 +409,70 @@ function renderMd(src){
   return out.join('');
 }
 
+/* 本文中の [1] [2] を押せる上付きに変える。
+   renderMd は毎フレーム innerHTML を作り直すので、ここも毎フレーム掛け直す。
+   テキストノードだけを見て回るのは、コードブロックや既存のタグを壊さないため。 */
+const CITE_RE = /\[(\d{1,2})\]/g;
+
+function markCitations(root){
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node){
+      // code / pre の中の [1] は引用ではなくコードなので触らない
+      if (node.parentElement.closest('code, pre, .cite')) return NodeFilter.FILTER_REJECT;
+      return CITE_RE.test(node.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    },
+  });
+  const targets = [];
+  while (walker.nextNode()) targets.push(walker.currentNode);
+  for (const node of targets){
+    const span = document.createElement('span');
+    span.innerHTML = esc(node.nodeValue).replace(
+      CITE_RE, (_, n) => `<sup class="cite" data-n="${n}">[${n}]</sup>`
+    );
+    node.replaceWith(...span.childNodes);
+  }
+}
+
+/* 出典は吹き出しの下に開く。ポップアップにすると、スクロールや IME と競合しやすい。 */
+function showSource(bub, items, n){
+  bub.querySelectorAll('.src').forEach(e => e.remove());
+  const item = (items || []).find(c => String(c.n) === String(n));
+  const box = document.createElement('div');
+  box.className = 'src';
+  if (!item){
+    box.innerHTML = `<div class="path">出典 [${esc(n)}] は見つかりませんでした</div>`;
+  } else {
+    box.innerHTML =
+      `<div class="head"><div class="path">[${item.n}] ${esc(item.section_path || '')}</div>` +
+      `<button class="close" title="閉じる">×</button></div>` +
+      `<div class="q">${esc(item.question || '')}</div>` +
+      `<div class="a">${esc(item.answer || '')}</div>`;
+    box.querySelector('.close').addEventListener('click', () => box.remove());
+  }
+  bub.appendChild(box);
+  box.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+/* 満足度。1 回押したら固定する(押し直しを許すと、記録の意味が曖昧になる)。
+   この章では画面上の反応だけで、DB へは保存しない。 */
+function addFeedbackBar(bub){
+  if (bub.querySelector('.fb')) return;
+  const bar = document.createElement('div');
+  bar.className = 'fb';
+  bar.innerHTML = '<button data-v="up">👍</button><button data-v="down">👎</button>';
+  const thanks = document.createElement('span');
+  thanks.className = 'thanks';
+  bar.appendChild(thanks);
+  bar.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+    bar.querySelectorAll('button').forEach(o => {
+      o.disabled = true;
+      o.classList.add(o === b ? 'active' : 'dim');
+    });
+    thanks.textContent = 'フィードバック済み';
+  }));
+  bub.appendChild(bar);
+}
+
 function setBusy(v){
   busy = v;
   send.disabled = v;
@@ -389,8 +495,16 @@ async function ask(message){
 
   const tools = row.querySelector('.tools');
   const md    = row.querySelector('.md');
+  const bub   = row.querySelector('.bub');
 
   let type = null, started = false, badged = false, closed = false;
+  let citations = [];
+
+  // 印は毎フレーム作り直されるので、個々の sup ではなく吹き出しに 1 つだけ委譲する
+  bub.addEventListener('click', (e) => {
+    const c = e.target.closest('.cite');
+    if (c) showSource(bub, citations, c.dataset.n);
+  });
 
   const start = () => {
     if (started) return;
@@ -468,6 +582,7 @@ async function ask(message){
         try { obj = JSON.parse(data); } catch { continue; }
 
         if (obj.event === 'tool'){ addTool(obj.name); continue; }
+        if (obj.event === 'citations'){ citations = obj.items || []; continue; }
         if (obj.event === 'done'){ setConversation(obj.conversation_id); continue; }
         if (obj.delta){ start(); type.push(obj.delta); }
       }
@@ -475,6 +590,8 @@ async function ask(message){
 
     if (started) await type.finish();
     settle();
+    // answer が出た場合だけ満足度を出す。拒否やエラーの吹き出しには付けない
+    if (started) addFeedbackBar(bub);
 
   } catch (err){
     await fail('⚠ サーバーに接続できませんでした。サービスが起動しているか確認してください。');

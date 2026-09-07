@@ -750,3 +750,79 @@ def test_hallucination_rate_is_none_when_nothing_was_judged():
     out = ev.build_hallucination([], 0, "hybrid_rerank", None)
     assert out["rate"] == {"value": None, "cases": 0, "n": 0}
     assert out["confirmed_rate"]["value"] is None
+
+
+# ---------------------------------------------------------------------------
+# 上流のレート制限
+#
+# 実測: 忠実性 judge のプロンプトを長くした回に TPM 上限(200k)を踏み、300 問中
+# 57 問が判定されないまま捨てられた。表に出るのは分母が 243 へ減ったことだけで、
+# 幻覚率はもっともらしい数字を出し続ける。だから「待てば通る」失敗だけは
+# やり直さなければならない。
+# ---------------------------------------------------------------------------
+
+class _RateLimited(Exception):
+    status_code = 429
+
+
+async def test_rate_limited_calls_are_retried(monkeypatch):
+    """レート制限は待ってやり直す。1 回で諦めると分母が黙って減る。"""
+    monkeypatch.setattr(ev, "RATE_LIMIT_BACKOFF", 0)      # テストで実際に待たない
+    calls = []
+
+    async def _flaky():
+        calls.append(1)
+        if len(calls) < 3:
+            raise _RateLimited("Error code: 429 - rate_limit_exceeded")
+        return "ok"
+
+    ev._ERRS.clear()
+    assert await ev._try(_flaky, "faithfulness[A1]") == "ok"
+    assert len(calls) == 3
+    assert ev._ERRS == []                                  # 成功したので記録もしない
+
+
+async def test_other_failures_are_not_retried(monkeypatch):
+    """レート制限以外は 1 回で諦める。壊れた入力を何度も投げても課金が増えるだけ。"""
+    monkeypatch.setattr(ev, "RATE_LIMIT_BACKOFF", 0)
+    calls = []
+
+    async def _broken():
+        calls.append(1)
+        raise ValueError("そもそも入力が不正")
+
+    ev._ERRS.clear()
+    assert await ev._try(_broken, "generate[x/A1]") is None
+    assert len(calls) == 1
+    assert len(ev._ERRS) == 1
+
+
+async def test_rate_limit_is_recognised_by_message_alone(monkeypatch):
+    """プロバイダごとに例外の型が違うので、本文の 429 でも拾えること。"""
+    monkeypatch.setattr(ev, "RATE_LIMIT_BACKOFF", 0)
+    calls = []
+
+    async def _flaky():
+        calls.append(1)
+        if len(calls) < 2:
+            raise RuntimeError("Error code: 429 - {'error': {'code': 'rate_limit_exceeded'}}")
+        return "ok"
+
+    ev._ERRS.clear()
+    assert await ev._try(_flaky, "coverage[x/A1]") == "ok"
+    assert len(calls) == 2
+
+
+async def test_giving_up_after_the_last_attempt_is_recorded(monkeypatch):
+    """やり直しても駄目なら記録して None。無限には待たない。"""
+    monkeypatch.setattr(ev, "RATE_LIMIT_BACKOFF", 0)
+    calls = []
+
+    async def _always():
+        calls.append(1)
+        raise _RateLimited("429")
+
+    ev._ERRS.clear()
+    assert await ev._try(_always, "faithfulness[A1]") is None
+    assert len(calls) == ev.RATE_LIMIT_ATTEMPTS
+    assert len(ev._ERRS) == 1

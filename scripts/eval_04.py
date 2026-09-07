@@ -61,6 +61,8 @@ RECALL_K = 5    # Recall だけはこの深さで測る。K とは別物なの�
 # 深さを判別できるように、K ではなく RECALL_K を名前へ埋める。
 RECALL_KEY = f"recall_at_{RECALL_K}"
 RETR_CONCURRENCY, GEN_CONCURRENCY, CALL_TIMEOUT = 8, 3, 45.0
+# レート制限のときだけ待ってやり直す回数と初回の待ち時間(秒、以降は倍々)。
+RATE_LIMIT_ATTEMPTS, RATE_LIMIT_BACKOFF = 5, 2.0
 
 # 足切りなしを伝える番兵(app/tools/business.py と同じ考え方)。
 # 0.0 だと「rerank スコアは 0 以上」という上流の値域への暗黙の仮定になる。
@@ -393,19 +395,47 @@ def build_evidence(hits: list[dict]) -> str:
                      for c in build_citations(hits))
 
 
-async def _try(coro, label: str):
-    """上流呼び出しを timeout 付きで包み、失敗しても run 全体を落とさない。"""
-    try:
-        return await asyncio.wait_for(coro, CALL_TIMEOUT)
-    except Exception as exc:
-        _ERRS.append(f"{label}: {type(exc).__name__}: {exc}")
-        return None
+def _is_rate_limited(exc: Exception) -> bool:
+    """上流の「今は多すぎる」応答か。
+
+    例外クラス名で見るのは、プロバイダごとに型が違ううえ langchain 側でも
+    包み直されるため。status_code と本文も見て取りこぼしを減らす。
+    """
+    if "ratelimit" in type(exc).__name__.lower():
+        return True
+    if getattr(exc, "status_code", None) == 429:
+        return True
+    text = str(exc)
+    return "429" in text or "rate_limit" in text
+
+
+async def _try(make_coro, label: str):
+    """上流呼び出しを timeout 付きで包み、失敗しても run 全体を落とさない。
+
+    make_coro は「呼ぶたびに新しいコルーチンを返す」callable。コルーチンは一度 await
+    すると再利用できないので、やり直すには作り直せる形で受け取る必要がある。
+
+    レート制限のときだけ待ってやり直す。実測: 忠実性 judge のプロンプトを長くした回に
+    TPM 上限(200k)を踏み、300 問中 57 問が判定されないまま「上流エラー」として捨てられた。
+    表に出るのは分母が 243 へ減ったことだけで、幻覚率はもっともらしい数字を出し続ける。
+    レート制限は上流が「待てば通る」と言っている一時的な状態なので、他の失敗と同じように
+    1 回で諦めるのは誤り。
+    """
+    for attempt in range(RATE_LIMIT_ATTEMPTS):
+        try:
+            return await asyncio.wait_for(make_coro(), CALL_TIMEOUT)
+        except Exception as exc:
+            if attempt + 1 < RATE_LIMIT_ATTEMPTS and _is_rate_limited(exc):
+                await asyncio.sleep(RATE_LIMIT_BACKOFF * (2 ** attempt))
+                continue
+            _ERRS.append(f"{label}: {type(exc).__name__}: {exc}")
+            return None
 
 
 async def _generate_one(model, judge, s: dict, hits: list[dict], strategy: str) -> dict:
     evidence = build_evidence(hits)
     chain = RAG_ANSWER_PROMPT | model
-    msg = await _try(chain.ainvoke({"query": s["query"], "evidence": evidence}),
+    msg = await _try(lambda: chain.ainvoke({"query": s["query"], "evidence": evidence}),
                      f"generate[{strategy}/{s['id']}]")
     answer = getattr(msg, "content", None) if msg is not None else None
     rec = {"id": s["id"], "bucket": s["bucket"], "answer": answer,
@@ -414,7 +444,7 @@ async def _generate_one(model, judge, s: dict, hits: list[dict], strategy: str) 
     if answer and s["expect_points"]:
         points = "\n".join(f"{i}. {p}" for i, p in enumerate(s["expect_points"], 1))
         r = await _try(
-            judge.ainvoke(_COVERAGE_INSTRUCTION.format(points=points, answer=answer)),
+            lambda: judge.ainvoke(_COVERAGE_INSTRUCTION.format(points=points, answer=answer)),
             f"coverage[{strategy}/{s['id']}]")
         if r is not None:
             valid = {n for n in r.covered_numbers if 1 <= n <= len(s["expect_points"])}
@@ -474,7 +504,8 @@ async def run_generation(samples: list[dict], hits_by: dict, strategies: list[st
         hits = hits_by[(target, s["id"])]
         async with sem:
             r = await _try(
-                faith_chain.ainvoke({"evidence": build_evidence(hits), "answer": answer}),
+                lambda: faith_chain.ainvoke(
+                    {"evidence": build_evidence(hits), "answer": answer}),
                 f"faithfulness[{s['id']}]")
         if r is not None:
             faith_records.append({"id": s["id"], "bucket": s["bucket"],
@@ -604,7 +635,8 @@ async def run_rewrite_check() -> dict:
             REWRITE_SET.read_text(encoding="utf-8").splitlines() if ln.strip()]
     details = []
     for r in rows:
-        u = await _try(query_understanding.understand(r["query"]), f"rewrite[{r['query'][:12]}]")
+        u = await _try(lambda: query_understanding.understand(r["query"]),
+                       f"rewrite[{r['query'][:12]}]")
         if u is None:
             details.append({"query": r["query"], "ok": None, "standard": None})
             continue
@@ -623,7 +655,7 @@ async def run_selfcheck_check() -> dict:
             SELFCHECK_SET.read_text(encoding="utf-8").splitlines() if ln.strip()]
     details = []
     for r in rows:
-        c = await _try(selfcheck.check_sufficient(r["query"], r["evidence"]),
+        c = await _try(lambda: selfcheck.check_sufficient(r["query"], r["evidence"]),
                        f"selfcheck[{r['id']}]")
         if c is None:
             details.append({"id": r["id"], "ok": None})

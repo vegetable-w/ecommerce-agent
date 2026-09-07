@@ -1,4 +1,4 @@
-"""graph を FastAPI から使えるようにする層。checkpointer の寿命と 2 つの実行入口。
+"""graph を FastAPI から使えるようにする層。checkpointer の寿命と実行の入口。
 
 graph そのものは app/graph/build.py で組み上がっている。ここが受け持つのは、
 
@@ -8,6 +8,9 @@ graph そのものは app/graph/build.py で組み上がっている。ここが
   閉じ忘れがそのままファイルロックとして残る。起動時に 1 つ開き、終了時に閉じる。
 - **graph の出力を frontend が読める event に写像すること**。/api/agent(非ストリーミング)は
   最終 State を、/api/chat(SSE)は event の列を使う。
+- **中断した turn を再開できるようにすること**(06 章)。fetch_order は注文が特定
+  できないと interrupt で止まる。止まったことを表に出す(run_turn / stream_turn)のと、
+  ユーザーが選んだ値で続きから走らせる(resume_turn / stream_resume)のがここの仕事。
 
 写像の要点は「**何を流さないか**」にある。stream_mode="messages" は graph の中で
 起きた model 呼び出しの token を**すべて**運んでくるので、素通しすると
@@ -20,6 +23,7 @@ from collections.abc import AsyncIterator
 
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from langgraph.types import Command
 
 from app.config import settings
 from app.db import repository
@@ -35,6 +39,13 @@ ANSWER_NODES = {"agent_llm"}
 # 決定的 node は model を呼ばないので token が流れてこない。回答は state["answer"] に
 # 入るので、updates から 1 塊の delta として拾う
 DETERMINISTIC_ANSWER_NODES = {"script_reply", "complaint_reply", "fallback_reply"}
+# 出典を書く node。**強制検索は 2 つある**(knowledge route の forced_rag と
+# refund_flow の retrieve_policy)。片方だけを見ると、その経路の回答に付いた [n] が
+# 画面でクリックできない注釈のまま残る。node が増えたらここへ足す。
+CITATION_NODES = {"forced_rag", "retrieve_policy"}
+# updates の chunk では node 名の位置にこの key が現れる(Task 1 の実測)。
+# 値は node の差分 dict ではなく Interrupt の並びなので、node と同じ扱いをしない。
+_INTERRUPT_KEY = "__interrupt__"
 
 _graph = None
 # AsyncSqliteSaver.from_conn_string() が返す async context manager。
@@ -93,17 +104,22 @@ def get_graph():
     return _graph
 
 
-async def _ensure_conversation(user_id: str, conversation_id: int | None) -> int:
-    """会話 ID を確定する。None なら採番、指定があれば存在を確かめる。
+async def _require_conversation(conversation_id: int) -> int:
+    """指定された会話が存在することを確かめる。無ければ ConversationNotFound。
 
     存在しない ID を素通しすると、誰も読まない会話へ user message を書き込み、
     graph の thread_id もその番号で切られる。ここで止める。
     """
-    if conversation_id is None:
-        return await repository.create_conversation(user_id)
     if await repository.get_conversation(conversation_id) is None:
         raise ConversationNotFound(conversation_id)
     return conversation_id
+
+
+async def _ensure_conversation(user_id: str, conversation_id: int | None) -> int:
+    """会話 ID を確定する。None なら採番、指定があれば存在を確かめる。"""
+    if conversation_id is None:
+        return await repository.create_conversation(user_id)
+    return await _require_conversation(conversation_id)
 
 
 def _graph_input(user_id: str, message: str, cid: int) -> dict:
@@ -147,28 +163,102 @@ def _config(cid: int) -> dict:
     return {"configurable": {"thread_id": str(cid)}}
 
 
+def _interrupt_payload(raw) -> dict | None:
+    """__interrupt__ の中身から、画面へ渡す payload の dict を取り出す。読めなければ None。
+
+    容れ物の型は入口によって違う(Task 1 の実測): ainvoke の戻り値では **list**、
+    astream の updates では **tuple**。片方だけを見る実装は他方で黙って素通しし、
+    「中断しているのに画面が待ち続ける」形で壊れるので、並びとしてだけ扱う。
+
+    要素は langgraph.types.Interrupt で、payload は .value にある。ただしその中身は
+    node が渡した任意の値であり、こちら側では形を保証できない。dict でないものは
+    「読めなかった」として None を返す(例外にすると turn ごと止まる)。
+    """
+    if isinstance(raw, (list, tuple)):
+        for item in raw:
+            value = getattr(item, "value", None)
+            if isinstance(value, dict):
+                return value
+    return None
+
+
+def _interrupt_event(raw, cid: int) -> dict:
+    """updates に出た __interrupt__ を frontend 向けの event dict にする。
+
+    **payload が読めなくても event は出す。** graph は確かに止まっており、この後
+    done は来ない。何も出さないと画面は無言のまま待ち続けるので、空でも key の
+    揃った event を渡して「中断した」ことだけは伝える。
+
+    kind は payload の "type" から取る。ここを "select_order" 固定にすると、
+    今後増える別種の中断がすべて「注文を選ぶ」画面として描かれる。
+
+    conversation_id を載せるのは done を出さないため。初回ターンで中断されたとき、
+    画面はここでしか会話 ID を知る手立てがなく、/api/actions/resume を叩けない。
+    """
+    payload = _interrupt_payload(raw)
+    if payload is None:
+        logger.warning("interrupt の payload を解釈できなかった conv=%s", cid)
+        payload = {}
+    kind = payload.get("type")
+    orders = payload.get("orders")
+    return {
+        "type": "interrupt",
+        "kind": kind if isinstance(kind, str) else "",
+        "orders": orders if isinstance(orders, list) else [],
+        "conversation_id": cid,
+    }
+
+
 async def run_turn(user_id: str, message: str, conversation_id: int | None) -> dict:
     """非ストリーミングの入口。user message を保存し、graph を走らせて最終 State を返す。
 
     assistant message の保存は log node が行う(4 つの出口がすべてそこへ合流する)ので、
     ここでは user 側だけを書く。
+
+    戻り値の interrupt は、graph が中断したときの payload(fetch_order なら
+    {"type": "select_order", "orders": [...]})。中断していなければ None。
+    中断した turn は答えが無いので、呼び出し側はこれを見て画面の分岐を決める。
     """
     cid = await _ensure_conversation(user_id, conversation_id)
     await repository.append_message(cid, "user", content=message)
     final = await get_graph().ainvoke(_graph_input(user_id, message, cid), _config(cid))
-    return {"conversation_id": cid, "state": final}
+    return {
+        "conversation_id": cid,
+        "state": final,
+        "interrupt": _interrupt_payload(final.get(_INTERRUPT_KEY)),
+    }
 
 
-async def stream_turn(
-    user_id: str, message: str, conversation_id: int | None
-) -> AsyncIterator[dict]:
-    """ストリーミングの入口。graph の出力を frontend 向けの event dict へ写像する。
+async def resume_turn(conversation_id: int, resume_value) -> dict:
+    """中断した turn を、ユーザーが選んだ値で再開する。戻り値は run_turn と同じ形。
 
-    出す event は 5 種類:
+    run_turn と違うのは 2 点で、どちらも「resume は新しい発話ではない」ことから来る。
+
+    - **user message を保存しない。** 保存すると同じ turn の user 行が 2 つ並び、
+      log node が書く assistant 行との対応が崩れる。履歴は毎ターン prompt へ
+      積み直されるので、以後すべてのターンにその重複が乗り続ける。
+    - **_graph_input を通さない。** あれは turn の入口で出力チャネルを 0 に戻す
+      入力で、interrupt 待ちの State に被せると再開前の途中経過が消える。
+      渡すのは Command(resume=...) だけで、State は checkpointer が持っている。
+    """
+    cid = await _require_conversation(conversation_id)
+    final = await get_graph().ainvoke(Command(resume=resume_value), _config(cid))
+    return {
+        "conversation_id": cid,
+        "state": final,
+        "interrupt": _interrupt_payload(final.get(_INTERRUPT_KEY)),
+    }
+
+
+async def _stream_events(graph_input, cid: int) -> AsyncIterator[dict]:
+    """graph の出力を frontend 向けの event dict へ写像する。turn の開始と再開で共通。
+
+    出す event は 6 種類:
         {"type": "tool", "name": str}            agent_tools が実行した tool
-        {"type": "citations", "items": list}     forced_rag が引いた出典
+        {"type": "citations", "items": list}     強制検索が引いた出典
         {"type": "delta", "text": str}           回答本文(agent_llm の token / 決定的 node の固定文)
         {"type": "actions", "items": list}       選択肢(有人対応 / チケット作成)
+        {"type": "interrupt", ...}               ユーザーの選択待ちで停止した
         {"type": "done", "conversation_id": int} 終端
 
     2 つの stream_mode を同時に要求する。messages だけだと model を呼ばない決定的 node の
@@ -179,14 +269,17 @@ async def stream_turn(
     actions を最後まで溜めるのは、選択肢がボタンとして描かれるため。本文の途中で送ると
     回答が終わる前にボタンが現れる。suggested_actions に reducer は無く後勝ちなので、
     最後に見た値がその turn の全量になる。
-    """
-    cid = await _ensure_conversation(user_id, conversation_id)
-    await repository.append_message(cid, "user", content=message)
 
+    **中断したときは done を出さない。** done は「その turn が完結した」という印で、
+    選択待ちはまだ完結していない。ただし画面を待ちっぱなしにはできないので、終端は
+    HTTP ストリームの終了(/api/chat の "data: [DONE]")が受け持つ。役割を分けている:
+    [DONE] は「このレスポンスは終わり」、done event は「turn が終わった」。
+    画面は interrupt を見たら注文の一覧を描いて /api/actions/resume を待てばよい。
+    """
     actions: list = []
+    interrupted = False
     async for mode, chunk in get_graph().astream(
-        _graph_input(user_id, message, cid), _config(cid),
-        stream_mode=["messages", "updates"],
+        graph_input, _config(cid), stream_mode=["messages", "updates"],
     ):
         if mode == "messages":
             msg, meta = chunk
@@ -200,7 +293,12 @@ async def stream_turn(
                     yield {"type": "delta", "text": str(text)}
         elif mode == "updates":
             for node, upd in chunk.items():
-                # node が None を返す経路や __interrupt__ のような特殊な key を読み飛ばす。
+                if node == _INTERRUPT_KEY:
+                    # node の差分ではなく Interrupt の並び。下の isinstance で読み飛ばす前に拾う
+                    interrupted = True
+                    yield _interrupt_event(upd, cid)
+                    continue
+                # node が None を返す経路のような特殊な値を読み飛ばす。
                 # ここで落ちると turn ごと止まる
                 if not isinstance(upd, dict):
                     continue
@@ -208,10 +306,10 @@ async def stream_turn(
                     yield {"type": "delta", "text": upd["answer"]}
                 # 本文より先に出典を送る。frontend は [n] を描き始める時点で出典を
                 # 持っていないと、クリックできる注釈にできない。
-                # 空の citations を送らないのは、forced_rag が weak のとき前 turn の
+                # 空の citations を送らないのは、強制検索が引けなかったとき前 turn の
                 # 出典を消すために [] を書くからで、それは「出典なし」であって
                 # 「空の出典欄を開け」ではない
-                if node == "forced_rag" and upd.get("citations"):
+                if node in CITATION_NODES and upd.get("citations"):
                     yield {"type": "citations", "items": upd["citations"]}
                 if node == "agent_tools":
                     for m in upd.get("messages", []):
@@ -224,4 +322,27 @@ async def stream_turn(
                     actions = upd["suggested_actions"]
     if actions:
         yield {"type": "actions", "items": actions}
-    yield {"type": "done", "conversation_id": cid}
+    if not interrupted:
+        yield {"type": "done", "conversation_id": cid}
+
+
+async def stream_turn(
+    user_id: str, message: str, conversation_id: int | None
+) -> AsyncIterator[dict]:
+    """ストリーミングの入口。user message を保存し、graph の出力を event として流す。"""
+    cid = await _ensure_conversation(user_id, conversation_id)
+    await repository.append_message(cid, "user", content=message)
+    async for ev in _stream_events(_graph_input(user_id, message, cid), cid):
+        yield ev
+
+
+async def stream_resume(conversation_id: int, resume_value) -> AsyncIterator[dict]:
+    """中断した turn を再開し、stream_turn と同じ event を流す。
+
+    user message を保存せず _graph_input も通さない理由は resume_turn と同じ。
+    再開の後には Agent の回答が続くので、画面が受け取る event の並びは
+    stream_turn と同じでなければならない(選択の前後で描画を分けずに済む)。
+    """
+    cid = await _require_conversation(conversation_id)
+    async for ev in _stream_events(Command(resume=resume_value), cid):
+        yield ev

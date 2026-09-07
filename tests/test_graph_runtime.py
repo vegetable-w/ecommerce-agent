@@ -23,6 +23,7 @@ from contextlib import asynccontextmanager
 import pytest
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import Command, Interrupt
 
 from app.graph import runtime
 from app.graph.state import ConversationState
@@ -148,7 +149,7 @@ async def test_run_turn_は会話IDが無ければ採番する(monkeypatch):
 
     result = await runtime.run_turn("u1", "こんにちは", None)
 
-    assert result == {"conversation_id": 55, "state": {"answer": "はい"}}
+    assert result == {"conversation_id": 55, "state": {"answer": "はい"}, "interrupt": None}
     assert calls == [("create", "u1"), ("append", 55, "user", "こんにちは")]
     # thread_id は会話 ID の文字列。ここがずれると turn をまたいで履歴が続かない
     assert graph.calls[0]["config"] == {"configurable": {"thread_id": "55"}}
@@ -669,3 +670,275 @@ def test_trace_is_rebuilt_at_the_turn_boundary():
     # 通常の merge は従来どおり足し合わせる
     assert merge_dict({"a": 1}, {"b": 2}) == {"a": 1, "b": 2}
     assert TRACE_RESET not in merge_dict(prev, fresh)
+
+
+# --- 06 章: interrupt / resume -----------------------------------------------------
+#
+# Task 1 の red-line smoke(scripts/smoke_interrupt.py)で実測した形を、そのまま台本にする。
+#   - ainvoke の戻り値には "__interrupt__" が **list** で入る
+#   - astream の updates には {"__interrupt__": (Interrupt(...),)} が **tuple** で出る
+# 2 つの入口で容れ物の型が違うので、片方だけを見る実装は他方で黙って素通しする。
+# そのため list / tuple の両方を明示的に試す。
+
+
+_SELECT_ORDER = {
+    "type": "select_order",
+    "orders": [
+        {"order_id": "1001", "product": "自動猫トイレ", "status": "支払い済み", "amount": 1739},
+        {"order_id": "2002", "product": "スマート体重計", "status": "発送済み", "amount": 3280},
+    ],
+}
+
+
+def _interrupts(payload, *, box=tuple):
+    """__interrupt__ の中身。box で list / tuple を切り替える。"""
+    return box([Interrupt(value=payload)])
+
+
+def _interrupt_update(payload, *, box=tuple) -> tuple:
+    """updates mode に出る interrupt の chunk。node 名の位置に "__interrupt__" が来る。"""
+    return ("updates", {"__interrupt__": _interrupts(payload, box=box)})
+
+
+async def _resume_events(**kwargs) -> list[dict]:
+    return [ev async for ev in runtime.stream_resume(**kwargs)]
+
+
+@pytest.mark.parametrize("box", [tuple, list], ids=["tuple", "list"])
+async def test_stream_turnはupdatesのinterruptをイベントにする(monkeypatch, box):
+    """実測では tuple で来るが、容れ物の型に依存しないことを list でも確かめる。"""
+    _fake_repo(monkeypatch, new_id=55)
+    _use(monkeypatch, _ScriptedGraph([_interrupt_update(_SELECT_ORDER, box=box)]))
+
+    events = await _events(user_id="u1", message="返金したい", conversation_id=None)
+
+    assert events[0] == {
+        "type": "interrupt",
+        "kind": "select_order",
+        "orders": _SELECT_ORDER["orders"],
+        # 会話 ID を載せるのは、interrupt では done を出さないため。初回ターンで
+        # 中断されたとき、画面はここでしか会話 ID を知る手立てがなく、
+        # /api/actions/resume を叩けなくなる
+        "conversation_id": 55,
+    }
+
+
+async def test_interruptで止まったらdoneを出さない(monkeypatch):
+    """done は「その turn が完結した」という印。中断はまだ完結していない。"""
+    _fake_repo(monkeypatch, new_id=55)
+    _use(monkeypatch, _ScriptedGraph([
+        _update("retrieve_policy", {"citations": [{"n": 1}]}),
+        _interrupt_update(_SELECT_ORDER),
+    ]))
+
+    events = await _events(user_id="u1", message="返金したい", conversation_id=None)
+
+    assert not any(ev["type"] == "done" for ev in events)
+    assert events[-1]["type"] == "interrupt"
+
+
+async def test_interruptのkindはpayloadのtypeから取る(monkeypatch):
+    """select_order 以外の中断が増えたとき、画面が種類で分岐できる必要がある。
+    ここを固定値にすると、新しい中断が全部「注文を選ぶ」画面として描かれる。"""
+    _fake_repo(monkeypatch, new_id=55)
+    _use(monkeypatch, _ScriptedGraph([
+        _interrupt_update({"type": "confirm_refund", "orders": []}),
+    ]))
+
+    events = await _events(user_id="u1", message="返金したい", conversation_id=None)
+
+    assert events[0]["kind"] == "confirm_refund"
+
+
+_BROKEN_PAYLOADS = [
+    pytest.param(("updates", {"__interrupt__": ()}), id="empty-tuple"),
+    pytest.param(("updates", {"__interrupt__": None}), id="none"),
+    pytest.param(("updates", {"__interrupt__": _interrupts(None)}), id="value-none"),
+    pytest.param(("updates", {"__interrupt__": _interrupts("注文を選んでください")}), id="value-str"),
+    pytest.param(("updates", {"__interrupt__": _interrupts({})}), id="value-empty-dict"),
+    pytest.param(("updates", {"__interrupt__": _interrupts({"orders": []})}), id="no-type"),
+    pytest.param(("updates", {"__interrupt__": _interrupts({"type": 7, "orders": {}})}),
+                 id="wrong-types"),
+    pytest.param(("updates", {"__interrupt__": ["これは Interrupt ではない"]}), id="not-interrupt"),
+]
+
+
+@pytest.mark.parametrize("chunk", _BROKEN_PAYLOADS)
+async def test_壊れたinterrupt_payloadでもturnごと落ちない(monkeypatch, chunk):
+    """payload の形はこちら側で保証しきれない。読めなくても turn を落とさず、
+    画面が読める分だけを渡す(kind と orders は空でも key は必ずある)。"""
+    _fake_repo(monkeypatch, new_id=55)
+    _use(monkeypatch, _ScriptedGraph([chunk]))
+
+    events = await _events(user_id="u1", message="返金したい", conversation_id=None)
+
+    itr = [ev for ev in events if ev["type"] == "interrupt"]
+    assert len(itr) == 1
+    assert set(itr[0]) == {"type", "kind", "orders", "conversation_id"}
+    assert isinstance(itr[0]["kind"], str)
+    assert isinstance(itr[0]["orders"], list)
+    # 読めなくても graph は確かに止まっている。done を出すと画面は完結したと思う
+    assert not any(ev["type"] == "done" for ev in events)
+
+
+async def test_retrieve_policyのcitationsもイベントになる(monkeypatch):
+    """返金フローの規約は retrieve_policy が引く。forced_rag だけを見ていると、
+    返金の回答に付いた [n] の出典が画面に出ない。"""
+    _fake_repo(monkeypatch, new_id=55)
+    citations = [{"n": 1, "id": 9, "section_path": "返品ポリシー", "question": "返品条件",
+                  "answer": "7日以内", "content_type": "policy"}]
+    _use(monkeypatch, _ScriptedGraph([
+        _update("retrieve_policy", {"citations": citations, "evidence": "[1] 返品条件: 7日以内"}),
+        _token("agent_llm", "返品できます[1]。"),
+        _update("log", {}),
+    ]))
+
+    events = await _events(user_id="u1", message="注文1001を返品したい", conversation_id=None)
+
+    assert events[0] == {"type": "citations", "items": citations}
+    assert events[1] == {"type": "delta", "text": "返品できます[1]。"}
+
+
+async def test_retrieve_policyのcitationsが空ならイベントを出さない(monkeypatch):
+    """引けなかった turn は前 turn の出典を消すために [] を書く。それは
+    「出典なし」であって「空の出典欄を開け」ではない(forced_rag と同じ規律)。"""
+    _fake_repo(monkeypatch, new_id=55)
+    _use(monkeypatch, _ScriptedGraph([_update("retrieve_policy", {"citations": []})]))
+
+    events = await _events(user_id="u1", message="返金したい", conversation_id=None)
+
+    assert not any(ev["type"] == "citations" for ev in events)
+
+
+# --- run_turn の interrupt --------------------------------------------------------
+
+
+@pytest.mark.parametrize("box", [list, tuple], ids=["list", "tuple"])
+async def test_run_turnはinterruptのpayloadを取り出す(monkeypatch, box):
+    """実測では ainvoke 側は list。容れ物の型に依存しないことを tuple でも確かめる。"""
+    _fake_repo(monkeypatch, new_id=55)
+    _use(monkeypatch, _ScriptedGraph(
+        final={"answer": "", "__interrupt__": _interrupts(_SELECT_ORDER, box=box)}
+    ))
+
+    result = await runtime.run_turn("u1", "返金したい", None)
+
+    assert result["interrupt"] == _SELECT_ORDER
+    assert result["conversation_id"] == 55
+
+
+async def test_run_turnはinterruptが無ければNoneを返す(monkeypatch):
+    """key の有無で分岐させないため、中断していない turn でも key は必ず置く。"""
+    _fake_repo(monkeypatch, new_id=55)
+    _use(monkeypatch, _ScriptedGraph(final={"answer": "はい"}))
+
+    assert await runtime.run_turn("u1", "こんにちは", None) == {
+        "conversation_id": 55, "state": {"answer": "はい"}, "interrupt": None,
+    }
+
+
+@pytest.mark.parametrize("raw", [(), None, "文字列", ["Interrupt ではない"], _interrupts(None)])
+async def test_run_turnは読めないinterruptでも落ちない(monkeypatch, raw):
+    _fake_repo(monkeypatch, new_id=55)
+    _use(monkeypatch, _ScriptedGraph(final={"answer": "", "__interrupt__": raw}))
+
+    result = await runtime.run_turn("u1", "返金したい", None)
+    assert result["interrupt"] is None
+
+
+# --- resume_turn / stream_resume --------------------------------------------------
+
+
+async def test_resume_turnはCommandを渡しuser_messageを保存しない(monkeypatch):
+    """resume は新しい発話ではなく、前の発話の続き。ここで append_message すると
+    同じ turn の user 行が 2 つ並び、以後すべてのターンの prompt に混入する。"""
+    calls = _fake_repo(monkeypatch, known=(7,))
+    graph = _use(monkeypatch, _ScriptedGraph(final={"answer": "返品できます"}))
+
+    result = await runtime.resume_turn(7, "1001")
+
+    assert result == {"conversation_id": 7,
+                      "state": {"answer": "返品できます"}, "interrupt": None}
+    assert not any(c[0] == "append" for c in calls)
+    inp = graph.calls[0]["input"]
+    # _graph_input を通すと turn の入口のリセットが走り、interrupt 待ちの State が壊れる
+    assert isinstance(inp, Command)
+    assert inp.resume == "1001"
+    assert graph.calls[0]["config"] == {"configurable": {"thread_id": "7"}}
+
+
+async def test_resume_turnは知らない会話を拒否してgraphを呼ばない(monkeypatch):
+    calls = _fake_repo(monkeypatch, known=(7,))
+    graph = _use(monkeypatch, _ScriptedGraph())
+
+    with pytest.raises(runtime.ConversationNotFound):
+        await runtime.resume_turn(999, "1001")
+
+    assert graph.calls == []
+    assert not any(c[0] == "append" for c in calls)
+
+
+async def test_resume_turnは再びinterruptしたらそれを返す(monkeypatch):
+    """読めない値で再開したときなど、resume の先でもう一度止まりうる。
+    戻り値の形は run_turn と同じで、中断はそのまま表に出す。"""
+    _fake_repo(monkeypatch, known=(7,))
+    _use(monkeypatch, _ScriptedGraph(final={"__interrupt__": _interrupts(_SELECT_ORDER)}))
+
+    result = await runtime.resume_turn(7, "よくわからない")
+    assert result["interrupt"] == _SELECT_ORDER
+
+
+async def test_stream_resumeはstream_turnと同じイベントを流す(monkeypatch):
+    calls = _fake_repo(monkeypatch, known=(7,))
+    citations = [{"n": 1, "id": 9, "question": "返品条件", "answer": "7日以内"}]
+    graph = _use(monkeypatch, _ScriptedGraph([
+        _update("fetch_order", {"order_id": "1001"}),
+        _update("retrieve_policy", {"citations": citations}),
+        _token("agent_llm", "注文 1001 は返品できます[1]。"),
+        _update("agent_llm", {"suggested_actions": [{"type": "submit_refund"}]}),
+    ]))
+
+    events = await _resume_events(conversation_id=7, resume_value={"order_id": "1001"})
+
+    assert events == [
+        {"type": "citations", "items": citations},
+        {"type": "delta", "text": "注文 1001 は返品できます[1]。"},
+        {"type": "actions", "items": [{"type": "submit_refund"}]},
+        {"type": "done", "conversation_id": 7},
+    ]
+    # user message は保存しない(resume は前の発話の続き)
+    assert not any(c[0] == "append" for c in calls)
+    inp = graph.calls[0]["input"]
+    assert isinstance(inp, Command)
+    assert inp.resume == {"order_id": "1001"}
+    assert graph.calls[0]["kwargs"]["stream_mode"] == ["messages", "updates"]
+
+
+async def test_stream_resumeも中断したらinterruptを出しdoneを出さない(monkeypatch):
+    """選び直しが要る場合(2 段階の中断)でも、画面は同じイベントで扱える。"""
+    _fake_repo(monkeypatch, known=(7,))
+    _use(monkeypatch, _ScriptedGraph([_interrupt_update(_SELECT_ORDER)]))
+
+    events = await _resume_events(conversation_id=7, resume_value="よくわからない")
+
+    assert events == [{"type": "interrupt", "kind": "select_order",
+                       "orders": _SELECT_ORDER["orders"], "conversation_id": 7}]
+
+
+async def test_stream_resumeは知らない会話を拒否してgraphを呼ばない(monkeypatch):
+    calls = _fake_repo(monkeypatch, known=(7,))
+    graph = _use(monkeypatch, _ScriptedGraph())
+
+    with pytest.raises(runtime.ConversationNotFound):
+        await _resume_events(conversation_id=999, resume_value="1001")
+
+    assert graph.calls == []
+    assert not any(c[0] == "append" for c in calls)
+
+
+def test_決定的nodeの一覧が06のnode名と一致する():
+    """回答を state["answer"] に書く 3 つ。名前がずれると、その node の回答が
+    1 文字も画面に出ない(05 章の scripted_reply は 06 で script_reply になった)。"""
+    assert runtime.DETERMINISTIC_ANSWER_NODES == {
+        "script_reply", "complaint_reply", "fallback_reply"
+    }

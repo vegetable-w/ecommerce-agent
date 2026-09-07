@@ -184,10 +184,15 @@ async def test_no_expansion_does_not_append_trailing_space(monkeypatch):
 # --- 前後の node --------------------------------------------------------------
 
 
-async def test_coref_is_passthrough():
+async def test_coref_is_passthrough_on_the_first_turn():
+    """履歴が無い 1 turn 目は補える文脈も無いので、原文がそのまま resolved_query になる。
+
+    06 章で中身が入った後もこの経路は上流を呼ばない(app/core/coref.py が短絡する)。
+    """
     out = await nodes.coref(_state())
-    assert out == {"trace": {"coref": "passthrough"}}
-    # 本章では発話を書き換えない。messages を触ると素通しではなくなる
+    assert out == {"resolved_query": "返品ポリシーを教えて",
+                   "trace": {"coref": "passthrough"}}
+    # 書き下しは resolved_query に置き、ユーザーが打った原文は messages に残す
     assert "messages" not in out
 
 

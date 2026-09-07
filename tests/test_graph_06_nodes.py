@@ -1,4 +1,4 @@
-"""06 章の intent 分類(8 分類 + confidence)と、その周りの helper。
+"""06 章の分類前 2 段(指示対象の解決 / intent 分類)と、検索クエリの展開。
 
 分類は 5 出口すべての入口なので、ここが崩れると会話全体の経路が変わる。
 プロンプトの良し悪しは scripts/eval_intent.py の実測で見る決まりなので、
@@ -7,6 +7,11 @@
 - classify_intent が State へ書く key(intent / intent_confidence / route)
 - trace の key が confidence_check とぶつからないこと
 - 上流が落ちたとき、値域外の confidence が返ったときの倒れ方
+- coref node が書く resolved_query と trace の coref(rewrite / passthrough)
+- resolve の縮退(履歴が無ければ呼ばない、失敗と空は原文へ倒す)
+
+書き下しの**中身の良し悪し**は scripts/eval_coref.py の実測で見る。
+ここで固定するのは契約と縮退だけ。
 
 上流(チャットモデル)は一切呼ばない。
 """
@@ -18,8 +23,10 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableLambda
 
 from app.config import settings
+from app.core import coref as coref_mod
 from app.core import intent as intent_mod
 from app.core.llm import get_chat_model
+from app.core.prompts import COREF_REWRITE_PROMPT
 from app.graph import nodes
 
 
@@ -271,3 +278,129 @@ def test_intent_settings_have_seed_defaults(monkeypatch):
     assert s.intent_model == "" and s.intent_small_model == ""
     assert s.intent_mode == "accuracy"
     assert s.intent_conf_threshold == pytest.approx(0.6)
+
+
+# --- 指示対象の解決(app/core/coref.py + coref node)-----------------------------
+
+
+class _UpstreamCalled(BaseException):
+    """呼ばれたこと自体を失敗にするための番兵。
+
+    BaseException にするのは、resolve / expand_queries が `except Exception` で
+    上流の失敗を握って原文へ倒すため。Exception を継承すると「呼ばれたのに握られて
+    原文が返る」ので、呼んでいないことを確かめたいテストが素通りで green になる。
+    """
+
+
+def _fake_chat(result, seen=None):
+    """prompt | model の model 位置に差せる最小のモデル。
+
+    構造化出力を使わない coref 用。result が Exception なら送出し、そうでなければ
+    その文字列を本文とする AIMessage を返す。
+    """
+
+    async def _run(prompt_value):
+        if seen is not None:
+            seen["prompt"] = prompt_value
+        if isinstance(result, BaseException):
+            raise result
+        return AIMessage(result)
+
+    return RunnableLambda(_run)
+
+
+def _stub_resolve(monkeypatch, result, seen=None):
+    async def _fake(query, history=""):
+        if seen is not None:
+            seen["query"] = query
+            seen["history"] = history
+        return result
+
+    monkeypatch.setattr(nodes.coref_mod, "resolve", _fake)
+
+
+def test_coref_prompt_renders_history_and_query():
+    msgs = COREF_REWRITE_PROMPT.format_messages(
+        history="ユーザー:注文1001のスマート家電について", query="それは返品できる?")
+    assert msgs[0].type == "system"
+    assert "注文1001のスマート家電について" in msgs[-1].content
+    assert "それは返品できる?" in msgs[-1].content
+
+
+async def test_coref_node_writes_resolved_query_and_marks_rewrite(monkeypatch):
+    _stub_resolve(monkeypatch, "注文1001のBluetoothイヤホンは返品できますか")
+    out = await nodes.coref({"messages": [
+        HumanMessage("注文1001のBluetoothイヤホンはいつ届きますか"),
+        AIMessage("明日到着予定です"),
+        HumanMessage("これは返品できますか")]})
+
+    assert out["resolved_query"] == "注文1001のBluetoothイヤホンは返品できますか"
+    assert out["trace"]["coref"] == "rewrite"
+
+
+async def test_coref_node_marks_passthrough_when_unchanged(monkeypatch):
+    """書き下しが原文と同じなら passthrough。trace の key は 05 章からの coref を保つ。"""
+    _stub_resolve(monkeypatch, "保証期間はどのくらいですか")
+    out = await nodes.coref(_state("保証期間はどのくらいですか"))
+
+    assert out["resolved_query"] == "保証期間はどのくらいですか"
+    assert out["trace"]["coref"] == "passthrough"
+
+
+async def test_coref_node_passes_history_without_the_current_utterance(monkeypatch):
+    seen = {}
+    _stub_resolve(monkeypatch, "x", seen)
+    await nodes.coref({"messages": [
+        HumanMessage("注文1001について"), AIMessage("発送済みです"), HumanMessage("それは今どこ?")]})
+
+    assert seen["query"] == "それは今どこ?"
+    assert "注文1001について" in seen["history"]
+    assert "それは今どこ?" not in seen["history"]
+
+
+async def test_resolve_returns_the_rewritten_sentence():
+    seen = {}
+    model = _fake_chat("注文1001のスマート家電は返品できますか", seen)
+    got = await coref_mod.resolve("それは返品できる?", "ユーザー:注文1001のスマート家電について",
+                                  model=model)
+    assert got == "注文1001のスマート家電は返品できますか"
+    # 原文と履歴の両方がプロンプトへ渡っていること
+    text = seen["prompt"].to_messages()[-1].content
+    assert "それは返品できる?" in text
+    assert "注文1001のスマート家電について" in text
+
+
+async def test_resolve_skips_the_upstream_when_there_is_no_history():
+    """履歴が無ければ補える文脈も無い。呼ぶだけ無駄で、課金だけが増える。"""
+    model = _fake_chat(_UpstreamCalled("履歴が空なのに上流を呼んだ"))
+    assert await coref_mod.resolve("送料はいくらですか", model=model) == "送料はいくらですか"
+    assert await coref_mod.resolve("送料はいくらですか", "   \u3000\n", model=model) == "送料はいくらですか"
+
+
+async def test_resolve_degrades_to_the_original_query_when_upstream_fails(caplog):
+    """書き換えに失敗したら元の文で進める。止まるより害が小さい。"""
+    model = _fake_chat(RuntimeError("upstream 502"))
+    with caplog.at_level(logging.WARNING, logger="app.core.coref"):
+        got = await coref_mod.resolve("それは返品できる?", "ユーザー:注文1001について", model=model)
+    assert got == "それは返品できる?"
+    assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 1
+
+
+@pytest.mark.parametrize("blank", ["", "   ", "\u3000\n"])
+async def test_resolve_falls_back_to_the_original_when_the_model_returns_blank(blank):
+    """空を返してくることがある。そのまま通すと分類器へ空文字が渡る。"""
+    model = _fake_chat(blank)
+    assert await coref_mod.resolve("それは返品できる?", "ユーザー:注文1001について",
+                                   model=model) == "それは返品できる?"
+
+
+async def test_resolve_falls_back_when_the_content_is_not_text():
+    """content は str とは限らない(block の list)。読めなければ原文へ倒す。"""
+
+    async def _run(prompt_value):
+        return AIMessage(content=[{"type": "text", "text": "書き下し"}])
+
+    got = await coref_mod.resolve("それは?", "ユーザー:注文1001について",
+                                  model=RunnableLambda(_run))
+    assert got == "それは?"
+

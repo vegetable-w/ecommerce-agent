@@ -24,6 +24,7 @@ import logging
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from app.config import settings
+from app.core import coref as coref_mod
 from app.core import intent as intent_mod
 from app.core import query_understanding, retrieval, selfcheck
 from app.core.llm import get_chat_model
@@ -141,12 +142,21 @@ _NO_EVIDENCE = {"evidence_strong": False, "evidence": "", "citations": []}
 
 
 async def coref(state) -> dict:
-    """指示対象解決: 本章では最小実装としてそのまま透過する。正式版は 06 章。
+    """指示対象を解決し、文脈なしで通じる質問を resolved_query に書く。
 
-    node の枠だけ先に置くのは、後から差し込むと graph の形が変わってしまうため。
-    messages には手を触れない(書き換えた時点で素通しではなくなる)。
+    **messages には手を触れない。** 書き換えた発話を履歴へ混ぜると、ユーザーが実際に
+    打った文が残らなくなり、次のターンの書き下しがこちらの推測を土台にしてしまう。
+    書き下しは resolved_query に置き、原文は messages に残す。
+
+    trace の coref は 05 章から同じ key。素通しか書き下したかを残しておかないと、
+    分類を外したときに「書き下しが余計だったのか、そもそも効かなかったのか」を
+    後から切り分けられない。
     """
-    return {"trace": {"coref": "passthrough"}}
+    original = _user_text(state)
+    resolved = await coref_mod.resolve(original, _history_text(state))
+    changed = resolved != original
+    return {"resolved_query": resolved,
+            "trace": {"coref": "rewrite" if changed else "passthrough"}}
 
 
 async def classify_intent(state) -> dict:

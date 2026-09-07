@@ -50,6 +50,12 @@ async def agent_stream(req: AgentRequest, model: BaseChatModel = Depends(get_mod
             ):
                 if ev["type"] == "tool":
                     yield _sse({"event": "tool", "name": ev["name"]})
+                elif ev["type"] == "citations":
+                    # 引用本文には改行が入りうる。json.dumps がそれを \n へ
+                    # エスケープするので、SSE のフレーム区切り("\n\n")とは衝突しない。
+                    # 本文を生のまま流す「簡略化」をしないこと(1 フレームが割れて
+                    # フロントエンドの JSON.parse が両方失敗し、引用が丸ごと消える)。
+                    yield _sse({"event": "citations", "items": ev["items"]})
                 elif ev["type"] == "delta":
                     yield _sse({"delta": ev["text"]})
                 elif ev["type"] == "done":

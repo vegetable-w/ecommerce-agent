@@ -6,8 +6,9 @@
 """
 
 import asyncio
+import json
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
@@ -31,6 +32,10 @@ class AgentResult:
     answer: str
     tool_calls: list[dict]
     tool_runs: list[ToolRun]
+    # 回答が引用した根拠(query_faq が返した順番と番号のまま)。ツールを使わないターンや
+    # 根拠不足で断ったターンでは空のまま。既定値を持たせるのは、既存の 4 引数での
+    # 組み立てを壊さないため。
+    citations: list[dict] = field(default_factory=list)
 
 
 def _exception_to_tool_run(tool_call: dict, exc: BaseException) -> ToolRun:
@@ -78,6 +83,36 @@ def _build_history(rows: list[Message]) -> list[BaseMessage]:
             history.append(AIMessage(m.content))
     trimmed = trim_history(history, max_tokens=settings.token_budget)
     return AGENT_PROMPT.format_messages(history=trimmed)
+
+
+def _faq_result(runs) -> dict | None:
+    """runs の中の query_faq の結果を dict として取り出す。無ければ None。
+
+    ツールが失敗した場合 content は JSON ではなく日本語のエラー文になる。ここは
+    「引用を送るか / 低信頼プールへ積むか」を決めるだけの補助なので、解釈できない
+    ものは静かに None にして、ターン本体(回答生成)を巻き込まない。
+    """
+    for r in runs:
+        if getattr(r, "name", None) != "query_faq":
+            continue
+        try:
+            parsed = json.loads(r.tool_message.content)
+        except (ValueError, TypeError):
+            return None
+        # json.loads は数値や文字列も通す。dict でなければ後段の .get で落ちる
+        return parsed if isinstance(parsed, dict) else None
+    return None
+
+
+async def _record_refusal(conversation_id: int, message: str, faq: dict) -> None:
+    """根拠不足で断ったターンを低信頼プールへ積む。raw_question はユーザーの原文。
+
+    source は DDL の ENUM に合わせる。query_faq が付けなかった場合に self_check へ
+    倒すのは、ENUM に無い値を書いて DB エラーにする方が害が大きいため。
+    """
+    await repository.insert_low_confidence(
+        conversation_id, message, faq.get("source") or "self_check", faq.get("reason")
+    )
 
 
 async def _prepare_turn(user_id, message, conversation_id, model):
@@ -144,11 +179,20 @@ async def run_agent_turn(user_id, message, conversation_id, model=None) -> Agent
     )
     if not ai.tool_calls:
         return AgentResult(conversation_id, ai.text, [], [])
+
+    faq = _faq_result(runs)
+    citations: list[dict] = []
+    if faq is not None:
+        if faq.get("sufficient"):
+            citations = faq.get("citations") or []
+        else:
+            await _record_refusal(conversation_id, message, faq)
+
     final: AIMessage = await model.ainvoke(  # 収束: bind_tools しない(1ターン制約)
         [*messages, ai, *(r.tool_message for r in runs)]
     )
     await repository.append_message(conversation_id, "assistant", content=final.text)
-    return AgentResult(conversation_id, final.text, ai.tool_calls, runs)
+    return AgentResult(conversation_id, final.text, ai.tool_calls, runs, citations)
 
 
 async def stream_agent_turn(
@@ -175,6 +219,15 @@ async def stream_agent_turn(
 
     for tc in ai.tool_calls:
         yield {"type": "tool", "name": tc.get("name") or ""}
+
+    # 回答本文より前に引用を送る。フロントエンドは [n] を描き始める時点で引用元を
+    # 持っていないと、クリックできる注釈にできない。
+    faq = _faq_result(runs)
+    if faq is not None:
+        if faq.get("sufficient"):
+            yield {"type": "citations", "items": faq.get("citations") or []}
+        else:
+            await _record_refusal(conversation_id, message, faq)
 
     chunks: list[str] = []
     async for chunk in model.astream(  # 収束: bind_tools しない(1ターン制約)

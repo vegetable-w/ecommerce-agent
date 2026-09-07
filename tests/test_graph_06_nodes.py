@@ -991,3 +991,55 @@ def test_submit_refund_is_registered_for_the_model():
     from app.tools import registry
     assert registry.get_tool("submit_refund") is not None
     assert "submit_refund" in {t.name for t in registry.get_all_tools()}
+
+
+async def test_no_refund_form_without_an_order(monkeypatch):
+    """注文が特定できていないのに申請フォームを出さない。
+
+    submit_refund は全 route で bind されるので、注文を確かめていない business route
+    からも呼ばれうる。空の draft を出すとユーザーには何の申請か分からないフォームが出て、
+    押しても弾かれる。モデルには「提示していない」と正直に返して聞き直させる。
+    """
+    async def _boom(tc, cid):
+        raise AssertionError("横取りすべきツールを実行した")
+
+    monkeypatch.setattr(nodes, "execute_tool_call", _boom)
+    ai = AIMessage("", tool_calls=[
+        {"id": "r1", "name": "submit_refund", "args": {"reason": "初期不良"}}])
+    out = await nodes.agent_tools({"messages": [HumanMessage("返金して"), ai]})
+    assert not out.get("suggested_actions")
+    assert "提示していません" in out["messages"][0].content
+
+
+async def test_the_refund_form_appears_once_the_order_is_known(monkeypatch):
+    async def _boom(tc, cid):
+        raise AssertionError("横取りすべきツールを実行した")
+
+    monkeypatch.setattr(nodes, "execute_tool_call", _boom)
+    ai = AIMessage("", tool_calls=[
+        {"id": "r1", "name": "submit_refund", "args": {"reason": "初期不良"}}])
+    out = await nodes.agent_tools({"messages": [HumanMessage("返金して"), ai],
+                                   "order_id": "1001"})
+    assert out["suggested_actions"] == [
+        {"type": "refund_form", "draft": {"order_id": "1001", "reason": "初期不良"}}]
+    assert "提示しました" in out["messages"][0].content
+
+
+async def test_policy_retrieval_is_capped(monkeypatch):
+    """規約を渡しすぎない。3 クエリ分をそのまま入れると判断に効く条項が埋もれる。"""
+    async def _expand(q, model=None):
+        return ["a", "b", "c"]
+
+    def _hit(i):
+        return {"id": i, "question": f"q{i}", "answer": f"a{i}", "rerank_score": 1.0 - i / 100,
+                "section_path": "p", "content_type": "policy"}
+
+    async def _search(q, **k):
+        return [_hit(i) for i in range(30)]
+
+    monkeypatch.setattr(nodes.query_understanding, "expand_queries", _expand)
+    monkeypatch.setattr(nodes.retrieval, "search_knowledge", _search)
+    monkeypatch.setattr(nodes.retrieval, "arrange_head_tail", lambda h: h)
+    out = await nodes.retrieve_policy({"resolved_query": "返品できますか"})
+    assert len(out["citations"]) == nodes._POLICY_TOP_K
+    assert out["citations"][0]["id"] == 0          # スコアの高い順に残る

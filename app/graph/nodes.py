@@ -402,6 +402,11 @@ def _rerank_score(hit: dict) -> float:
     return 0.0 if score is None else score
 
 
+# 返金フローで Agent へ渡す規約の上限。3 クエリぶんを重複除去しても
+# 最大 30 chunk になりうるので、ここで絞る。
+_POLICY_TOP_K = 8
+
+
 async def retrieve_policy(state) -> dict:
     """返金フローの規約検索。1 つの質問を複数の観点へ展開してから引く。
 
@@ -436,7 +441,10 @@ async def retrieve_policy(state) -> dict:
             if cur is None or _rerank_score(h) > _rerank_score(cur):
                 merged[key] = h
 
-    ranked = sorted(merged.values(), key=_rerank_score, reverse=True)
+    # 上位だけを残す。3 クエリ × rerank_top_k(既定 10)で、重複を除いても最大 30 chunk が
+    # そのまま system prompt に入る。規約は 1 件が長いので、入れるほど良くなるどころか
+    # 判断に効く条項が埋もれ、token も無駄に増える。順位の高いものだけを渡す。
+    ranked = sorted(merged.values(), key=_rerank_score, reverse=True)[:_POLICY_TOP_K]
     # head/tail 配置の「後」に番号を振る。evidence 本文の [n] と citations の n が
     # 同じ chunk を指すのは、この順番が唯一の正であるため(forced_rag と同じ規律)
     arranged = retrieval.arrange_head_tail(ranked)
@@ -587,15 +595,32 @@ async def agent_tools(state) -> dict:
         elif tc["name"] == "submit_refund":
             # 注文番号は State の値で補う。モデルは文脈から番号を落とすことがあり、
             # 空の draft を画面へ出すと、ユーザーには何の申請フォームか分からない。
-            draft = {"order_id": tc["args"].get("order_id") or state.get("order_id") or "",
-                     "reason": tc["args"].get("reason")}
-            actions.append({"type": "refund_form", "draft": draft})
-            tool_msgs.append(ToolMessage(
-                content="「返金・返品を申請する」の選択肢をユーザーへ提示しました。"
-                        "申請はまだ送信されていません。この注文が対象になる理由を"
-                        "規約の番号を引いて 1 文で説明し、画面から申請できることを"
-                        "案内して終了してください。これ以上 tool を呼ばないでください。",
-                tool_call_id=tc["id"], name="submit_refund"))
+            order_id = tc["args"].get("order_id") or state.get("order_id") or ""
+            if order_id:
+                actions.append({"type": "refund_form",
+                                "draft": {"order_id": order_id,
+                                          "reason": tc["args"].get("reason")}})
+            else:
+                # 注文が特定できていないのに申請フォームを出さない。submit_refund は
+                # 全 route で bind されているので、注文を確かめていない business route
+                # からも呼ばれうる。空の draft を出すと、ユーザーには何の申請か分からない
+                # フォームが出て、押しても弾かれる。選択肢は出さず、モデルには
+                # 「まず注文を確かめろ」と返して聞き直させる。
+                logger.info("注文が特定できていないため返金フォームを提示しない conv=%s",
+                            state.get("conversation_id"))
+            # 提示していないのに「提示しました」と返すとモデルが嘘の案内を書く。
+            # 実際に起きたことをそのまま返す。
+            content = (
+                "「返金・返品を申請する」の選択肢をユーザーへ提示しました。"
+                "申請はまだ送信されていません。この注文が対象になる理由を"
+                "規約の番号を引いて 1 文で説明し、画面から申請できることを"
+                "案内して終了してください。これ以上 tool を呼ばないでください。"
+                if order_id else
+                "対象の注文が特定できていないため、申請の選択肢は提示していません。"
+                "注文番号を尋ねてから、もう一度判断してください。"
+            )
+            tool_msgs.append(ToolMessage(content=content,
+                                         tool_call_id=tc["id"], name="submit_refund"))
         else:
             run = await execute_tool_call(tc, state.get("conversation_id", 0))
             tool_msgs.append(run.tool_message)

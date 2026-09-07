@@ -94,3 +94,98 @@ async def fallback_reply(state) -> dict:
         state.get("conversation_id"), _user_text(state), "retrieval_low_conf", reason
     )
     return {"answer": FALLBACK_REPLY, "trace": {"route": "fallback"}}
+
+
+# ---------------------------------------------------------------------------
+# knowledge route(強制 retrieval)
+# ---------------------------------------------------------------------------
+
+
+async def coref(state) -> dict:
+    """指示対象解決: 本章では最小実装としてそのまま透過する。正式版は 06 章。
+
+    node の枠だけ先に置くのは、後から差し込むと graph の形が変わってしまうため。
+    messages には手を触れない(書き換えた時点で素通しではなくなる)。
+    """
+    return {"trace": {"coref": "passthrough"}}
+
+
+async def classify_intent(state) -> dict:
+    """発話を 7 分類のいずれか 1 語に落とす。routing 表を引くのは後続の route_by_intent。
+
+    intent.classify は上流が落ちても例外を投げず「雑談」へ倒すので、ここでは握らない。
+    """
+    intent = await intent_mod.classify(_user_text(state))
+    return {"intent": intent, "trace": {"intent": intent}}
+
+
+async def forced_rag(state) -> dict:
+    """knowledge route の強制 retrieval。番号付き evidence と根拠の強さを State へ書く。
+
+    business route と違い、Agent に「検索するかどうか」を選ばせない。ポリシーや仕様の
+    質問はナレッジベースにしか正が無く、引かずに答えれば必ず作り話になるため。
+    ゲートは query_faq(04 章)と同じ 2 段階で、リランクスコアの機械ゲートと
+    セルフチェックの意味ゲートを通ったものだけを strong とする。
+    """
+    u = await query_understanding.understand(_user_text(state))
+    query = u["standard"]
+    # 同義語は検索テキストにだけ足す。標準質問の意味は変えない(セルフチェックと
+    # 生成には query の方を使う)
+    search_query = query + (" " + " ".join(u["expanded"]) if u["expanded"] else "")
+
+    # 足切りは search_knowledge に任せず、ここで掛ける。理由は 2 つ:
+    # ① 拒否理由に載せる「本当の top スコア」は足切り前にしか存在しない。向こう側で
+    #    切ってもらうと hits が空で届き、fallback_reply が低信頼プールへ積む理由が
+    #    必ず top=0.000 になって、「惜しかったのか全く外れていたのか」を人が区別できなくなる。
+    # ② 閾値は「ユーザーへ答えるか断るか」という方針であって検索の性質ではない。
+    #    断る主体であるこちら側に置く方が筋が通る。
+    hits = await retrieval.search_knowledge(
+        search_query, strategy="hybrid_rerank", min_score=_UNGATED
+    )
+    if not hits:
+        return {"evidence_strong": False,
+                "trace": {"forced_rag": True, "evidence_top": 0.0}}
+
+    # 機械ゲート。リランク上流が落ちた場合、search_knowledge は rerank_score なしの
+    # ハイブリッド順で返す(app/core/retrieval.py)。掛ける数字が無いのでゲートは飛ばし、
+    # 意味ゲートへ委ねる。ここで拒否に倒すと、上流の一時障害がそのまま回答拒否 +
+    # 低信頼プールへの投入に化けてしまう。
+    top = hits[0].get("rerank_score")
+    trace = {"forced_rag": True, "evidence_top": top if top is not None else 0.0}
+    if top is None:
+        trace["rerank"] = "unavailable"  # evidence_top の 0.0 を実測値と読み違えないため
+    else:
+        hits = [h for h in hits if h.get("rerank_score", 0.0) >= settings.rerank_min_score]
+        if not hits:
+            return {"evidence_strong": False, "trace": trace}
+
+    # 意味ゲート: この根拠だけで答えきれるかをモデル自身に判定させる
+    chk = await selfcheck.check_sufficient(
+        query, [f"{h.get('question', '')} {h.get('answer', '')}" for h in hits]
+    )
+    if not chk["useful"]:
+        return {"evidence_strong": False, "trace": {**trace, "self_check": chk["reason"]}}
+
+    # head/tail 配置の「後」に番号を振る。evidence 本文の [n] と citations の n が
+    # 同じ chunk を指すのは、この順番が唯一の正であるため
+    arranged = retrieval.arrange_head_tail(hits)
+    citations = [
+        {"n": i + 1, "id": h.get("id"), "section_path": h.get("section_path"),
+         "question": h.get("question"), "answer": h.get("answer"),
+         "content_type": h.get("content_type")}
+        for i, h in enumerate(arranged)
+    ]
+    evidence = "\n".join(f"[{c['n']}] {c['question']}: {c['answer']}" for c in citations)
+    return {"evidence_strong": True, "evidence": evidence, "citations": citations,
+            "trace": trace}
+
+
+async def confidence_check(state) -> dict:
+    """生成前の evidence gate の実 node。判定を trace に残すだけ。
+
+    実際の分岐は後続の conditional edge(app/graph/routing.py の confidence_gate)が
+    evidence_strong を読んで行う。分岐関数は State を書けないため、
+    「どちらに倒れたか」をログへ残す場所として node を 1 つ挟んでいる。
+    """
+    decision = "strong" if state.get("evidence_strong") else "weak"
+    return {"trace": {"confidence": decision}}

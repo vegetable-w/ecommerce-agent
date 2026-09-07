@@ -91,6 +91,39 @@ make eval-05
 
 画面側（`http://localhost:8000`）では、苦情に対して 2 つのボタンが出ること、「チケット作成」でフォームが開き、送信すると `tickets` に 1 行入ることを確認する。
 
+### 4. 06 章の受け入れ（実サービス）
+
+DB のマイグレーションを 1 度だけ流す（返金申請は `tickets` を再利用し、`ticket_type` に `refund` を足す）:
+
+```bash
+docker exec -i support-mysql mysql -uroot -proot support < sql/06-ticket-type.sql
+```
+
+MySQL / Milvus / アプリを起動したうえで:
+
+```bash
+make smoke-interrupt   # interrupt / resume が動くこと(上流を呼ばない)
+make eval-06           # 受け入れ 5 条件
+```
+
+確認する内容:
+
+1. 会話をまたいで intent が動くこと（配送 → 返金返品 → 配送。2 turn 目は指示語だけ）
+2. 返金の subflow が**順に**通ること（注文の特定 → 規約検索 → 可否の判断）
+3. 期限を過ぎた注文では申請フォームを**出さない**こと
+4. 注文番号が無ければ推測せず、一覧を出して**止まる**こと
+5. 選ばれた注文で**続きから**進むこと
+
+プロンプト側は評価セットで見る:
+
+```bash
+uv run --env-file .env python scripts/eval_intent.py   # 8 分類 + 「その他」への退避
+uv run --env-file .env python scripts/eval_coref.py    # 指示対象の解決と素通し
+uv run --env-file .env python scripts/eval_expand.py   # 検索クエリの展開
+```
+
+画面（`http://localhost:8000`）では、「返金したいです」で**注文カード**が並び、選ぶと同じ会話の続きとして判断が流れ、対象なら「返金申請を送信」ボタン → フォーム → `tickets` に `ticket_type='refund'` の行が入ることを確認する。
+
 ## ディレクトリ
 
 ```

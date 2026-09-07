@@ -10,6 +10,9 @@ node は 2 種類に分かれる。
   app/core/selfcheck.py)の上に乗せ、障害を graph 全体の停止に化けさせない。
 - **ReAct loop の 2 node**(agent_llm / agent_tools): 両者を routing.should_continue が
   つないで loop になる。graph の中で唯一「次に何をするか」をモデルが決める場所。
+- **終端の node**(log_node): 4 つの出口がすべてここへ合流し、trace を残して
+  assistant message を保存する。出口ごとに書くと、出口が増えたときに
+  書き忘れた経路だけ履歴に残らない。
 
 State に無い key を返しても LangGraph が黙って捨てるため、返す key は
 app/graph/state.py の ConversationState に宣言済みのものだけにすること。
@@ -299,3 +302,70 @@ async def agent_tools(state) -> dict:
     if actions:
         out["suggested_actions"] = actions
     return out
+
+
+# ---------------------------------------------------------------------------
+# 終端(observability と履歴の保存)
+# ---------------------------------------------------------------------------
+
+
+def _message_text(m: AIMessage) -> str:
+    """AIMessage の本文を文字列にする。content は str か block の list のどちらでもありうる。
+
+    list のまま repository へ渡すと、保存の瞬間ではなく DB の型で落ちる。
+    text を持たないブロック(思考ブロックなど)や dict でない要素は読み飛ばす。
+    """
+    content = m.content
+    if isinstance(content, str):
+        return content
+    return "".join(p.get("text", "") for p in content if isinstance(p, dict))
+
+
+def resolve_answer(state) -> str:
+    """最終的な回答文を 1 つに決める。経路によって回答の置き場所が違うため。
+
+    決定的な node(chitchat / complaint / fallback)は state["answer"] に固定文を書く。
+    Agent は書かない(token を stream して frontend へ直接流すため、State へ溜めると
+    「stream した本文」と「State の本文」の 2 つの正が生まれる)ので、末尾から
+    AIMessage を辿る。answer を先に見るのは、checkpointer が履歴を turn をまたいで
+    保持しており、末尾を先に見ると前 turn の回答を今回の回答として保存してしまうため。
+
+    本文が空の AIMessage は飛ばして探し続ける。ReAct loop では末尾の AIMessage が
+    「本文なし + tool_calls あり」になる瞬間があり、should_continue が steps 上限で
+    打ち切るとその State のまま log へ来る。末尾だけを見ると空文字になり、
+    ユーザーには何か返したのに履歴には何も残らない turn ができる。
+
+    最後まで見つからなければ空文字。例外にしないのは、回答の保存に失敗しただけの turn を
+    graph 全体の停止に化けさせないため。
+    """
+    if state.get("answer"):
+        return state["answer"]
+    for m in reversed(state.get("messages", [])):
+        if isinstance(m, AIMessage):
+            text = _message_text(m)
+            if text:
+                return text
+    return ""
+
+
+async def log_node(state) -> dict:
+    """4 つの出口が合流する終端。trace を残し、assistant message を 1 件保存する。
+
+    全経路をここへ集めるのは、保存とログを各出口に散らすと、出口が増えたときに
+    書き忘れた経路だけ履歴に残らないから。State は書き換えない。
+
+    conversation_id が無ければ保存しない。0 は「まだ採番されていない」であって
+    会話 1 番ではないので、書けば無関係な会話の履歴が汚れる。
+    回答が空のときは空文字ではなく NULL で残す。空文字で保存すると、履歴を
+    読み直す側に中身の無い assistant 行が毎 turn 混ざる。
+    """
+    logger.info(
+        "05 turn conv=%s intent=%s route=%s trace=%s",
+        state.get("conversation_id"), state.get("intent"), state.get("route"),
+        state.get("trace", {}),
+    )
+    answer = resolve_answer(state)
+    if state.get("conversation_id"):
+        await repository.append_message(state["conversation_id"], "assistant",
+                                        content=answer or None)
+    return {}

@@ -8,10 +8,10 @@
 - trace の key が confidence_check とぶつからないこと
 - 上流が落ちたとき、値域外の confidence が返ったときの倒れ方
 - coref node が書く resolved_query と trace の coref(rewrite / passthrough)
-- resolve の縮退(履歴が無ければ呼ばない、失敗と空は原文へ倒す)
+- resolve / expand_queries の縮退(履歴が無ければ呼ばない、失敗と空は原文へ倒す)
 
-書き下しの**中身の良し悪し**は scripts/eval_coref.py の実測で見る。
-ここで固定するのは契約と縮退だけ。
+書き下しと展開の**中身の良し悪し**は scripts/eval_coref.py / scripts/eval_expand.py の
+実測で見る。ここで固定するのは契約と縮退だけ。
 
 上流(チャットモデル)は一切呼ばない。
 """
@@ -25,8 +25,9 @@ from langchain_core.runnables import RunnableLambda
 from app.config import settings
 from app.core import coref as coref_mod
 from app.core import intent as intent_mod
+from app.core import query_understanding as qu
 from app.core.llm import get_chat_model
-from app.core.prompts import COREF_REWRITE_PROMPT
+from app.core.prompts import COREF_REWRITE_PROMPT, EXPAND_QUERIES_PROMPT
 from app.graph import nodes
 
 
@@ -404,3 +405,49 @@ async def test_resolve_falls_back_when_the_content_is_not_text():
                                   model=RunnableLambda(_run))
     assert got == "それは?"
 
+
+# --- 検索クエリの展開(app/core/query_understanding.expand_queries)---------------
+
+
+def test_expand_prompt_renders_user_query():
+    msgs = EXPAND_QUERIES_PROMPT.format_messages(query="このイヤホンは返品できますか")
+    assert msgs[0].type == "system"
+    assert "このイヤホンは返品できますか" in msgs[-1].content
+
+
+async def test_expand_queries_returns_exactly_three():
+    model = _FakeModel(qu._Expanded(queries=[
+        "イヤホン 返品 ポリシー", "イヤホン 自己都合返品 条件", "イヤホン 返品 申請期限"]))
+    got = await qu.expand_queries("このイヤホンは返品できますか", model=model)
+    assert got == ["イヤホン 返品 ポリシー", "イヤホン 自己都合返品 条件", "イヤホン 返品 申請期限"]
+    assert "このイヤホンは返品できますか" in model.seen.to_messages()[-1].content
+
+
+async def test_expand_queries_keeps_only_the_first_three():
+    model = _FakeModel(qu._Expanded(queries=["a", "b", "c", "d"]))
+    assert await qu.expand_queries("q", model=model) == ["a", "b", "c"]
+
+
+async def test_expand_queries_drops_blank_entries():
+    model = _FakeModel(qu._Expanded(queries=["  返品 ポリシー ", "", "\u3000", "返品 期限"]))
+    assert await qu.expand_queries("q", model=model) == ["返品 ポリシー", "返品 期限"]
+
+
+async def test_expand_queries_removes_duplicates():
+    """同じクエリを 3 回投げても検索結果は 1 通りしか増えない。"""
+    model = _FakeModel(qu._Expanded(queries=["返品 ポリシー", "返品 ポリシー", " 返品 ポリシー "]))
+    assert await qu.expand_queries("q", model=model) == ["返品 ポリシー"]
+
+
+async def test_expand_queries_degrades_to_the_raw_query_when_upstream_fails(caplog):
+    """展開は検索の前処理。失敗しても呼び出し側の検索を止めない。"""
+    model = _FakeModel(RuntimeError("upstream 502"))
+    with caplog.at_level(logging.WARNING, logger="app.core.query_understanding"):
+        got = await qu.expand_queries("このイヤホンは返品できますか", model=model)
+    assert got == ["このイヤホンは返品できますか"]
+    assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 1
+
+
+async def test_expand_queries_degrades_to_the_raw_query_when_everything_is_blank():
+    model = _FakeModel(qu._Expanded(queries=["", "  ", "\u3000"]))
+    assert await qu.expand_queries("返品したい", model=model) == ["返品したい"]

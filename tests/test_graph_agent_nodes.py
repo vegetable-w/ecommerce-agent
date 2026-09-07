@@ -9,6 +9,8 @@ knowledge route の根拠が届かない・step が数えられず loop が止�
 上流を叩いて課金する事故を、テストの書き方ではなく仕組みで止める)。
 """
 
+import json
+
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
@@ -296,3 +298,136 @@ async def test_normal_tool_still_runs_when_mixed_with_create_ticket(monkeypatch)
     # tool_calls と同じ順・同じ id で ToolMessage が揃うこと
     assert [m.tool_call_id for m in out["messages"]] == ["c1", "c2"]
     assert [a["type"] for a in out["suggested_actions"]] == ["create_ticket"]
+
+
+# ---------------------------------------------------------------------------
+# business route で query_faq が断られたときの低信頼プール投入
+#
+# knowledge route は forced_rag → fallback_reply が担当するが、business route で
+# モデルが自分から query_faq を呼んで断られた場合はそこを通らない。04 章では
+# orchestration 側がこの投入を持っていたので、graph へ移す際に落とすと、
+# プール(09 章のデータフライホイールの入口)が静かに取りこぼす。
+# ---------------------------------------------------------------------------
+
+def _faq_run(payload, name="query_faq"):
+    from app.tools.infra import ToolRun
+    return ToolRun(tool_call_id="t1", name=name, ok=True,
+                   tool_message=ToolMessage(content=json.dumps(payload, ensure_ascii=False),
+                                            tool_call_id="t1", name=name))
+
+
+async def test_a_refused_faq_on_the_business_route_reaches_the_pool(monkeypatch):
+    saved = {}
+
+    async def _fake(cid, raw, source, reason):
+        saved.update(cid=cid, raw=raw, source=source, reason=reason)
+        return 1
+
+    async def _exec(tc, cid):
+        return _faq_run({"sufficient": False, "source": "retrieval_low_conf",
+                         "reason": "リランクの最高スコアが閾値未満(top=0.012)"})
+
+    monkeypatch.setattr(nodes.repository, "insert_low_confidence", _fake)
+    monkeypatch.setattr(nodes, "execute_tool_call", _exec)
+    ai = AIMessage("", tool_calls=[{"name": "query_faq", "args": {"keyword": "置き配"}, "id": "t1"}])
+    await nodes.agent_tools({"messages": [HumanMessage("置き配できますか"), ai],
+                             "conversation_id": 9})
+    assert saved["cid"] == 9
+    assert saved["raw"] == "置き配できますか"          # ユーザーの原文
+    assert saved["source"] == "retrieval_low_conf"
+    assert "0.012" in saved["reason"]                 # 本当の top スコアが残る
+
+
+async def test_a_sufficient_faq_does_not_reach_the_pool(monkeypatch):
+    async def _boom(*a, **k):
+        raise AssertionError("答えられたターンをプールへ積んではいけない")
+
+    async def _exec(tc, cid):
+        return _faq_run({"sufficient": True, "evidence": "[1] ...", "citations": []})
+
+    monkeypatch.setattr(nodes.repository, "insert_low_confidence", _boom)
+    monkeypatch.setattr(nodes, "execute_tool_call", _exec)
+    ai = AIMessage("", tool_calls=[{"name": "query_faq", "args": {"keyword": "送料"}, "id": "t1"}])
+    await nodes.agent_tools({"messages": [HumanMessage("送料は"), ai], "conversation_id": 9})
+
+
+async def test_a_broken_faq_payload_does_not_break_the_turn(monkeypatch):
+    """ツールが失敗すると content は日本語のエラー文になる。読めなければ静かに諦める。"""
+    async def _boom(*a, **k):
+        raise AssertionError("読めない payload でプールへ積んではいけない")
+
+    async def _exec(tc, cid):
+        from app.tools.infra import ToolRun
+        return ToolRun(tool_call_id="t1", name="query_faq", ok=False,
+                       tool_message=ToolMessage(content="ツールの実行に失敗しました",
+                                                tool_call_id="t1", name="query_faq"))
+
+    monkeypatch.setattr(nodes.repository, "insert_low_confidence", _boom)
+    monkeypatch.setattr(nodes, "execute_tool_call", _exec)
+    ai = AIMessage("", tool_calls=[{"name": "query_faq", "args": {"keyword": "x"}, "id": "t1"}])
+    out = await nodes.agent_tools({"messages": [HumanMessage("x"), ai], "conversation_id": 9})
+    assert out["messages"]        # ターン自体は続く
+
+
+async def test_other_tools_are_not_pooled(monkeypatch):
+    async def _boom(*a, **k):
+        raise AssertionError("query_faq 以外を積んではいけない")
+
+    async def _exec(tc, cid):
+        return _faq_run({"sufficient": False}, name="query_order")
+
+    monkeypatch.setattr(nodes.repository, "insert_low_confidence", _boom)
+    monkeypatch.setattr(nodes, "execute_tool_call", _exec)
+    ai = AIMessage("", tool_calls=[{"name": "query_order", "args": {}, "id": "t1"}])
+    await nodes.agent_tools({"messages": [HumanMessage("x"), ai], "conversation_id": 9})
+
+
+# --- _faq_payload の解析（04 章の _faq_result から移植）------------------------
+
+
+def test_faq_payload_reads_the_tool_result():
+    assert nodes._faq_payload(_faq_run({"sufficient": True, "evidence": "[1] x"}))["sufficient"] is True
+
+
+def test_faq_payload_is_none_for_other_tools():
+    assert nodes._faq_payload(_faq_run({"x": 1}, name="query_order")) is None
+
+
+def test_faq_payload_is_none_when_the_tool_errored():
+    """ツールが失敗すると content は JSON ではなく日本語のエラー文になる。
+    ここで例外を漏らすとターン全体が落ちる。"""
+    from app.tools.infra import ToolRun
+    run = ToolRun(tool_call_id="t1", name="query_faq", ok=False,
+                  tool_message=ToolMessage(content="ツール実行失敗: 一時的なエラー",
+                                           tool_call_id="t1", name="query_faq"))
+    assert nodes._faq_payload(run) is None
+
+
+def test_faq_payload_is_none_when_the_content_is_not_an_object():
+    """json.loads は数値や文字列も通す。dict でなければ扱わない。"""
+    from app.tools.infra import ToolRun
+    run = ToolRun(tool_call_id="t1", name="query_faq", ok=True,
+                  tool_message=ToolMessage(content="123", tool_call_id="t1", name="query_faq"))
+    assert nodes._faq_payload(run) is None
+
+
+async def test_only_the_refused_faq_is_pooled_when_several_tools_run(monkeypatch):
+    """1 step に複数の tool が並んでも、断られた query_faq だけを積む。"""
+    saved = []
+
+    async def _fake(cid, raw, source, reason):
+        saved.append(source)
+        return 1
+
+    async def _exec(tc, cid):
+        if tc["name"] == "query_faq":
+            return _faq_run({"sufficient": False, "source": "self_check", "reason": "根拠不足"})
+        return _faq_run({"order_id": "1001"}, name="query_order")
+
+    monkeypatch.setattr(nodes.repository, "insert_low_confidence", _fake)
+    monkeypatch.setattr(nodes, "execute_tool_call", _exec)
+    ai = AIMessage("", tool_calls=[
+        {"name": "query_order", "args": {}, "id": "t1"},
+        {"name": "query_faq", "args": {"keyword": "x"}, "id": "t2"}])
+    await nodes.agent_tools({"messages": [HumanMessage("x"), ai], "conversation_id": 9})
+    assert saved == ["self_check"]

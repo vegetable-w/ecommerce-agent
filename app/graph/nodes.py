@@ -18,6 +18,7 @@ State に無い key を返しても LangGraph が黙って捨てるため、返�
 app/graph/state.py の ConversationState に宣言済みのものだけにすること。
 """
 
+import json
 import logging
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -268,6 +269,45 @@ async def agent_llm(state, config=None) -> dict:
     }
 
 
+def _faq_payload(run) -> dict | None:
+    """query_faq の戻り値を dict として取り出す。query_faq 以外や壊れていれば None。
+
+    ツールが失敗したときの content は JSON ではなく日本語のエラー文になる。ここは
+    「低信頼プールへ積むか」を決めるだけの補助なので、読めないものは静かに None に
+    して、ターン本体を巻き込まない。
+    """
+    if getattr(run, "name", None) != "query_faq":
+        return None
+    try:
+        parsed = json.loads(run.tool_message.content)
+    except (ValueError, TypeError):
+        return None
+    # json.loads は数値や文字列も通す。dict でなければ後段の .get で落ちる
+    return parsed if isinstance(parsed, dict) else None
+
+
+async def _record_faq_refusal(state, run) -> None:
+    """query_faq が根拠不足で断ったターンを低信頼プールへ積む。
+
+    knowledge route は forced_rag → fallback_reply が担当するが、**business route で
+    モデルが自分から query_faq を呼んで断られた場合はそちらを通らない**。04 章では
+    orchestration 側がこの投入を持っていたので、graph へ移した際に落とすと、
+    プール(09 章のデータフライホイールの入口)が静かに取りこぼす。
+
+    source は DDL の ENUM に合わせる。query_faq が付けなかった場合に self_check へ
+    倒すのは、ENUM に無い値を書いて DB エラーにする方が害が大きいため。
+    """
+    faq = _faq_payload(run)
+    if not faq or faq.get("sufficient") is not False:
+        return
+    cid = state.get("conversation_id")
+    if not cid:
+        return
+    await repository.insert_low_confidence(
+        cid, _user_text(state), faq.get("source") or "self_check", faq.get("reason")
+    )
+
+
 async def agent_tools(state) -> dict:
     """ReAct の action step。**create_ticket だけは実行せず選択肢へ変換する。**
 
@@ -296,6 +336,7 @@ async def agent_tools(state) -> dict:
         else:
             run = await execute_tool_call(tc, state.get("conversation_id", 0))
             tool_msgs.append(run.tool_message)
+            await _record_faq_refusal(state, run)
     out = {"messages": tool_msgs}
     # 1 件も無いときに書かないのは、suggested_actions に reducer が無く後勝ちの
     # 上書きになるため。空リストを返すと、前の step で積んだ選択肢が消える。

@@ -10,23 +10,29 @@ from langchain_core.messages import AIMessage
 
 from app.config import settings
 
-# 7 intent → 4 出口。spec §3.1 の固定 routing で、model には決めさせない。
-# 「返金返品」を knowledge に入れているのは、返品・交換の可否や期限が
-# ほぼ規約と FAQ の読み上げで、注文照会よりナレッジ検索の方が当たるため。
-# 「アフターサービス」は逆に修理や交換の進捗という個別注文の話が主なので business。
+# 8 intent → 5 出口。spec §3.1 の固定 routing で、model には決めさせない。
+#
+# 05 からの変更点は 2 つ。
+#  - 「返金返品」と「アフターサービス」を refund_flow へ寄せた。どちらも
+#    「まず対象の注文を特定し、規約を引いてから可否を判断する」という同じ順序で、
+#    その順序を Agent の判断に任せると注文を確かめずに規約だけで答えてしまう。
+#    決定的な subflow に固定する。
+#  - 「その他」を追加し、雑談と同じ fallback_script へ送る。分類に迷ったものを
+#    無理にどこかの業務経路へ入れるより、聞き直す方が害が小さい。
 INTENT_TO_ROUTE: dict[str, str] = {
+    "苦情": "escalate",
+    "雑談": "fallback_script",
+    "その他": "fallback_script",
     "商品相談": "knowledge",
-    "返金返品": "knowledge",
+    "返金返品": "refund_flow",
+    "アフターサービス": "refund_flow",
     "配送": "business",
     "注文": "business",
-    "アフターサービス": "business",
-    "苦情": "complaint",
-    "雑談": "chitchat",
 }
 
 
 def route_by_intent(state) -> str:
-    """intent で routing する。knowledge | business | complaint | chitchat のいずれかを返す。
+    """intent で routing する。escalate | fallback_script | knowledge | refund_flow | business のいずれかを返す。
 
     未知の intent(prompt の変更、上流の schema 違反、7 分類にない文字列)は
     business へ倒す。business は Agent が tool を使って自分で判断する出口なので、

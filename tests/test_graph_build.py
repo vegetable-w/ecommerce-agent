@@ -55,10 +55,32 @@ def _branch_target(g, source: str, label: str) -> str:
     空集合を黙って返すと、行き先が別の分岐と同じになってラベルが消えた場合(上の
     落とし穴)に、後続の到達可能性の assert が「行き先が無いので何処にも行けない」で
     通ってしまう。壊れ方が「テストが通る」に化けるのを防ぐ。
+
+    intent の 5 出口は行き先が重なりうるので、そちらは _route_target を使うこと。
     """
     targets = _targets(g, source, label=label)
     assert len(targets) == 1, f"{source} の {label} 分岐が 1 本ではない: {targets}"
     return next(iter(targets))
+
+
+def _route_target(g, route: str) -> str:
+    """intent の出口名 route の行き先 node。
+
+    **辺のラベルからは引かない。** LangGraph は複数のラベルが同じ node を指すと辺を
+    1 本にまとめ、`data` には片方のラベルしか残さない(実測: knowledge と refund_flow を
+    同じ node に向けたら knowledge のラベルが消えた)。ラベルで引くと空集合が返り、
+    到達可能性の assert が素通りする。
+
+    そこで宣言側(build.ROUTE_TO_NODE)を正とし、graph 側では「その node が実在し、
+    classify_intent から実際に辿れること」だけを確かめる。
+    """
+    from app.graph.build import ROUTE_TO_NODE
+
+    assert route in ROUTE_TO_NODE, f"{route} は routing の出口ではない"
+    target = ROUTE_TO_NODE[route]
+    assert target in set(g.nodes), f"{route} の行き先 {target} が graph に無い"
+    assert target in _targets(g, "classify_intent"), f"classify_intent から {target} への辺が無い"
+    return target
 
 
 def _reachable(g, start: str, *, cut: frozenset[str] = frozenset()) -> set[str]:
@@ -105,7 +127,7 @@ def test_every_node_is_reachable_from_start():
 
 
 def test_complaint_is_routed_to_the_fixed_reply():
-    assert _branch_target(_graph(), "classify_intent", "complaint") == "complaint_reply"
+    assert _route_target(_graph(), "escalate") == "complaint_reply"
 
 
 def test_complaint_never_reaches_the_agent():
@@ -116,7 +138,7 @@ def test_complaint_never_reaches_the_agent():
     苦情の行き先そのものが差し替えられたときに落とすため。
     """
     g = _graph()
-    reach = _reachable(g, _branch_target(g, "classify_intent", "complaint"))
+    reach = _reachable(g, _route_target(g, "escalate"))
     assert "agent_llm" not in reach
     assert "agent_tools" not in reach
     # 苦情の出口から先は log を通って終わるだけ
@@ -126,7 +148,7 @@ def test_complaint_never_reaches_the_agent():
 def test_chitchat_never_reaches_the_agent():
     """雑談も同じ。固定文を返すことそのものが目的なので、上流へ落ちる経路を作らない。"""
     g = _graph()
-    assert _branch_target(g, "classify_intent", "chitchat") == "chitchat_reply"
+    assert _route_target(g, "fallback_script") == "chitchat_reply"
     assert _reachable(g, "chitchat_reply") == {"chitchat_reply", "log", END}
 
 
@@ -134,7 +156,7 @@ def test_chitchat_never_reaches_the_agent():
 
 
 def test_knowledge_enters_the_forced_retrieval():
-    assert _branch_target(_graph(), "classify_intent", "knowledge") == "forced_rag"
+    assert _route_target(_graph(), "knowledge") == "forced_rag"
 
 
 def test_knowledge_cannot_reach_the_agent_without_the_forced_retrieval():
@@ -145,7 +167,7 @@ def test_knowledge_cannot_reach_the_agent_without_the_forced_retrieval():
     retrieval を迂回する辺が 1 本でも生えたら落ちる形にしてある。
     """
     g = _graph()
-    entry = _branch_target(g, "classify_intent", "knowledge")
+    entry = _route_target(g, "knowledge")
     assert "agent_llm" not in _reachable(g, entry, cut=frozenset({"forced_rag"}))
 
 
@@ -173,7 +195,7 @@ def test_business_goes_straight_to_the_agent():
     ここで検索を強制しても当たらない検索に 1 往復ぶんの時間と課金を使うだけになる。
     """
     g = _graph()
-    entry = _branch_target(g, "classify_intent", "business")
+    entry = _route_target(g, "business")
     assert entry == "agent_llm"
     reach = _reachable(g, entry)
     assert "forced_rag" not in reach
@@ -235,3 +257,25 @@ def test_it_compiles_with_a_checkpointer():
 
 def test_it_compiles_without_a_checkpointer():
     assert build_graph().checkpointer in (None, False)
+
+
+def test_every_route_the_router_can_return_has_a_node():
+    """分岐関数の戻り値と、conditional edge のキーが一致していること。
+
+    ここが食い違うと、その出口へ行く会話だけが実行時に落ちる。**辺を見るテストでは
+    捕まらない**(出口名を 4 つから 5 つへ増やしたとき、build のテストは全部緑のまま
+    だった)。routing と build は別ファイルなので、片方だけ直す事故が起きやすい。
+    """
+    from app.graph.build import ROUTE_TO_NODE
+    from app.graph.routing import INTENT_TO_ROUTE
+
+    assert set(INTENT_TO_ROUTE.values()) == set(ROUTE_TO_NODE)
+
+
+def test_every_mapped_node_exists_in_the_graph():
+    """行き先の node が実在すること。名前を打ち間違えても compile は通ってしまう。"""
+    from app.graph.build import ROUTE_TO_NODE
+
+    names = set(_graph().nodes)
+    for route, node in ROUTE_TO_NODE.items():
+        assert node in names, f"{route} の行き先 {node} が graph に無い"

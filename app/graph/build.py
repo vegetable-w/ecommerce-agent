@@ -31,6 +31,21 @@ from app.graph.routing import confidence_gate, route_by_intent, should_continue
 from app.graph.state import ConversationState
 
 
+# routing の出口名 → 最初に入る node。
+#
+# **route_by_intent が返しうる値と、この dict のキーは必ず一致させること。**
+# 食い違うと、その出口へ行くはずの会話だけが実行時に落ちる。topology のテストは
+# 辺しか見ないので気づけない(実際、出口名を 5 つに増やしたとき build のテストは
+# 全部緑のままだった)。tests/test_graph_build.py が 2 つの集合の一致を固定している。
+ROUTE_TO_NODE: dict[str, str] = {
+    "escalate": "complaint_reply",
+    "fallback_script": "chitchat_reply",   # Task 10 で script_reply へ置き換える
+    "knowledge": "forced_rag",
+    "refund_flow": "forced_rag",           # 暫定。Task 12 で fetch_order へ繋ぐ
+    "business": "agent_llm",
+}
+
+
 def _builder() -> StateGraph:
     """compile 前の StateGraph を返す。compile 済みの graph からは形を変えられないため、
     checkpointer 違いで組み直したいときにここから作り直す。"""
@@ -51,12 +66,7 @@ def _builder() -> StateGraph:
     b.add_edge("coref", "classify_intent")
     # 7 intent → 4 出口。表は routing.INTENT_TO_ROUTE にあり、ここはその 4 つの
     # 行き先を辺として置くだけ
-    b.add_conditional_edges("classify_intent", route_by_intent, {
-        "knowledge": "forced_rag",
-        "business": "agent_llm",
-        "complaint": "complaint_reply",
-        "chitchat": "chitchat_reply",
-    })
+    b.add_conditional_edges("classify_intent", route_by_intent, ROUTE_TO_NODE)
 
     # knowledge は forced_rag を経由してからしか agent_llm へ行けない。
     # business と違い「検索するかどうか」を Agent に選ばせない

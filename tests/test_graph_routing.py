@@ -5,24 +5,48 @@
 node の中身と違って純粋関数なので、上流を呼ばずにここで固めておく。
 """
 
+import pytest
 from langchain_core.messages import AIMessage
 
 from app.config import settings
-from app.graph.routing import confidence_gate, route_by_intent, should_continue
+from app.graph.routing import (
+    INTENT_TO_ROUTE,
+    confidence_gate,
+    route_by_intent,
+    should_continue,
+)
 
 
-def test_route_maps_seven_to_four():
-    cases = {
-        "商品相談": "knowledge", "返金返品": "knowledge",
-        "配送": "business", "注文": "business", "アフターサービス": "business",
-        "苦情": "complaint", "雑談": "chitchat",
-    }
-    for intent, route in cases.items():
-        assert route_by_intent({"intent": intent}) == route
+@pytest.mark.parametrize("intent,expect", [
+    ("苦情", "escalate"),
+    ("雑談", "fallback_script"),
+    ("その他", "fallback_script"),
+    ("商品相談", "knowledge"),
+    ("返金返品", "refund_flow"),
+    ("アフターサービス", "refund_flow"),
+    ("配送", "business"),
+    ("注文", "business"),
+])
+def test_route_by_intent_five_outlets(intent, expect):
+    assert route_by_intent({"intent": intent}) == expect
 
 
-def test_route_unknown_intent_defaults_business():
+def test_route_by_intent_unknown_defaults_business():
+    """未知の分類は Agent が拾い直せる business へ。固定文の出口へ倒すと会話が終わる。"""
     assert route_by_intent({"intent": "未知"}) == "business"
+    assert route_by_intent({}) == "business"
+
+
+def test_intent_to_route_covers_eight_classes():
+    """8 分類ちょうど。増減したら分類器と routing のどちらかが片方だけ変わっている。"""
+    assert set(INTENT_TO_ROUTE) == {
+        "苦情", "雑談", "その他", "商品相談", "返金返品", "アフターサービス", "配送", "注文"}
+
+
+def test_the_five_outlets_are_exactly_these():
+    """出口の集合を固定する。build.py の conditional edge の mapping key と一対一。"""
+    assert set(INTENT_TO_ROUTE.values()) == {
+        "escalate", "fallback_script", "knowledge", "refund_flow", "business"}
 
 
 def test_confidence_gate():

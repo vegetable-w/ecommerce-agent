@@ -234,5 +234,5 @@ async def test_classify_intent_also_writes_route():
     finally:
         nodes.intent_mod.classify = orig
     assert out["intent"] == "苦情"
-    assert out["route"] == "complaint"
-    assert out["trace"]["route"] == "complaint"
+    assert out["route"] == "escalate"
+    assert out["trace"]["route"] == "escalate"

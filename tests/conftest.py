@@ -20,10 +20,13 @@ from app.config import settings
 _DDL_FILES = [
     pathlib.Path(__file__).resolve().parent.parent / "sql" / "02-ddl.sql",
     pathlib.Path(__file__).resolve().parent.parent / "sql" / "03-ddl.sql",
+    pathlib.Path(__file__).resolve().parent.parent / "sql" / "04-ddl.sql",
 ]
-# 削除順: 子 → 親。knowledge_chunks の自己参照 FK は FOREIGN_KEY_CHECKS=0 で吸収する
-_TABLES = ["messages", "tickets", "conversations", "faq",
-           "qa_extraction_staging", "knowledge_chunks"]
+# 削除順: 子 → 親。knowledge_chunks の自己参照 FK は FOREIGN_KEY_CHECKS=0 で吸収する。
+# low_confidence_questions は conversations への FK を持つので conversations より先に置く。
+# faith_cases は FK を持たないため末尾でよい。
+_TABLES = ["low_confidence_questions", "messages", "tickets", "conversations", "faq",
+           "qa_extraction_staging", "knowledge_chunks", "faith_cases"]
 
 
 def _split_sql_statements(sql: str) -> list[str]:

@@ -124,3 +124,25 @@ class QaExtractionStaging(Base):
         Enum("extracted", "kept", "discarded"), server_default="extracted"
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class LowConfidenceQuestion(Base):
+    """回答を断った質問のプール。09 章のデータフライホイールの入口になる。
+
+    conversation_id は nullable。会話に紐づかない経路(評価スクリプトなど)からも
+    積めるようにするため、および FK 違反で投入自体を失わせないため
+    (repository.insert_low_confidence のコメントを参照)。
+    """
+
+    __tablename__ = "low_confidence_questions"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    conversation_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("conversations.id"), nullable=True
+    )
+    raw_question: Mapped[str] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(
+        Enum("retrieval_low_conf", "self_check", "user_feedback")
+    )
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

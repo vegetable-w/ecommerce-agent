@@ -8,20 +8,25 @@
 静かに触ってしまう。
 """
 
+import logging
 from datetime import datetime
 
 from sqlalchemy import func, select, text
+from sqlalchemy.exc import IntegrityError
 
 import app.db.base as db
 from app.db.models import (
     Conversation,
     Faq,
     KnowledgeChunk,
+    LowConfidenceQuestion,
     Message,
     QaExtractionStaging,
     Ticket,
 )
 from app.kb.dedup import normalize_question
+
+logger = logging.getLogger(__name__)
 
 _TICKET_SEQ = 0
 
@@ -331,3 +336,43 @@ async def clear_knowledge() -> None:
         await s.execute(text("TRUNCATE TABLE knowledge_chunks"))
         await s.execute(text("SET FOREIGN_KEY_CHECKS=1"))
         await s.commit()
+
+
+async def _insert_low_confidence(
+    conversation_id: int | None, raw_question: str, source: str, reason: str | None
+) -> int:
+    async with db.async_session() as s:
+        row = LowConfidenceQuestion(
+            conversation_id=conversation_id,
+            raw_question=raw_question,
+            source=source,
+            reason=reason,
+        )
+        s.add(row)
+        await s.commit()
+        return row.id
+
+
+async def insert_low_confidence(
+    conversation_id: int | None, raw_question: str, source: str, reason: str | None
+) -> int:
+    """回答を断った質問を低信頼プールへ積み、その id を返す。
+
+    source は DDL の ENUM('retrieval_low_conf','self_check','user_feedback') に従う。
+
+    conversation_id は conversations への FK であり、存在しない id を渡すと
+    IntegrityError になる。ただし呼び出し元(04 章の回答拒否パス)は「根拠が足りないので
+    正直に断る」という正常系の途中でここを呼ぶ。ここで例外を投げると、穏当な回答拒否が
+    そのまま 500 に化けてしまう。プールにとっての本体は質問文であり、会話への紐付けは
+    後から辿るための手掛かりに過ぎないので、紐付けだけを捨てて質問文を残す。
+    """
+    try:
+        return await _insert_low_confidence(conversation_id, raw_question, source, reason)
+    except IntegrityError:
+        if conversation_id is None:
+            raise
+        logger.warning(
+            "conversation_id=%s が見つからないため、会話に紐づけずにプールへ積む",
+            conversation_id,
+        )
+        return await _insert_low_confidence(None, raw_question, source, reason)

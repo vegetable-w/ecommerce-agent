@@ -112,11 +112,25 @@ def pick_best(report: dict) -> dict | None:
     return {
         "strategy": name,
         "mrr": mrr,
-        "recall_at_k": _overall(retrieval.get(name), "recall_at_k"),
+        "recall_at_k": _overall_any(retrieval.get(name), "recall_at_5", "recall_at_k"),
         "evidence_coverage": _overall(ev_sec, "coverage"),
         "answer_coverage": _overall(gen_sec, "answer_coverage"),
         "refusal_rate": _value(gen_sec.get("refusal_rate")) if isinstance(gen_sec, dict) else None,
     }
+
+
+def _overall_any(section, *keys: str) -> float | None:
+    """先に見つかったキーの overall を返す。
+
+    Recall のキーは recall_at_k から recall_at_5 へ変わった。以前の実行で作った
+    artifact をそのまま開くこともあるので、新しい名前が無ければ古い名前を見る。
+    拾えないと /admin のカードと評価画面の Recall が黙って「取得不可」になる。
+    """
+    for key in keys:
+        v = _overall(section, key)
+        if v is not None:
+            return v
+    return None
 
 
 def _job_status() -> dict:

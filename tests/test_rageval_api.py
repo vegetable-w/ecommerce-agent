@@ -182,6 +182,29 @@ def test_best_strategy_is_the_highest_overall_mrr(artifact, client):
     assert best["mrr"] == 0.976
 
 
+def test_recall_is_read_from_the_new_key(artifact, client):
+    """レポートが recall_at_5 を出していれば、それが Recall として読まれる。"""
+    report = _report(mrr={"dense": 0.9})
+    sec = report["retrieval"]["dense"]
+    sec["recall_at_5"] = sec.pop("recall_at_k")
+    sec["recall_at_5"]["overall"] = {"value": 0.83, "n": 240}
+    artifact(report)
+    assert client.get("/api/rag-eval/overview").json()["best"]["recall_at_k"] == 0.83
+
+
+def test_recall_falls_back_to_the_old_key_for_past_reports(artifact, client):
+    """指標キーを改名する前に作られたレポートでも Recall が空にならない。
+
+    ここが抜けると、古い artifact を開いたときに例外も警告も出ないまま
+    Recall の行だけが「取得不可」になり、画面を見ても原因が分からない。
+    """
+    report = _report(mrr={"dense": 0.9})
+    report["retrieval"]["dense"]["recall_at_k"]["overall"] = {"value": 0.77, "n": 60}
+    assert "recall_at_5" not in report["retrieval"]["dense"]
+    artifact(report)
+    assert client.get("/api/rag-eval/overview").json()["best"]["recall_at_k"] == 0.77
+
+
 def test_best_strategy_follows_the_data_not_the_name(artifact, client):
     """数値を入れ替えれば結論も変わる(戦略名を決め打ちしていないこと)。"""
     artifact(_report(mrr={"dense": 0.40, "bm25": 0.99, "hybrid": 0.50, "hybrid_rerank": 0.60}))

@@ -138,14 +138,16 @@ const BUCKETS = [
   ['A_policy', 'A ポリシー系'],
   ['B_model', 'B 型番・仕様'],
   ['C_colloquial', 'C 口語・言い換え'],
+  ['E_multi', 'E 複数文書'],
   ['overall', '全体'],
 ];
 
 const METRICS = [
   ['mrr', 'MRR', 'retrieval', 'mrr',
    '正解の根拠が何番目に出たか。1 位なら 1.0、2 位なら 0.5。戦略の差がいちばん出る指標。'],
-  ['recall_at_k', 'Recall@K', 'retrieval', 'recall_at_k',
-   '上位 K 件のどこかに正解の根拠があった割合。順位は問わない。'],
+  ['recall_at_5', 'Recall@5', 'retrieval', 'recall_at_5',
+   '上位 5 件のどこかに正解の根拠があった割合。順位は問わない。'
+   + '複数根拠の設問(E)は「揃った根拠の割合」で部分点になる。'],
   ['coverage', 'Evidence Coverage', 'evidence_coverage', 'coverage',
    '生成前に渡した根拠が、期待ポイントをどれだけ含んでいたか（Stage 2）。'],
 ];
@@ -175,10 +177,15 @@ function strategies() {
 const cls = i => 'rag-strat' + ((i % 4) + 1);
 
 /* section[strategy][key][bucket].value を取り出すだけ。無ければ null(「取得不可」)。 */
+/* 指標キーの別名。レポートの Recall は recall_at_k から recall_at_5 へ変わったが、
+   以前の実行で作った artifact をそのまま開くこともある。見つからなければ旧キーを見る。
+   ここで拾わないと、古いレポートを開いたときに Recall の行だけが黙って空欄になる。 */
+const KEY_FALLBACK = { recall_at_5: 'recall_at_k' };
+
 function metricValue(section, strategy, key, bucket) {
   const root = data[section];
   if (!root || !root[strategy]) return null;
-  const sub = root[strategy][key];
+  const sub = root[strategy][key] || root[strategy][KEY_FALLBACK[key]];
   if (!sub || !sub[bucket]) return null;
   const v = sub[bucket].value;
   return (typeof v === 'number') ? v : null;
@@ -338,7 +345,7 @@ function renderFull() {
       return `<td class="num">${ac ? pct(ac.value) : '—'}</td>`;
     }).join('');
     return `<tr${b}><td rowspan="4">${esc(name)}</td><td>MRR</td>${cells('retrieval', 'mrr', name)}</tr>
-      <tr${b}><td>Recall@K</td>${cells('retrieval', 'recall_at_k', name)}</tr>
+      <tr${b}><td>Recall@5</td>${cells('retrieval', 'recall_at_5', name)}</tr>
       <tr${b}><td>Evidence Cov.</td>${cells('evidence_coverage', 'coverage', name)}</tr>
       <tr${b}><td>Answer Cov.</td>${genCells}</tr>`;
   }).join('');

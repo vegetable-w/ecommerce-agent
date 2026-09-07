@@ -521,6 +521,10 @@ async def run_generation(samples: list[dict], hits_by: dict, strategies: list[st
         "strategy": target,
         "value": _mean([r["faithful"] for r in faith_records]),
         "n": len(faith_records),
+        # bucket 別も出す。忠実性は 1 戦略でしか測らない(同じ生成器に同じことを
+        # 4 回聞いても戦略の比較にならない)ので、比べる軸は戦略ではなく bucket。
+        # D も含めるのは「断ったときに嘘を混ぜていないか」が測れるため。
+        "by_bucket": aggregate(faith_records, "faithful", BUCKETS),
         # 指標の per_sample は 0/1 だけ。回答本文や根拠まで並べると、300 問ぶんの
         # レポートが読めない大きさになる(それらは幻覚と判定された問いにだけ残す)
         "per_sample": [{"id": r["id"], "bucket": r["bucket"], "faithful": r["faithful"]}
@@ -803,6 +807,11 @@ async def main(argv: list[str] | None = None) -> int:
                 _log(f"  {st.ljust(16)}{_pct(node['value'])}  (n={node['n']})")
             f = generation_d["faithfulness"]
             _log(f"\nStage 3 Faithfulness({f['strategy']}) {_pct(f['value'])} (n={f['n']})")
+            # bucket 別も出す。画面と terminal で同じ数字が出ることを保つ
+            for b in BUCKETS:
+                node = (f.get("by_bucket") or {}).get(b)
+                if node:
+                    _log(f"  {b.ljust(16)}{_pct(node['value'])}  (n={node['n']})")
 
     hallucination_d = None
     if generation_d is not None:

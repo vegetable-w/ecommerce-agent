@@ -826,3 +826,18 @@ async def test_giving_up_after_the_last_attempt_is_recorded(monkeypatch):
     assert await ev._try(_always, "faithfulness[A1]") is None
     assert len(calls) == ev.RATE_LIMIT_ATTEMPTS
     assert len(ev._ERRS) == 1
+
+
+async def test_faithfulness_is_broken_down_by_bucket(monkeypatch):
+    """忠実性は 1 戦略でしか測らないので、比べる軸は戦略ではなく bucket。
+
+    画面の棒 4 本をここから描くため、per_sample から画面側で平均し直さずに済むよう
+    スクリプト側で畳んでおく(画面で計算し直すと `make eval-rag` と食い違う)。
+    """
+    out = await _generation(monkeypatch, faithful=True)
+    by = out["faithfulness"]["by_bucket"]
+    assert set(by) == {*ev.BUCKETS, "overall"}
+    assert by["A_policy"] == {"value": 1.0, "n": 1}
+    assert by["overall"] == {"value": 1.0, "n": 1}
+    # 測っていない bucket は 0 点ではなく「対象なし」
+    assert by["D_absent"] == {"value": None, "n": 0}

@@ -36,6 +36,11 @@ Stage 3 D bucket 回答拒否率
   hybrid_rerank    93.3%  (n=60)
 
 Stage 3 Faithfulness(hybrid_rerank)  99.3% (n=300)
+  A_policy         98.3%  (n=60)
+  B_model         100.0%  (n=60)
+  C_colloquial    100.0%  (n=60)
+  E_multi          98.3%  (n=60)
+  D_absent        100.0%  (n=60)
 
 幻覚率   0.7% (今回の実行 2/300 問。うち人手で確認済み 0 件 =   0.0%)
 幻覚ケース台帳 累計 14 件(未対処 3 / 対処済み 1 / 対処不要 10)

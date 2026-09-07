@@ -22438,7 +22438,33 @@
      "bucket": "E_multi",
      "faithful": 1.0
     }
-   ]
+   ],
+   "by_bucket": {
+    "A_policy": {
+     "value": 0.9833333333333333,
+     "n": 60
+    },
+    "B_model": {
+     "value": 1.0,
+     "n": 60
+    },
+    "C_colloquial": {
+     "value": 1.0,
+     "n": 60
+    },
+    "E_multi": {
+     "value": 0.9833333333333333,
+     "n": 60
+    },
+    "D_absent": {
+     "value": 1.0,
+     "n": 60
+    },
+    "overall": {
+     "value": 0.9933333333333333,
+     "n": 300
+    }
+   }
   },
   "faithfulness_cases": [
    {

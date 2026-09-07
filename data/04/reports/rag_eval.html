@@ -3,45 +3,5 @@
 <style>body{font-family:sans-serif;margin:2rem;line-height:1.6}table{border-collapse:collapse;margin-bottom:1.5rem}th,td{border:1px solid #ccc;padding:.3rem .6rem;text-align:right}th:first-child,td:first-child{text-align:left}pre{white-space:pre-wrap}</style></head><body>
 <h1>RAG 評価レポート</h1>
 <p>実行時刻: 2026-09-07T14:57:20 / collection: knowledge (47 件) / サンプル 300 問</p>
-<pre>評価開始 2026-09-07T14:57:20  collection=knowledge(47 件)  サンプル 300 問 {'A_policy': 60, 'B_model': 60, 'C_colloquial': 60, 'D_absent': 60, 'E_multi': 60}
-戦略=['dense', 'bm25', 'hybrid', 'hybrid_rerank']  K=10(Recall は上位 5 件)  埋め込み=BAAI/bge-m3  リランク=BAAI/bge-reranker-v2-m3  生成=gpt-4o-mini
-
-Stage 1 Retrieval  Recall@5
-  戦略              A_policy      B_model       C_colloquial  E_multi       overall       
-  dense           100.0%        100.0%         98.3%         87.5%         96.5%        
-  bm25            100.0%        100.0%         43.3%         70.0%         78.3%        
-  hybrid          100.0%        100.0%         71.7%         88.9%         90.1%        
-  hybrid_rerank   100.0%        100.0%         98.3%         93.9%         98.1%        
-
-Stage 1 Retrieval  MRR
-  戦略              A_policy      B_model       C_colloquial  E_multi       overall       
-  dense            93.9%        100.0%         83.9%         59.0%         84.2%        
-  bm25             91.1%         93.6%         27.6%         41.7%         63.5%        
-  hybrid           94.2%        100.0%         55.2%         57.3%         76.7%        
-  hybrid_rerank    96.7%         99.2%         85.0%         63.3%         86.0%        
-
-Stage 2 Evidence Coverage(機械的な部分一致)
-  戦略              A_policy      B_model       C_colloquial  E_multi       overall       
-  dense           100.0%        100.0%        100.0%         96.4%         99.1%        
-  bm25            100.0%        100.0%         55.0%         83.6%         84.7%        
-  hybrid          100.0%        100.0%         80.0%         96.7%         94.2%        
-  hybrid_rerank   100.0%        100.0%         98.3%         99.4%         99.4%        
-
-Stage 3 Generation  Answer Coverage
-  戦略              A_policy      B_model       C_colloquial  E_multi       overall       
-  dense            92.5%         98.3%         87.5%         87.5%         91.5%        
-  bm25             90.8%         98.3%         54.2%         83.6%         81.7%        
-  hybrid           90.0%         98.3%         79.2%         85.8%         88.3%        
-  hybrid_rerank    90.8%         98.3%         90.8%         92.8%         93.2%        
-
-Stage 3 D bucket 回答拒否率
-  dense            95.0%  (n=60)
-  bm25             96.7%  (n=60)
-  hybrid           96.7%  (n=60)
-  hybrid_rerank    93.3%  (n=60)
-
-Stage 3 Faithfulness(hybrid_rerank)  99.3% (n=300)
-
-幻覚率   0.7% (今回の実行 2/300 問。うち人手で確認済み 0 件 =   0.0%)
-幻覚ケース台帳 累計 14 件(未対処 3 / 対処済み 1 / 対処不要 10)</pre>
+<pre></pre>
 </body></html>

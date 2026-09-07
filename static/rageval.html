@@ -11,6 +11,9 @@
      div の width と SVG の stroke-dasharray だけで描く。 */
   .rag-strat1{--rag-c:#ff8fb1} .rag-strat2{--rag-c:#8fd3ff}
   .rag-strat3{--rag-c:#ffc46b} .rag-strat4{--rag-c:#5ed6a4}
+  /* bucket 別の棒。同じ戦略を問い方で切っただけなので、戦略の色を使い回さない
+     (上のグラフでは緑 = hybrid_rerank なので、混ぜると別物を同じ色で示すことになる)。 */
+  .rag-bkt{--rag-c:#7fc7c2}
 
   /* 縦棒グラフ。棒の高さは % をそのまま使い、目盛りは 0/25/50/75/100 の 5 本。
      横棒だと戦略ごとに行が分かれて、bucket 間の比較が目で追えなかった。 */
@@ -54,9 +57,11 @@
   /* 横棒。生成品質のように「戦略ごとに 1 つの値」を並べるところで使う。
      bucket 別の比較は縦棒(上の .rag-chart)、単純な並列比較はこちらが読みやすい。 */
   .rag-row{display:flex; align-items:center; gap:11px; margin-bottom:7px}
-  .rag-row .nm{flex:none; width:132px; font-size:13.5px; color:#6c6280;
+  .rag-row .nm{flex:none; width:158px; font-size:13.5px; color:#6c6280;
     font-family:ui-monospace,Consolas,monospace}
   .rag-row.best .nm{color:var(--accent-d); font-weight:700}
+  /* bucket 名は日本語なので等幅をやめる(戦略名は識別子なので等幅のまま) */
+  .rag-row.rag-bkt .nm{font-family:inherit; font-size:14px}
   .rag-track{flex:1; height:20px; background:#f7f2f8; border-radius:999px; overflow:hidden}
   .rag-fill{display:block; height:100%; border-radius:999px;
     background:var(--rag-c);   /* color-mix を解釈しない環境ではこちらが残る */
@@ -229,6 +234,20 @@ const BUCKETS = [
   ['overall', '全体'],
 ];
 
+/* 忠実性だけは戦略ではなく bucket で並べる。1 戦略でしか測らないので、
+   同じ生成器に 4 回同じことを聞いても比較にならない。
+
+   D は入れない。D の忠実性は必ず高く出る(断れば主張が無いので違反しようがない)
+   一方、右の円は「そもそも断れたか」を出している。同じ D について 100% と 93.3% が
+   並ぶと矛盾しているように見えるが、測っているものが違うだけで、ここでは
+   「答えた問いで作り話をしていないか」だけに絞る。 */
+const FAITH_BUCKETS = [
+  ['A_policy', 'A ポリシー系'],
+  ['B_model', 'B 型番・仕様'],
+  ['C_colloquial', 'C 口語・言い換え'],
+  ['E_multi', 'E 複数文書'],
+];
+
 const METRICS = [
   ['mrr', 'MRR', 'retrieval', 'mrr',
    '正解の根拠が何番目に出たか。1 位なら 1.0、2 位なら 0.5。戦略の差がいちばん出る指標。'],
@@ -292,7 +311,8 @@ function column(name, i, value, best) {
 /* 横棒 1 本。戦略名 + 帯 + 数値。 */
 function bar(name, i, value, best) {
   const p = pct(value);
-  return `<div class="rag-row ${cls(i)}${best ? ' best' : ''}">
+  // i が null のときは bucket 別の棒。戦略の色ではなく専用の色を使う
+  return `<div class="rag-row ${i === null ? 'rag-bkt' : cls(i)}${best ? ' best' : ''}">
     <span class="nm">${esc(name)}</span>
     <span class="rag-track"><span class="rag-fill" style="width:${value === null ? 0 : pt(value)}%"></span></span>
     <span class="vl${p === null ? ' na' : ''}">${p === null ? '取得不可' : p}</span>
@@ -432,9 +452,21 @@ function renderGeneration() {
 
   const f = g.faithfulness || {};
   $('faithCap').textContent =
-    `Faithfulness（回答が根拠だけで書かれているか）— ${f.strategy || '—'} / ${f.n ?? '—'} 問`;
-  $('faith').innerHTML = bar(f.strategy || 'faithfulness', 3,
-    (typeof f.value === 'number') ? f.value : null, true);
+    `Faithfulness（回答が根拠の外に出ていないか）— ${f.strategy || '—'} / ` +
+    `全体 ${pct(typeof f.value === 'number' ? f.value : null) ?? '—'}・${f.n ?? '—'} 問`;
+
+  const by = f.by_bucket;
+  if (by) {
+    $('faith').innerHTML = FAITH_BUCKETS.map(([b, label]) => {
+      const node = by[b];
+      const v = node && typeof node.value === 'number' ? node.value : null;
+      return bar(label, null, v, false);
+    }).join('');
+  } else {
+    // by_bucket を持たない古いレポートでも空にしない
+    $('faith').innerHTML = bar(f.strategy || 'faithfulness', null,
+      (typeof f.value === 'number') ? f.value : null, false);
+  }
 
   const r = (g[best] || {}).refusal_rate;
   const rv = r && typeof r.value === 'number' ? r.value : null;

@@ -26,7 +26,7 @@ async def test_append_and_list_messages_in_order(db_session_factory, db_clean):
     await repo.append_message(
         cid,
         "assistant",
-        tool_calls=[{"name": "query_logistics", "args": {"order_id": "1001"}, "id": "c1"}],
+        tool_calls=[{"name": "query_logistics", "args": {"tracking_no": "JP213502378238"}, "id": "c1"}],
     )
     await repo.append_message(cid, "tool", content='{"status":"輸送中"}', tool_call_id="c1")
     msgs = await repo.list_messages(cid)

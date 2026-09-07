@@ -166,7 +166,7 @@ async def test_stream_without_faq_tool_touches_nothing(
     _stub_faq(monkeypatch, {"status": "輸送中"}, name="query_logistics")
 
     first = AIMessage(content="", tool_calls=[
-        {"name": "query_logistics", "args": {"order_id": "1001"}, "id": "c1"}])
+        {"name": "query_logistics", "args": {"tracking_no": "JP213502378238"}, "id": "c1"}])
     events = [ev async for ev in
               agent.stream_agent_turn("u1", "1001 はどこ?", None, model=FakeModel(
                   [first], stream_tokens=["輸送中です。"]))]

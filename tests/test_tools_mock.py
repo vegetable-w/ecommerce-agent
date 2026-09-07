@@ -3,6 +3,7 @@ import pathlib
 import re
 
 import pytest
+from pydantic import ValidationError
 
 from app.tools import business
 from app.tools.business import query_logistics, query_order, query_product
@@ -24,6 +25,8 @@ async def test_query_order_deterministic_and_shaped():
     assert 50 <= r1["amount"] <= 2000
     assert isinstance(r1["created_at"], str)
     assert isinstance(r1["product"], str)
+    assert isinstance(r1["tracking_no"], str)
+    assert r1["tracking_no"]
 
 
 @pytest.mark.asyncio
@@ -91,20 +94,47 @@ def test_product_catalogue_matches_the_knowledge_document():
 
 
 @pytest.mark.asyncio
+async def test_query_order_tracking_no_is_deterministic_per_order():
+    """追跡番号は注文ごとに一意で、同じ注文なら何度引いても同じであること。
+
+    追跡番号は query_logistics の唯一の入口なので、呼ぶたびに変わると
+    「注文を引く → その追跡番号で配送を引く」という手順そのものが成立しなくなる。
+    """
+    a = await query_order.ainvoke({"order_id": "1001"})
+    b = await query_order.ainvoke({"order_id": "1001"})
+    c = await query_order.ainvoke({"order_id": "1002"})
+    assert a["tracking_no"] == b["tracking_no"]
+    assert a["tracking_no"] != c["tracking_no"]
+
+
+@pytest.mark.asyncio
 async def test_query_logistics_deterministic_and_shaped():
-    """query_logistics must return reproducible output for the same order_id."""
-    lg1 = await query_logistics.ainvoke({"order_id": "1001"})
-    lg2 = await query_logistics.ainvoke({"order_id": "1001"})
+    """query_logistics must return reproducible output for the same tracking_no."""
+    tracking_no = (await query_order.ainvoke({"order_id": "1001"}))["tracking_no"]
+    lg1 = await query_logistics.ainvoke({"tracking_no": tracking_no})
+    lg2 = await query_logistics.ainvoke({"tracking_no": tracking_no})
 
     # Same seed => same output
     assert lg1 == lg2
 
     # Correct shape and valid values
-    assert lg1["order_id"] == "1001"
+    assert lg1["tracking_no"] == tracking_no
     assert lg1["status"] in {"集荷済み", "輸送中", "配達中", "配達完了"}
     assert isinstance(lg1["location"], str)
     assert "配送センター" in lg1["location"]
     assert isinstance(lg1["timeline"], list)
+
+
+@pytest.mark.asyncio
+async def test_query_logistics_does_not_accept_an_order_id():
+    """注文番号では配送を引けないこと。
+
+    両ツールが同じ order_id を取っていた頃は、モデルが 1 step で 2 つを並べて呼べてしまい、
+    「注文を引く → 追跡番号を得る → その番号で配送を引く」という順序依存が生まれなかった。
+    追跡番号を query_order の戻り値からしか得られなくすることで、その順序を強制する。
+    """
+    with pytest.raises(ValidationError):
+        await query_logistics.ainvoke({"order_id": "1001"})
 
 
 @pytest.mark.asyncio
@@ -126,8 +156,8 @@ async def test_different_inputs_produce_different_outputs():
     p2 = await query_product.ainvoke({"product_name": "キャットタワー"})
     assert p1 != p2
 
-    lg1 = await query_logistics.ainvoke({"order_id": "1001"})
-    lg2 = await query_logistics.ainvoke({"order_id": "1002"})
+    lg1 = await query_logistics.ainvoke({"tracking_no": o1["tracking_no"]})
+    lg2 = await query_logistics.ainvoke({"tracking_no": o2["tracking_no"]})
     assert lg1 != lg2
 
 
@@ -147,6 +177,7 @@ async def test_query_order_golden_value():
         "amount": 1739,
         "created_at": "2026-07-04 10:00",
         "product": "自動猫トイレ",
+        "tracking_no": "JP213502378238",
     }
     assert result == expected
 
@@ -180,11 +211,11 @@ async def test_query_logistics_golden_value():
     recorded eval results. If the seeding logic must change, update this value
     after verifying the new output is intentional.
     """
-    result = await query_logistics.ainvoke({"order_id": "1001"})
+    result = await query_logistics.ainvoke({"tracking_no": "JP213502378238"})
     expected = {
-        "order_id": "1001",
-        "status": "集荷済み",
+        "tracking_no": "JP213502378238",
+        "status": "配達完了",
         "location": "横浜配送センター",
-        "timeline": ["横浜配送センターから発送", "現在の状態: 集荷済み"],
+        "timeline": ["横浜配送センターから発送", "現在の状態: 配達完了"],
     }
     assert result == expected

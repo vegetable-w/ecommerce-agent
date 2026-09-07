@@ -120,7 +120,7 @@ async def test_stream_endpoint_emits_tool_deltas_done_and_terminator(
 ):
     first = AIMessage(
         content="",
-        tool_calls=[{"name": "query_logistics", "args": {"order_id": "1001"}, "id": "c1"}],
+        tool_calls=[{"name": "query_logistics", "args": {"tracking_no": "JP213502378238"}, "id": "c1"}],
     )
     _use_model(FakeModel([first], stream_tokens=["注文 1001 は", "現在", "輸送中です。"]))
 
@@ -247,7 +247,7 @@ async def test_stream_frames_survive_newlines_and_spaces_in_deltas(
     tokens = ["行1\n行2", "\n\n", "  前後に空白  "]
     first = AIMessage(
         content="",
-        tool_calls=[{"name": "query_logistics", "args": {"order_id": "1001"}, "id": "c1"}],
+        tool_calls=[{"name": "query_logistics", "args": {"tracking_no": "JP213502378238"}, "id": "c1"}],
     )
     _use_model(FakeModel([first], stream_tokens=tokens))
 
@@ -303,7 +303,7 @@ def _fake_result() -> AgentResult:
     return AgentResult(
         conversation_id=12,
         answer="注文 1001 は現在輸送中です。",
-        tool_calls=[{"name": "query_logistics", "args": {"order_id": "1001"}, "id": "c1"}],
+        tool_calls=[{"name": "query_logistics", "args": {"tracking_no": "JP213502378238"}, "id": "c1"}],
         tool_runs=[ToolRun("c1", "query_logistics", True, tm)],
     )
 
@@ -321,7 +321,7 @@ def test_agent_endpoint_returns_tool_trace(monkeypatch):
     assert body["answer"] == "注文 1001 は現在輸送中です。"
     assert body["tool_calls"][0]["name"] == "query_logistics"
     assert body["tool_calls"][0]["id"] == "c1"
-    assert body["tool_calls"][0]["args"] == {"order_id": "1001"}
+    assert body["tool_calls"][0]["args"] == {"tracking_no": "JP213502378238"}
     assert body["tool_results"][0]["ok"] is True
     assert body["tool_results"][0]["tool_call_id"] == "c1"
     assert body["tool_results"][0]["name"] == "query_logistics"
@@ -335,7 +335,7 @@ def test_agent_endpoint_survives_tool_call_with_none_id(monkeypatch):
 
     async def fake_run(user_id, message, conversation_id, model=None):
         res = _fake_result()
-        res.tool_calls = [{"name": "query_logistics", "args": {"order_id": "1001"}, "id": None}]
+        res.tool_calls = [{"name": "query_logistics", "args": {"tracking_no": "JP213502378238"}, "id": None}]
         return res
 
     monkeypatch.setattr(agent, "run_agent_turn", fake_run)
@@ -429,7 +429,7 @@ def test_agent_endpoint_handles_block_style_tool_content(monkeypatch):
         return AgentResult(
             conversation_id=12,
             answer="配送中です。",
-            tool_calls=[{"name": "query_logistics", "args": {"order_id": "1001"}, "id": "c1"}],
+            tool_calls=[{"name": "query_logistics", "args": {"tracking_no": "JP213502378238"}, "id": "c1"}],
             tool_runs=[ToolRun("c1", "query_logistics", True, tm)],
         )
 

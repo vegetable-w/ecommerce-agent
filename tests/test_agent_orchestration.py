@@ -73,7 +73,7 @@ async def test_convergence_final_text_excludes_reasoning_blocks(db_session_facto
     """収束呼び出し(非ストリーミング)の final.text も同じ回帰テスト対象。"""
     first = AIMessage(
         content="",
-        tool_calls=[{"name": "query_logistics", "args": {"order_id": "1001"}, "id": "c1"}],
+        tool_calls=[{"name": "query_logistics", "args": {"tracking_no": "JP213502378238"}, "id": "c1"}],
     )
     final_content = [
         {"type": "text", "text": "現在配送中です"},
@@ -96,7 +96,7 @@ async def test_convergence_final_text_excludes_reasoning_blocks(db_session_facto
 async def test_tool_call_flow_executes_and_converges(db_session_factory, db_clean):
     first = AIMessage(
         content="",
-        tool_calls=[{"name": "query_logistics", "args": {"order_id": "1001"}, "id": "c1"}],
+        tool_calls=[{"name": "query_logistics", "args": {"tracking_no": "JP213502378238"}, "id": "c1"}],
     )
     model = FakeModel([first, AIMessage(content="注文 1001 は現在輸送中です。")])
     res = await agent.run_agent_turn("u1", "注文 1001 は今どこですか", None, model=model)
@@ -123,7 +123,7 @@ async def test_continue_conversation_replays_only_final_answers(db_session_facto
         [
             AIMessage(
                 content="確認します。",
-                tool_calls=[{"name": "query_logistics", "args": {"order_id": "1001"}, "id": "c1"}],
+                tool_calls=[{"name": "query_logistics", "args": {"tracking_no": "JP213502378238"}, "id": "c1"}],
             ),
             AIMessage(content="注文 1001 は集荷済みです。"),
         ]
@@ -176,7 +176,7 @@ async def test_multiple_tool_calls_execute_and_both_converge(db_session_factory,
         content="",
         tool_calls=[
             {"name": "query_order", "args": {"order_id": "1001"}, "id": "c1"},
-            {"name": "query_logistics", "args": {"order_id": "1001"}, "id": "c2"},
+            {"name": "query_logistics", "args": {"tracking_no": "JP213502378238"}, "id": "c2"},
         ],
     )
     model = FakeModel([first, AIMessage(content="両方確認しました。")])
@@ -231,9 +231,9 @@ async def test_prepare_turn_survives_tool_call_with_none_id_alongside_good_one(
                 "args": {"description": "配送が遅い", "ticket_type": "complaint"},
                 "id": "c1",
             },
-            # args を欠落させ、LogisticsInput の必須フィールド order_id 不足で
+            # args を欠落させ、LogisticsInput の必須フィールド tracking_no 不足で
             # ValidationError(=エラー ToolRun)になる経路を確実に踏ませる。
-            # (order_id を渡すと単に成功して ok=True になり、"id=None でも success/error
+            # (tracking_no を渡すと単に成功して ok=True になり、"id=None でも success/error
             # どちらの分岐でも ToolMessage(tool_call_id=None) が構築される" ことの
             # error側の実例を示せなくなるため)
             {"name": "query_logistics", "args": {}, "id": None},
@@ -286,7 +286,7 @@ async def test_prepare_turn_survives_execute_tool_call_raising(
         content="",
         tool_calls=[
             {"name": "query_order", "args": {"order_id": "1001"}, "id": "c1"},
-            {"name": "query_logistics", "args": {"order_id": "1001"}, "id": "c2"},
+            {"name": "query_logistics", "args": {"tracking_no": "JP213502378238"}, "id": "c2"},
         ],
     )
     model = FakeModel([first, AIMessage(content="ご案内します。")])

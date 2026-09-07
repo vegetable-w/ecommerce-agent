@@ -17,7 +17,7 @@ pytestmark = pytest.mark.asyncio(loop_scope="session")
 async def test_stream_with_tools_emits_tool_then_deltas_then_done(db_session_factory, db_clean):
     first = AIMessage(
         content="",
-        tool_calls=[{"name": "query_logistics", "args": {"order_id": "1001"}, "id": "c1"}],
+        tool_calls=[{"name": "query_logistics", "args": {"tracking_no": "JP213502378238"}, "id": "c1"}],
     )
     model = FakeModel([first], stream_tokens=["注文", "1001", "は輸送中です。"])
     events = [ev async for ev in agent.stream_agent_turn("u1", "注文1001は今どこですか", None, model=model)]
@@ -85,7 +85,7 @@ async def test_stream_with_tools_delta_excludes_reasoning_blocks(db_session_fact
     要素として block list を渡せば chunk.content が block 形式のケースを再現できる。"""
     first = AIMessage(
         content="",
-        tool_calls=[{"name": "query_logistics", "args": {"order_id": "1001"}, "id": "c1"}],
+        tool_calls=[{"name": "query_logistics", "args": {"tracking_no": "JP213502378238"}, "id": "c1"}],
     )
     block_chunk = [
         {"type": "text", "text": "配送中です"},

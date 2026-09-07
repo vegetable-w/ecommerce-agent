@@ -20,7 +20,10 @@ class ProductInput(BaseModel):
 
 
 class LogisticsInput(BaseModel):
-    order_id: str = Field(description="注文番号。対象注文の配送履歴を確認するために使用")
+    tracking_no: str = Field(
+        description="配送伝票番号。query_order の戻り値の tracking_no をそのまま渡す。"
+                    "注文番号ではないので、注文番号しか分からない場合は先に query_order を使う"
+    )
 
 
 @tool(args_schema=OrderInput)
@@ -33,6 +36,11 @@ async def query_order(order_id: str) -> dict:
         "amount": rng.randint(50, 2000),
         "created_at": f"2026-07-{rng.randint(1, 12):02d} 10:00",
         "product": rng.choice(["自動猫トイレ", "キャットフード 5kg", "キャットタワー", "自動給水器"]),
+        # 配送伝票番号。query_logistics の唯一の入口で、注文番号からは導けない
+        # (導けると「注文を引いてから配送を引く」という順序が要らなくなり、
+        # モデルが 2 つのツールを同時に呼べてしまう)。同じ注文には常に同じ番号を返す。
+        # 既存キーの値を変えないよう、この draw は必ず末尾に置くこと。
+        "tracking_no": f"JP{rng.randint(10**11, 10**12 - 1)}",
     }
 
 
@@ -109,13 +117,17 @@ async def query_product(product_name: str) -> dict:
 
 
 @tool(args_schema=LogisticsInput)
-async def query_logistics(order_id: str) -> dict:
-    """注文の配送状況、現在地、配送履歴を確認する。ユーザーが荷物の現在地や配送状況を尋ねた場合に使用する。"""
-    rng = random.Random(f"logistics:{order_id}")
+async def query_logistics(tracking_no: str) -> dict:
+    """配送伝票番号から配送状況、現在地、配送履歴を確認する。ユーザーが荷物の現在地や配送状況を尋ねた場合に使用する。
+
+    **tracking_no は query_order の結果からのみ取得できる。** ユーザーが伝票番号を直接
+    伝えてきた場合を除き、まず query_order で注文を確認して戻り値の tracking_no を得てから、
+    その番号でこのツールを呼ぶこと。注文番号をそのまま渡してはならない。"""
+    rng = random.Random(f"logistics:{tracking_no}")
     status = rng.choice(["集荷済み", "輸送中", "配達中", "配達完了"])
     city = rng.choice(["東京", "横浜", "名古屋", "大阪", "福岡"])
     return {
-        "order_id": order_id,
+        "tracking_no": tracking_no,
         "status": status,
         "location": f"{city}配送センター",
         "timeline": [f"{city}配送センターから発送", f"現在の状態: {status}"],

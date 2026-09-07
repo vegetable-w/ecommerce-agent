@@ -50,6 +50,14 @@ class Settings(BaseSettings):
     # 未設定なら埋め込みの key を使う。どちらも同じ SiliconFlow のアカウントであり、
     # .env に同じ値を 2 度書かせない。上流を分ける場合だけ RERANK_API_KEY を設定する。
     rerank_api_key: SecretStr | None = None
+    # recall は dense / BM25 それぞれ Top-50 を取り、rerank で Top-10 に絞る。
+    # rerank_min_score は「証拠が足りない」と判定する機械的な gate。
+    # 03 の retrieval_min_score(0.48)は dense の COSINE に対する閾値で、
+    # 尺度が別物なので流用しない(rerank は 0〜1 でスケールが立っている:
+    # 実測で正解 0.9798 / 語だけ共有 0.0147 / 無関係 0.0000)。
+    recall_top_k: int = Field(default=50, gt=0)
+    rerank_top_k: int = Field(default=10, gt=0)
+    rerank_min_score: float = 0.3
 
     @property
     def rerank_key(self) -> SecretStr:

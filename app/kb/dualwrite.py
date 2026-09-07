@@ -33,9 +33,14 @@ def _batches(items: list, size: int):
         yield items[i:i + size]
 
 
-async def vectorize_pending(client, batch_size: int = 64) -> int:
+async def vectorize_pending(client, batch_size: int = 64,
+                            collection: str = milvus_client.COLLECTION) -> int:
     """冪等・再実行可能: pending を取得 → category+questions+answer を連結して埋め込み
     → Milvus upsert(PK=id) → vector_id 反映・status=done。
+
+    連結した text は dense の埋め込み元であると同時に、BM25 の検索対象でもある。
+    両経路が同じ文字列を見ることで、同じ chunk 群を recall できる(片方だけ別の文字列に
+    すると、ハイブリッドが「2 つの別々のコーパス」を引くことになり RRF の融合が壊れる)。
     どのバッチで落ちても、再実行時は残りの pending だけを拾う(id 単位 upsert なので重複しない)。"""
     pending = await repository.list_pending_chunks()
     done = 0
@@ -53,11 +58,18 @@ async def vectorize_pending(client, batch_size: int = 64) -> int:
                 "このバッチは pending のまま残すので、再実行で補完できる。"
             )
         rows = [
-            {"id": r.id, "vector": v, "question": r.questions, "answer": r.answer}
-            for r, v in zip(batch, vectors)
+            {"id": r.id, "dense": v, "text": t,
+             "question": r.questions, "answer": r.answer,
+             "section_path": r.section_path or "", "content_type": r.content_type or "",
+             "category": r.category or ""}
+            for r, v, t in zip(batch, vectors, texts)
         ]
-        milvus_client.upsert_vectors(client, rows)
+        milvus_client.upsert_vectors(client, rows, collection=collection)
         for r in batch:
             await repository.mark_chunk_vectorized(r.id, str(r.id))
         done += len(batch)
+    if done:
+        # 取り込みの区切りで growing segment を封じる。検索可能にするためではない
+        # (collection は Strong なので upsert 直後から当たる)。
+        milvus_client.flush(client, collection=collection)
     return done

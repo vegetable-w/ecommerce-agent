@@ -106,7 +106,7 @@ async def test_cards_carry_real_numbers(db_session_factory, monkeypatch):
             return True
 
     monkeypatch.setattr(milvus_client, "get_client", lambda uri=None: FakeClient())
-    monkeypatch.setattr(milvus_client, "count", lambda client: 3)
+    monkeypatch.setattr(milvus_client, "count", lambda client, collection=None: 3)
 
     async with _client() as c:
         cards = {x["key"]: x for x in (await c.get("/api/admin/overview")).json()["cards"]}

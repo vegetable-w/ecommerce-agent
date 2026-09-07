@@ -275,7 +275,7 @@ async def test_overview_consistent_is_none_when_mysql_unreadable(db_session_fact
         raise RuntimeError("MySQL 停止中")
 
     monkeypatch.setattr(repository, "knowledge_stats", boom)
-    monkeypatch.setattr(milvus_client, "count", lambda client: 0)
+    monkeypatch.setattr(milvus_client, "count", lambda client, collection=None: 0)
     async with _client() as c:
         body = (await c.get("/api/kb/overview")).json()
     assert body["knowledge"] is None
@@ -296,7 +296,7 @@ async def test_overview_reports_consistency_when_both_sides_readable(
             return True
 
     monkeypatch.setattr(milvus_client, "get_client", lambda uri=None: FakeClient())
-    monkeypatch.setattr(milvus_client, "count", lambda client: counts["n"])
+    monkeypatch.setattr(milvus_client, "count", lambda client, collection=None: counts["n"])
     async with _client() as c:
         assert (await c.get("/api/kb/overview")).json()["consistent"] is True  # done=0, milvus=0
         counts["n"] = 5
@@ -307,11 +307,11 @@ async def test_overview_reports_consistency_when_both_sides_readable(
 async def test_ingest_vectorize_failure_returns_502_and_keeps_rows(db_session_factory, monkeypatch):
     """ベクトル化が落ちても MySQL は巻き戻さない。502 と「再実行で補完できる」を返す。"""
 
-    async def boom(client, batch_size: int = 64) -> int:
+    async def boom(client, batch_size: int = 64, collection: str = "knowledge") -> int:
         raise RuntimeError("埋め込み上流が停止")
 
     monkeypatch.setattr(milvus_client, "get_client", lambda uri=None: object())
-    monkeypatch.setattr(milvus_client, "ensure_collection", lambda client: None)
+    monkeypatch.setattr(milvus_client, "ensure_collection", lambda client, collection=None: None)
     monkeypatch.setattr("app.api.kb.dualwrite.vectorize_pending", boom)
 
     n = len(_manual_chunks())
@@ -337,8 +337,10 @@ async def test_ingest_then_vectorize_marks_rows_done(db_session_factory, monkeyp
 
     monkeypatch.setattr(repository, "list_pending_chunks", spy)
     monkeypatch.setattr(milvus_client, "get_client", lambda uri=None: object())
-    monkeypatch.setattr(milvus_client, "ensure_collection", lambda client: None)
-    monkeypatch.setattr(milvus_client, "upsert_vectors", lambda client, rows: None)
+    monkeypatch.setattr(milvus_client, "ensure_collection", lambda client, collection=None: None)
+    monkeypatch.setattr(milvus_client, "upsert_vectors",
+                        lambda client, rows, collection=None: None)
+    monkeypatch.setattr(milvus_client, "flush", lambda client, collection=None: None)
 
     async def fake_embed(texts):
         return [[0.1] * milvus_client.DIM for _ in texts]

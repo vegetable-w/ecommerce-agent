@@ -164,22 +164,53 @@ def test_returns_503_when_the_database_is_down(monkeypatch):
     assert res.json()["detail"] == _DB_DOWN_MSG
 
 
-def test_returns_503_on_a_foreign_key_violation(monkeypatch):
-    """存在しない conversation_id は tickets の FK 制約に当たる。
+def test_a_missing_conversation_is_404_not_503(monkeypatch):
+    """存在しない会話は「今は無理」ではなく「何度やっても無理」。
 
-    IntegrityError は SQLAlchemyError の子なので、現状は DB 障害と同じ 503 になる。
-    再試行しても必ず同じ結果になる入力に「しばらくしてからもう一度」と言う点は
-    正確ではないが、画面は SSE の done フレームで受け取った会話 ID しか送らないため、
-    実際にこの経路へ落ちるのは手書きのリクエストだけ。現状の挙動をここで固定し、
-    変えるときにこのテストが気づかせる。
+    FK 制約違反は IntegrityError として DB 障害と同じ except に落ちるが、そのまま
+    503 を返すと「しばらくしてからもう一度」と嘘の案内をし、監視にも DB 不調として
+    積み上がる。失敗したときだけ会話の有無を確かめて 404 に振り分ける。
     """
     async def _boom(conversation_id, description, ticket_type):
         raise IntegrityError("INSERT INTO tickets", {}, Exception("FK 制約違反"))
 
+    async def _missing(conversation_id):
+        return None
+
     monkeypatch.setattr(actions.repository, "create_ticket", _boom)
+    monkeypatch.setattr(actions.repository, "get_conversation", _missing)
+    res = client.post(_URL, json=_body())
+    assert res.status_code == 404
+    assert res.json()["detail"] == "会話が見つかりません"
+
+
+def test_a_real_db_outage_is_still_503(monkeypatch):
+    """会話は在るのに書けない場合は、これまでどおり再試行を促す。"""
+    async def _boom(conversation_id, description, ticket_type):
+        raise OperationalError("INSERT INTO tickets", {}, Exception("接続断"))
+
+    async def _exists(conversation_id):
+        return object()
+
+    monkeypatch.setattr(actions.repository, "create_ticket", _boom)
+    monkeypatch.setattr(actions.repository, "get_conversation", _exists)
     res = client.post(_URL, json=_body())
     assert res.status_code == 503
     assert res.json()["detail"] == _DB_DOWN_MSG
+
+
+def test_when_the_check_itself_fails_it_stays_503(monkeypatch):
+    """会話の有無を確かめる問い合わせも落ちたら、存在しないとは言い切らない。
+
+    ここで 404 に倒すと、実際には在る会話に対して「見つかりません」と答えてしまう。
+    """
+    async def _boom(*a, **k):
+        raise OperationalError("INSERT INTO tickets", {}, Exception("接続断"))
+
+    monkeypatch.setattr(actions.repository, "create_ticket", _boom)
+    monkeypatch.setattr(actions.repository, "get_conversation", _boom)
+    res = client.post(_URL, json=_body())
+    assert res.status_code == 503
 
 
 def test_does_not_leak_the_database_error_to_the_client(monkeypatch):

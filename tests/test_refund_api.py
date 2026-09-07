@@ -36,7 +36,7 @@ _DEAD_DB_URL = "mysql+asyncmy://root:root@127.0.0.1:59999/nonexistent_db"
 
 # 画面のドロップダウンに並ぶ固定の理由(spec §7)。増減したら画面と食い違うので、
 # ここで一覧そのものを固定する。
-_REASONS = ["7日以内の自己都合返品", "品質問題", "誤配送", "不要になった", "その他"]
+_REASONS = ["7日以内の自己都合返品", "品質不良", "誤配送", "不要になった", "その他"]
 
 # 空白のみと見なすべき入力。ASCII 空白だけでは足りない。U+3000(全角スペース)は
 # 日本語 IME がそのまま出す「ありがちな空入力」で、これを通すと注文番号の分からない
@@ -76,7 +76,7 @@ def _spy_create_ticket(monkeypatch, ticket_no: str = "T20260908120000002") -> li
 
 
 def _body(**over) -> dict:
-    body = {"conversation_id": 7, "order_id": "1001", "reason": "品質問題"}
+    body = {"conversation_id": 7, "order_id": "1001", "reason": "品質不良"}
     body.update(over)
     return body
 
@@ -91,7 +91,7 @@ def test_creates_a_refund_ticket_and_returns_ticket_no(monkeypatch):
     assert conversation_id == 7
     assert ticket_type == "refund"
     # 後から人が見て何の申請か分かること。注文番号と理由の両方が要る
-    assert "1001" in description and "品質問題" in description
+    assert "1001" in description and "品質不良" in description
 
 
 def test_uses_the_english_enum_identifier_not_the_japanese_label(monkeypatch):
@@ -135,7 +135,7 @@ def test_accepts_every_fixed_reason(monkeypatch, reason):
 
 @pytest.mark.parametrize("reason", [
     pytest.param("返品したい", id="free-text"),
-    pytest.param("品質問題です", id="near-miss-with-suffix"),
+    pytest.param("品質不良です", id="near-miss-with-suffix"),
     pytest.param("quality", id="english"),
     pytest.param("", id="empty"),
     pytest.param("その他 ", id="trailing-space"),

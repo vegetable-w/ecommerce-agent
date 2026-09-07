@@ -64,7 +64,11 @@ class CreateRefundRequest(BaseModel):
     # 検証を Literal に任せるのは CreateTicketRequest と同じ理由で、許容値の一覧が
     # OpenAPI の enum として表に出て、画面のドロップダウンとの契約になるため。
     reason: Literal[
-        "7日以内の自己都合返品", "品質問題", "誤配送", "不要になった", "その他"
+        # 選択肢の文言はナレッジ側の用語に合わせる。返品ポリシーの節が
+        # 「品質不良と保証」「品質不良、誤配送など」と書いているので、申請理由も
+        # 同じ語にしておくと、Agent が引用する規約とユーザーが選んだ理由が
+        # 同じ言葉で並ぶ(spec は「商品不良」、plan は「品質問題」と揺れていた)。
+        "7日以内の自己都合返品", "品質不良", "誤配送", "不要になった", "その他"
     ] = Field(description="返金理由。画面のドロップダウンと同じ固定の選択肢")
 
     # min_length=1 は空白のみの注文番号を通す(CreateTicketRequest の description と

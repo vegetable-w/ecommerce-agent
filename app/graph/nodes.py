@@ -357,6 +357,34 @@ def _normalize_order_id(picked) -> str | None:
     return _extract_order_id(s)
 
 
+# 「自分の品物に対して何かをしたい」ことを示す語。これがあれば対象の注文が要る。
+# 「ください」単体は入れない。「教えてください」のような丁寧な質問まで拾ってしまい、
+# 規約を聞いただけで注文の一覧が出る(実測で踏んだ)。「してください」なら
+# 「教えてください」には当たらず、「返品してください」には当たる。
+_ACTION_WORDS = ("したい", "して欲しい", "してほしい", "ほしいです", "してください",
+                 "お願いします", "申請", "手続き", "返してもら", "返金してもら")
+# 「規約そのものを聞いている」ことを示す語。上の意思表示が無ければ注文は要らない。
+_POLICY_WORDS = ("ポリシー", "規約", "ルール", "きまり", "決まり", "条件",
+                 "何日", "いつまで", "どのくらい", "教えて")
+
+
+def _needs_an_order(text: str) -> bool:
+    """このターンが特定の注文を必要としているか。
+
+    返金返品の intent には「自分の注文を返品したい」と「返品の規約を知りたい」の
+    **両方**が入る(8 分類はここを分けていない)。後者に対して注文の一覧を出すと、
+    規約を聞いただけのユーザーが本文なしのカードの山を見ることになる。
+    実測: 「返品交換ポリシー 教えて」で select_order の中断が起き、回答が空になった。
+
+    **迷ったら一覧を出さない側に倒す。** 規約だけ引いて答えれば、必要なら Agent が
+    注文番号を尋ね直せる。逆に要らない一覧を出すと、会話はそこで止まってしまい、
+    ユーザーは選ぶ以外に進めなくなる。害の大きさが釣り合っていない。
+    """
+    if any(w in text for w in _POLICY_WORDS) and not any(w in text for w in _ACTION_WORDS):
+        return False
+    return any(w in text for w in _ACTION_WORDS)
+
+
 async def fetch_order(state) -> dict:
     """返金フローの最初の段。対象の注文を特定する。
 
@@ -379,6 +407,10 @@ async def fetch_order(state) -> dict:
     if not order_id:
         order_id = _extract_order_id(state.get("resolved_query") or _user_text(state))
         source = "query"
+    if not order_id and not _needs_an_order(state.get("resolved_query") or _user_text(state)):
+        # 規約そのものを聞かれている。対象の注文は要らないので一覧を出さずに先へ進め、
+        # retrieve_policy の結果だけで答えさせる。
+        return {"trace": {"fetch_order": {"order_id": None, "source": "not_needed"}}}
     if not order_id:
         # ここから先は model に選ばせない。一覧を画面へ出してユーザーの選択を待つ。
         # list_user_orders は純粋な関数なので、再実行で 2 回呼ばれても害が無い。

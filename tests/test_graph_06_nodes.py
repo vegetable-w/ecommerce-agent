@@ -1157,3 +1157,57 @@ def test_the_date_note_is_only_for_the_refund_route():
         "order_data": {"created_at": "2026-07-04 10:00"},
         "messages": [HumanMessage("注文1001は?")]})
     assert "本日は" not in msgs[0].content
+
+
+# ---------------------------------------------------------------------------
+# 規約そのものを聞かれたときは注文を要求しない
+#
+# 返金返品の intent には「自分の注文を返品したい」と「返品の規約を知りたい」の
+# 両方が入る(8 分類はここを分けていない)。後者で注文の一覧を出すと、規約を
+# 聞いただけのユーザーが本文なしのカードの山を見て、選ぶ以外に進めなくなる。
+# 実測: 「返品交換ポリシー 教えて」で select_order の中断が起き、回答が空になった。
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("text", [
+    "返品交換ポリシー　教えて",
+    "返品ポリシーを教えてください",
+    "返品の条件は?",
+    "返品は何日以内ですか",
+    "交換のルールを知りたい",
+    "返金はいつまでにできますか",
+])
+def test_a_policy_question_does_not_need_an_order(text):
+    assert nodes._needs_an_order(text) is False
+
+
+@pytest.mark.parametrize("text", [
+    "返金したい",
+    "返品したいです",
+    "この前買ったものを返したいです",
+    "返品手続きをお願いします",
+    "返金してほしいのですが",
+    "返品してください",
+])
+def test_acting_on_an_item_needs_an_order(text):
+    assert nodes._needs_an_order(text) is True
+
+
+def test_polite_request_phrasing_is_not_an_action():
+    """「教えてください」を動作の意思表示と取らないこと。
+
+    「ください」単体を動作の印にすると、丁寧に規約を尋ねただけで注文の一覧が出る。
+    """
+    assert nodes._needs_an_order("返品ポリシーを教えてください") is False
+    assert nodes._needs_an_order("返品してください") is True
+
+
+async def test_fetch_order_skips_the_selector_for_a_policy_question(monkeypatch):
+    """規約の質問では一覧を出さず、注文なしで先へ進む。"""
+    def _boom(uid):
+        raise AssertionError("規約の質問で注文の一覧を出してはいけない")
+
+    monkeypatch.setattr(nodes, "list_user_orders", _boom)
+    out = await nodes.fetch_order({"resolved_query": "返品ポリシーを教えてください",
+                                   "user_id": "u1"})
+    assert out["trace"]["fetch_order"]["source"] == "not_needed"
+    assert "order_id" not in out          # 注文は書かない

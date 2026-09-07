@@ -50,6 +50,38 @@
     padding:9px 13px; font-size:12px; color:#6c6280; line-height:1.75; margin:8px 0 0}
   .rag-sub{font-size:11px; color:var(--muted); margin-top:2px}
   .rag-meta{display:flex; flex-wrap:wrap; gap:6px}
+
+  /* 幻覚ケース台帳。カードの語彙(角丸・枠線・カプセル)は共通 CSS に合わせ、
+     ここでは並びと「引用された根拠」の強調だけを足す。 */
+  .fc-n{margin-left:6px; font-family:ui-monospace,Consolas,monospace; font-size:11.5px; color:var(--muted)}
+  .adm-btn.pri .fc-n{color:#fff}
+  .fc-n.na{font-family:inherit; font-size:11px}
+
+  .fcase{border:1px solid var(--line); border-radius:16px; padding:11px 14px;
+    margin-bottom:10px; background:#fffdfe}
+  .fcase .head{display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:6px}
+  .fcase .eid{font-family:ui-monospace,Consolas,monospace; font-size:12.5px;
+    font-weight:700; color:var(--accent-d)}
+  .fcase .q{font-size:13.5px; font-weight:600; line-height:1.7; word-break:break-word; margin-bottom:7px}
+  .fcase .lbl{font-size:11px; color:var(--muted); margin:8px 0 3px}
+  .fcase .body{font-size:12.5px; line-height:1.75; color:#5d5470;
+    white-space:pre-wrap; word-break:break-word}
+  .fcase .why{background:#fff4f4; border:1px solid #ffd9d9; border-radius:12px; padding:8px 11px}
+  .fcase .res{background:#f5fbf8; border:1px solid #d5efe3; border-radius:12px; padding:8px 11px}
+  .fc-ref{font-family:ui-monospace,Consolas,monospace; color:var(--accent-d); font-weight:700}
+
+  .fc-cites{margin-top:8px}
+  .fc-cite{border:1px solid var(--line); border-radius:12px; padding:8px 11px; margin-top:6px; background:#fff}
+  .fc-cite.used{border-color:#ffc7d8; background:#fff6f9}
+  .fc-cite .no{font-family:ui-monospace,Consolas,monospace; font-size:12px; color:var(--muted)}
+  .fc-cite.used .no{color:var(--accent-d); font-weight:700}
+  .fc-cite .path{font-size:11px; color:var(--muted)}
+  .fc-cite .cq{font-size:12.5px; font-weight:600; margin:3px 0 4px}
+  .fc-cite .ca{font-size:12px; line-height:1.7; color:#5d5470; white-space:pre-wrap; word-break:break-word}
+
+  .fc-acts{margin-top:10px}
+  .fc-note{margin-top:9px}
+  .fc-pager{display:flex; flex-wrap:wrap; gap:9px; align-items:center; margin-top:11px}
 </style>
 </head>
 <body>
@@ -113,7 +145,20 @@
   </div>
 
   <div class="adm-card">
-    <h2><span class="adm-num">4</span>その場で再実行</h2>
+    <h2><span class="adm-num">4</span>幻覚ケース台帳</h2>
+    <div class="adm-btns" id="fcTabs" style="margin-bottom:11px"></div>
+    <div id="fcErr"></div>
+    <div id="fcList"><div class="adm-empty">読み込み中…</div></div>
+    <div class="fc-pager" id="fcPager"></div>
+    <p class="adm-note">
+      judge が「回答が根拠を裏切っている」と判定した問いを、評価の実行をまたいで 1 問 1 行で積んでいます。
+      同じ問いが再び幻覚と判定されても行は増えず、回数だけが増えます。
+      片付けたケースが再発したときは自動で未対処へ戻ります。
+    </p>
+  </div>
+
+  <div class="adm-card">
+    <h2><span class="adm-num">5</span>その場で再実行</h2>
     <div class="adm-btns" id="runBtns"></div>
     <p class="adm-note" id="runNote"></p>
     <div class="adm-log" id="log"></div>
@@ -410,10 +455,297 @@ function startPolling() {
     try {
       const d = await getJSON('/api/jobs/eval-rag');
       $('log').textContent = d.log || '';
-      if (!d.running) { clearInterval(polling); polling = null; toast('評価が終了しました'); refresh(); }
+      if (!d.running) { clearInterval(polling); polling = null; toast('評価が終了しました'); refresh(); fcLoad(); }
     } catch { clearInterval(polling); polling = null; }
   }, 1500);
 }
+
+/* ---------- 幻覚ケース台帳 ---------- */
+/* この欄だけはレポート artifact ではなく MySQL の faith_cases を読む。台帳は実行を
+   またいで積み上がるもので、実行ごとに作り直されるレポートには置けない。したがって
+   レポートの有無とは無関係に常に描く(レポートが未生成でも台帳には中身がある)。 */
+
+const FC_TABS = [
+  ['unresolved', '未対処'],
+  ['resolved', '対処済み'],
+  ['no_action_needed', '対処不要'],
+  ['', 'すべて'],            // '' は絞り込まない。API へは status を付けずに投げる
+];
+
+/* status の見せ方。未対処はこれから片付けるものなので warn、片付いたものは ok、
+   直さなくてよいと決めたものは色を持たせない。 */
+const FC_ST = {
+  unresolved: ['warn', '未対処'],
+  resolved: ['ok', '対処済み'],
+  no_action_needed: ['', '対処不要'],
+};
+
+const FC_SIZE = 20;
+let fcStatus = 'unresolved';   // 作業一覧なので未対処から開く
+let fcPage = 1;
+let fcCounts = null;           // null は「集計できなかった」。全部 0 の dict とは別物
+
+/* bucket の日本語名は検索品質の表と同じものを使う。台帳には D_absent も入るので、
+   一覧に無い bucket は API の値をそのまま出す。 */
+const fcBucket = b => (BUCKETS.find(x => x[0] === b) || [null, b])[1];
+/* DATETIME をそのまま出すと秒まで並んで読みにくい。分までで足りる。 */
+const fcWhen = t => String(t || '').replace('T', ' ').slice(0, 16);
+
+/* 回答本文の [n] を拾う。根拠はモデルへ渡した Top-K 全件が残っているが、回答が実際に
+   引くのは普通 2〜3 件しかない。「引かなかった根拠に答えが載っていた」ことまで確かめ
+   られるよう全件を出したうえで、引かれた n にだけ印を付ける。 */
+const FC_REF_RE = /\[(\d{1,2})\]/g;
+
+function fcCited(answer) {
+  const used = new Set();
+  String(answer || '').replace(FC_REF_RE, (_, n) => { used.add(Number(n)); return ''; });
+  return used;
+}
+
+/* 本文の [n] にも同じ印を付ける。esc() を通してから差し替える(角括弧は esc の対象外
+   なので、この順でもタグは壊れない)。 */
+const fcMarkRefs = text =>
+  esc(text).replace(FC_REF_RE, (_, n) => `<span class="fc-ref">[${n}]</span>`);
+
+function fcCiteBlock(cites, used) {
+  if (!cites.length) {
+    return '<div class="adm-empty">この行には根拠のスナップショットが残っていません。</div>';
+  }
+  return cites.map(c => {
+    const on = used.has(Number(c.n));
+    return `<div class="fc-cite${on ? ' used' : ''}">
+      <div class="path"><span class="no">[${esc(c.n)}]</span> ${esc(c.section_path || '')}
+        ${on ? '· 回答が引用' : ''}</div>
+      <div class="cq">${esc(c.question || '')}</div>
+      <div class="ca">${esc(c.answer || '')}</div>
+    </div>`;
+  }).join('');
+}
+
+/* カード 1 枚。状態を変えたあとは、返ってきた行でこの 1 枚だけを描き直す。 */
+function fcCard(row) {
+  const [kind, label] = FC_ST[row.status] || ['', row.status];
+  const used = fcCited(row.answer);
+  const cites = row.citations || [];
+  const nUsed = cites.filter(c => used.has(Number(c.n))).length;
+
+  /* いま開いているタブの条件から外れた行は、次に一覧を取り直すと消える。黙って残すと
+     「未対処 0 件なのにカードがある」と読めてしまうので、そう書いておく。 */
+  const off = (fcStatus && row.status !== fcStatus)
+    ? pill('', 'このタブの条件から外れました', true) : '';
+
+  const acts = [];
+  if (row.status !== 'resolved') {
+    acts.push('<button class="adm-btn pri" data-act="close" data-to="resolved">対処済みにする</button>');
+  }
+  if (row.status !== 'no_action_needed') {
+    acts.push('<button class="adm-btn" data-act="close" data-to="no_action_needed">対処不要にする</button>');
+  }
+  if (row.status !== 'unresolved') {
+    acts.push('<button class="adm-btn" data-act="reopen">未対処に戻す</button>');
+  }
+
+  const openLabel = `根拠 ${cites.length} 件を見る（うち回答が引用 ${nUsed} 件）`;
+
+  return `<div class="fcase" data-id="${row.id}" data-status="${esc(row.status)}">
+    <div class="head">
+      <span class="eid">${esc(row.eval_id)}</span>
+      ${pill('', fcBucket(row.bucket))}
+      ${pill(kind, label)}
+      ${row.seen_count > 1 ? pill('warn', `${row.seen_count} 回目`) : pill('', '初回')}
+      ${pill('', `最終 ${fcWhen(row.last_seen_at)}`)}
+      ${pill('', esc(row.strategy || ''))}
+      ${off}
+    </div>
+    <div class="q">${esc(row.query)}</div>
+
+    <div class="lbl">judge の指摘${row.judge_model ? `（${esc(row.judge_model)}）` : ''}</div>
+    <div class="body why">${esc(row.reason)}</div>
+
+    <div class="lbl">生成された回答</div>
+    <div class="body">${fcMarkRefs(row.answer)}</div>
+
+    ${row.resolution ? '<div class="lbl">どう直したか / なぜ直さなくてよいか' +
+      (row.resolved_at ? `（${fcWhen(row.resolved_at)}）` : '') + '</div>' +
+      `<div class="body res">${esc(row.resolution)}</div>` : ''}
+
+    <div class="fc-cites">
+      <button class="adm-btn" data-act="cites"
+        data-open="根拠を隠す" data-closed="${esc(openLabel)}">${esc(openLabel)}</button>
+      <div class="fc-cites-body" hidden>${fcCiteBlock(cites, used)}</div>
+    </div>
+
+    <div class="adm-btns fc-acts">${acts.join('')}</div>
+
+    <div class="fc-note" hidden>
+      <div class="adm-row">
+        <input class="adm-in" data-role="note" maxlength="300" style="flex:1; min-width:230px"
+               placeholder="どう直したか / なぜ直さなくてよいか（必須・300 文字以内）">
+        <button class="adm-btn pri" data-act="submit" disabled>送信</button>
+        <button class="adm-btn" data-act="cancel">やめる</button>
+      </div>
+      <p class="adm-note" data-role="hint">対処メモを書くと送信できます。</p>
+    </div>
+    <div class="adm-err" data-role="err" hidden></div>
+  </div>`;
+}
+
+function fcRenderTabs() {
+  $('fcTabs').innerHTML = FC_TABS.map(([st, label]) => {
+    const n = fcCounts ? fcCounts[st || 'total'] : null;
+    /* 件数が読めなかったときは 0 と書かない。0 件であることと集計できなかったことは、
+       画面で言うべきことが違う(共通シェルの statBox と同じ扱い)。 */
+    const na = (n === null || n === undefined);
+    return `<button class="adm-btn${st === fcStatus ? ' pri' : ''}" data-st="${st}">${label}` +
+      `<span class="fc-n${na ? ' na' : ''}">${na ? '取得不可' : n}</span></button>`;
+  }).join('');
+}
+
+function fcRenderPager(d) {
+  /* 0 件のとき API の pages は 0。「1 / 0 ページ」と出さないよう画面側で丸める。 */
+  const pages = Math.max(1, d.pages);
+  $('fcPager').innerHTML = d.total === 0 ? '' :
+    `<button class="adm-btn" data-page="${d.page - 1}"${d.page <= 1 ? ' disabled' : ''}>← 前へ</button>
+     <span class="adm-note" style="margin:0">${d.page} / ${pages} ページ・${d.total} 件</span>
+     <button class="adm-btn" data-page="${d.page + 1}"${d.page >= pages ? ' disabled' : ''}>次へ →</button>`;
+}
+
+async function fcLoad() {
+  const qs = new URLSearchParams({ page: fcPage, size: FC_SIZE });
+  if (fcStatus) qs.set('status', fcStatus);
+
+  let d;
+  try {
+    d = await getJSON('/api/rag-eval/faith-cases?' + qs.toString());
+  } catch (e) {
+    /* API ごと落ちている場合。台帳が読めなくても上の評価指標は消さない。 */
+    $('fcErr').innerHTML = `<div class="adm-err">台帳を取得できませんでした: ${esc(e.message)}</div>`;
+    $('fcList').innerHTML = '';
+    $('fcPager').innerHTML = '';
+    fcCounts = null;
+    fcRenderTabs();
+    return;
+  }
+
+  fcCounts = d.counts;
+  const notes = [];
+  if (d.error) notes.push(esc(d.error));
+  if (!d.counts) notes.push('件数を集計できませんでした（0 件という意味ではありません）。');
+  $('fcErr').innerHTML = notes.length ? `<div class="adm-err">${notes.join('<br>')}</div>` : '';
+
+  fcRenderTabs();
+  $('fcList').innerHTML = d.rows.length
+    ? d.rows.map(fcCard).join('')
+    : `<div class="adm-empty">${fcStatus
+        ? esc((FC_ST[fcStatus] || ['', fcStatus])[1]) + 'のケースはありません。'
+        : '台帳はまだ空です。評価を実行すると、judge が幻覚と判定した問いがここに積まれます。'}</div>`;
+  fcRenderPager(d);
+}
+
+/* 変わったぶんだけタブの件数も動かす。件数がずれたまま残ると、あと何件片付いていない
+   のかが分からなくなる。counts が読めていないとき(null)は触らない。 */
+function fcShiftCounts(from, to) {
+  if (!fcCounts || from === to) return;
+  if (typeof fcCounts[from] === 'number') fcCounts[from] = Math.max(0, fcCounts[from] - 1);
+  if (typeof fcCounts[to] === 'number') fcCounts[to] += 1;
+}
+
+/* 対処メモが空(全角スペースだけも含む)のうちは送信させない。空のまま投げて 400 を
+   受け取るより、そもそも押せないほうが分かりやすい。JS の trim() は U+3000 も落とす。 */
+function fcSyncSubmit(card) {
+  const input = card.querySelector('[data-role="note"]');
+  const btn = card.querySelector('[data-act="submit"]');
+  if (input && btn) btn.disabled = input.value.trim() === '';
+}
+
+function fcShowErr(card, msg) {
+  const box = card.querySelector('[data-role="err"]');
+  box.textContent = msg;
+  box.hidden = false;
+}
+
+async function fcSetStatus(card, status, resolution) {
+  const id = card.dataset.id;
+  const before = card.dataset.status;
+  card.querySelectorAll('button').forEach(b => { b.disabled = true; });
+  try {
+    const d = await postJSON(`/api/rag-eval/faith-cases/${id}/status`,
+      resolution === undefined ? { status } : { status, resolution });
+    fcShiftCounts(before, d.case.status);
+    fcRenderTabs();
+    card.outerHTML = fcCard(d.case);   // 返ってきた行でこの 1 枚だけ描き直す
+    toast('台帳を更新しました');
+  } catch (e) {
+    /* 400(対処メモの規則違反) / 404 / 503 の detail をそのまま見せる。黙って失敗しない。 */
+    card.querySelectorAll('button').forEach(b => { b.disabled = false; });
+    fcSyncSubmit(card);
+    fcShowErr(card, e.message);
+    toast(e.message);
+  }
+}
+
+$('fcTabs').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-st]');
+  if (!b) return;
+  fcStatus = b.dataset.st;
+  fcPage = 1;
+  fcLoad();
+});
+
+$('fcPager').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-page]');
+  if (!b || b.disabled) return;
+  fcPage = Math.max(1, Number(b.dataset.page));
+  fcLoad();
+});
+
+/* カード内の操作は 1 か所で受ける。カード 1 枚だけを描き直すので、カードごとに
+   listener を付けると外し忘れる。 */
+$('fcList').addEventListener('click', ev => {
+  const btn = ev.target.closest('button[data-act]');
+  if (!btn) return;
+  const card = btn.closest('.fcase');
+  const act = btn.dataset.act;
+
+  if (act === 'cites') {
+    const body = card.querySelector('.fc-cites-body');
+    body.hidden = !body.hidden;
+    btn.textContent = body.hidden ? btn.dataset.closed : btn.dataset.open;
+    return;
+  }
+  if (act === 'close') {
+    /* 対処済み / 対処不要には対処メモが要る。押した時点では送らず、入力欄を開く。 */
+    const note = card.querySelector('.fc-note');
+    note.dataset.to = btn.dataset.to;
+    note.hidden = false;
+    card.querySelector('[data-role="hint"]').textContent =
+      btn.dataset.to === 'resolved'
+        ? 'どう直したかを書いてください（必須）。'
+        : 'なぜ直さなくてよいのかを書いてください（必須）。';
+    fcSyncSubmit(card);
+    card.querySelector('[data-role="note"]').focus();
+    return;
+  }
+  if (act === 'cancel') {
+    card.querySelector('.fc-note').hidden = true;
+    return;
+  }
+  if (act === 'submit') {
+    const note = card.querySelector('.fc-note');
+    const value = card.querySelector('[data-role="note"]').value;
+    if (value.trim() === '') return;   // 念のため。ここに来る時点でボタンは disabled のはず
+    fcSetStatus(card, note.dataset.to, value);
+    return;
+  }
+  if (act === 'reopen') {
+    /* 未対処へ戻すときは入力欄なしで即送信。対処メモはサーバー側で消える。 */
+    fcSetStatus(card, 'unresolved');
+  }
+});
+
+$('fcList').addEventListener('input', ev => {
+  if (ev.target.dataset.role === 'note') fcSyncSubmit(ev.target.closest('.fcase'));
+});
 
 /* ---------- 起動 ---------- */
 async function refresh() {
@@ -445,7 +777,9 @@ async function refresh() {
   if (data.job && data.job.running) startPolling();
 }
 
+/* レポート(artifact)と台帳(MySQL)は出所が別なので、片方が落ちても他方は描く。 */
 refresh();
+fcLoad();
 </script>
 </body>
 </html>

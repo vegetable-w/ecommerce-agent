@@ -312,6 +312,32 @@ def test_page_is_reachable_and_uses_the_shared_shell(client):
     assert "/static/admin.js" in res.text
 
 
+def test_the_page_carries_the_faith_case_ledger(client):
+    """幻覚ケース台帳の欄がページに載っていること。
+
+    JS の挙動そのものはここでは試せないので、粒度は上のシェル確認と同じにする
+    (「台帳の API を叩く欄が、status タブとページ送りごと置かれている」まで)。
+    """
+    html = client.get("/rag-eval").text
+    assert "/api/rag-eval/faith-cases" in html
+    for anchor_id in ('id="fcTabs"', 'id="fcList"', 'id="fcPager"'):
+        assert anchor_id in html
+    for label in ("未対処", "対処済み", "対処不要", "すべて"):
+        assert label in html
+
+
+def test_the_ledger_asks_for_a_note_before_closing_a_case(client):
+    """対処メモの入力欄が最初から disabled の送信ボタンと一緒に置かれていること。
+
+    空のまま送って 400 を受け取るのではなく、そもそも押せないようにするのがこの欄の
+    決まりなので、入力欄・送信ボタン・disabled の 3 つが揃っていることを見る。
+    """
+    html = client.get("/rag-eval").text
+    assert 'data-role="note"' in html
+    assert 'data-act="submit" disabled' in html
+    assert 'data-act="cites"' in html          # 根拠の折りたたみ
+
+
 # ---------------------------------------------------------------------------
 # 実物の artifact(あれば)
 # ---------------------------------------------------------------------------

@@ -216,3 +216,18 @@ def test_rag_insufficient_notice_does_not_promise_unreachable_actions():
 
     assert "実行できない行動を約束してはいけません" in RAG_INSUFFICIENT_NOTICE
     assert "create_ticket" not in RAG_INSUFFICIENT_NOTICE
+
+
+def test_both_answer_paths_carry_the_condition_rule():
+    """生産経路と評価経路で「条件を落とすな」の規則を揃える。
+
+    生産の収束生成が読むのは 02 章で凍結した AGENT_SYSTEM なので、この規則は
+    tool の本文(RAG_CITATION_NOTICE)でしか届かない。評価側は RAG_ANSWER_SYSTEM を
+    使う。片方だけに入れると、評価が本番より良い生成器を測ることになる。
+    """
+    from app.core.prompts import RAG_ANSWER_SYSTEM, RAG_CITATION_NOTICE
+
+    for text in (RAG_ANSWER_SYSTEM, RAG_CITATION_NOTICE):
+        assert "条件" in text
+        assert "表の 1 行" in text
+        assert "通常" in text

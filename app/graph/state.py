@@ -15,12 +15,23 @@ from langgraph.graph.message import add_messages
 from typing_extensions import TypedDict
 
 
+# trace を「この turn の分だけ」に畳み直すための目印。
+# reducer 付きの field は上書きができない(必ず merge される)ので、turn の入口で
+# 空 dict を渡しても前 turn の値が残る。checkpointer が State を持ち越すため、
+# それをやらないと 2 turn 目のログに 1 turn 目の forced_rag が混ざる。
+TRACE_RESET = "__reset__"
+
+
 def merge_dict(a: dict | None, b: dict | None) -> dict:
     """trace 用の reducer。同じ key は後勝ち、それ以外は足し合わせる。
+
+    b に TRACE_RESET が入っていたら、そこから作り直す(turn の切り替え)。
 
     新しい dict を作って返す(引数を書き換えない)。reducer は step ごとに呼ばれるので、
     片方を in-place で更新すると、前の step の trace が後から書き換わる。
     """
+    if isinstance(b, dict) and b.get(TRACE_RESET):
+        return {k: v for k, v in b.items() if k != TRACE_RESET}
     return {**(a or {}), **(b or {})}
 
 
@@ -37,8 +48,15 @@ class ConversationState(TypedDict, total=False):
     user_id: str
     conversation_id: int
 
-    intent: str              # 7 分類のいずれか
-    route: str               # knowledge | business | complaint | chitchat
+    # 指示対象を解決して書き下した完全な質問。以降の分類と検索はこちらを使う
+    resolved_query: str
+    intent: str              # 8 分類のいずれか
+    intent_confidence: float # 分類の確信度(0-1)
+    route: str               # 5 つの出口のいずれか
+
+    # 返金フロー
+    order_id: str            # 抽出、または画面で選ばれた注文番号
+    order_data: dict         # query_order で取得した注文の中身
 
     # knowledge route の retrieval 結果。business route では空のまま
     evidence: str            # 番号付きの evidence 本文

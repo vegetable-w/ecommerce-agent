@@ -23,6 +23,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from app.config import settings
 from app.db import repository
+from app.graph import state as state_mod
 from app.graph.build import build_graph
 
 logger = logging.getLogger(__name__)
@@ -113,8 +114,32 @@ def _graph_input(user_id: str, message: str, cid: int) -> dict:
     この 2 つに reducer が無く(後勝ちの上書き)、turn ごとに戻さないと前 turn の
     step 数を引き継いだまま should_continue の上限に当たるため。
     """
-    return {"messages": [HumanMessage(message)], "user_id": user_id,
-            "conversation_id": cid, "steps": 0, "tokens_used": 0}
+    return {
+        "messages": [HumanMessage(message)],
+        "user_id": user_id,
+        "conversation_id": cid,
+        # --- turn ごとに戻す出力チャネル ---
+        # checkpointer は State を丸ごと持ち越すので、前の turn が書いた値は
+        # 明示的に戻さない限り残る。実測した実害:
+        #   1 turn 目に苦情 → answer に共感文、suggested_actions に 2 つの選択肢
+        #   2 turn 目に配送の質問 → どの node も answer を書かないので、
+        #   resolve_answer が 1 turn 目の共感文を返し、苦情のボタンも出たまま
+        "steps": 0,
+        "tokens_used": 0,
+        "answer": "",
+        "suggested_actions": [],
+        "evidence": "",
+        "citations": [],
+        "evidence_strong": False,
+        "intent": "",
+        "route": "",
+        "resolved_query": "",
+        "intent_confidence": 0.0,
+        "order_id": "",
+        "order_data": {},
+        # trace は reducer 付きなので空 dict では消えない。目印を付けて作り直す
+        "trace": {state_mod.TRACE_RESET: True},
+    }
 
 
 def _config(cid: int) -> dict:

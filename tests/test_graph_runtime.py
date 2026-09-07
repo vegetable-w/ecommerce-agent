@@ -631,3 +631,41 @@ async def test_別thread_idのturnを同時に流しても履歴が混ざらな�
     # node へ入った時点の履歴の長さも会話ごとに独立している(4 回とも待ち合わせ済み)
     assert sorted(seen) == [(11, "Aの1回目", 1), (11, "Aの2回目", 3),
                             (22, "Bの1回目", 1), (22, "Bの2回目", 3)]
+
+
+# ---------------------------------------------------------------------------
+# turn をまたいだ出力の持ち越し
+#
+# checkpointer は State を丸ごと持ち越すので、前の turn が書いた出力を明示的に
+# 戻さないと次の turn へ漏れる。実測した実害: 1 turn 目に苦情 → 2 turn 目に配送の
+# 質問をすると、resolve_answer が 1 turn 目の共感文を返し、苦情のボタンも出たまま。
+# ---------------------------------------------------------------------------
+
+def test_graph_input_resets_every_output_channel():
+    inp = runtime._graph_input("u1", "こんにちは", 7)
+    assert inp["answer"] == "" and inp["suggested_actions"] == []
+    assert inp["evidence"] == "" and inp["citations"] == []
+    assert inp["evidence_strong"] is False
+    assert inp["intent"] == "" and inp["route"] == ""
+    assert inp["resolved_query"] == "" and inp["intent_confidence"] == 0.0
+    assert inp["order_id"] == "" and inp["order_data"] == {}
+    assert inp["steps"] == 0 and inp["tokens_used"] == 0
+
+
+def test_graph_input_does_not_reset_the_history():
+    """messages は履歴。ここで消すと checkpointer の意味が無くなる。"""
+    inp = runtime._graph_input("u1", "こんにちは", 7)
+    assert len(inp["messages"]) == 1
+    assert inp["messages"][0].content == "こんにちは"
+
+
+def test_trace_is_rebuilt_at_the_turn_boundary():
+    """trace は reducer 付きなので空 dict では消えない。目印で作り直す。"""
+    from app.graph.state import TRACE_RESET, merge_dict
+
+    prev = {"forced_rag": True, "route": "knowledge"}
+    fresh = runtime._graph_input("u1", "注文1001は?", 7)["trace"]
+    assert merge_dict(prev, fresh) == {}          # 前 turn の値が残らない
+    # 通常の merge は従来どおり足し合わせる
+    assert merge_dict({"a": 1}, {"b": 2}) == {"a": 1, "b": 2}
+    assert TRACE_RESET not in merge_dict(prev, fresh)

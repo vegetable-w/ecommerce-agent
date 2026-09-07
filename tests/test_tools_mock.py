@@ -219,3 +219,20 @@ async def test_query_logistics_golden_value():
         "timeline": ["横浜配送センターから発送", "現在の状態: 配達完了"],
     }
     assert result == expected
+
+
+async def test_the_tracking_number_actually_chains_the_two_tools():
+    """golden value のリテラルではなく、2 つの tool を実際に繋いで確かめる。
+
+    query_logistics の golden は query_order の戻り値と一致していないと意味が無いが、
+    どちらもリテラルで固定しているので、片方だけ書き換えてもテストは通ってしまう。
+    ここで実際に繋ぐことで、その静かなズレを落とせるようにする。
+    これは受け入れ条件 #5(注文 → 追跡番号 → 配送)が成立する前提そのもの。
+    """
+    order = await query_order.ainvoke({"order_id": "1001"})
+    logi = await query_logistics.ainvoke({"tracking_no": order["tracking_no"]})
+    assert logi["tracking_no"] == order["tracking_no"]
+
+    # 別の注文からは別の追跡番号が出る(定数を返していないこと)
+    other = await query_order.ainvoke({"order_id": "2002"})
+    assert other["tracking_no"] != order["tracking_no"]

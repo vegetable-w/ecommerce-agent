@@ -1,4 +1,4 @@
-"""06 章の分類前 2 段(指示対象の解決 / intent 分類)と、検索クエリの展開。
+"""06 章の分類前 2 段(指示対象の解決 / intent 分類)、検索クエリの展開、注文の特定。
 
 分類は 5 出口すべての入口なので、ここが崩れると会話全体の経路が変わる。
 プロンプトの良し悪しは scripts/eval_intent.py の実測で見る決まりなので、
@@ -9,6 +9,12 @@
 - 上流が落ちたとき、値域外の confidence が返ったときの倒れ方
 - coref node が書く resolved_query と trace の coref(rewrite / passthrough)
 - resolve / expand_queries の縮退(履歴が無ければ呼ばない、失敗と空は原文へ倒す)
+- fetch_order が注文をどう特定するか(発話から拾う / State の値 / 画面で選ばせる)と、
+  番号が無いときに **model に推測させず interrupt する**こと
+
+interrupt を通るテストは、fetch_order だけの最小 graph(_fetch_order_graph)を組んで
+ainvoke する。interrupt() は compiled graph の中でしか動かず、node を直に呼ぶと
+例外になるため。checkpointer は InMemorySaver で、本番の checkpoint ファイルには触らない。
 
 書き下しと展開の**中身の良し悪し**は scripts/eval_coref.py / scripts/eval_expand.py の
 実測で見る。ここで固定するのは契約と縮退だけ。
@@ -21,6 +27,9 @@ import logging
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableLambda
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.graph import END, START, StateGraph
+from langgraph.types import Command
 
 from app.config import settings
 from app.core import coref as coref_mod
@@ -29,6 +38,8 @@ from app.core import query_understanding as qu
 from app.core.llm import get_chat_model
 from app.core.prompts import COREF_REWRITE_PROMPT, EXPAND_QUERIES_PROMPT
 from app.graph import nodes
+from app.graph.state import ConversationState
+from app.tools import business
 
 
 class _FakeModel:
@@ -475,3 +486,172 @@ async def test_a_real_rewrite_is_still_recorded(monkeypatch):
     monkeypatch.setattr(nodes.coref_mod, "resolve", _rewrite)
     out = await nodes.coref({"messages": [HumanMessage("これは返品できますか")]})
     assert out["trace"]["coref"] == "rewrite"
+
+
+# --- 返金フローの注文特定(_extract_order_id / fetch_order / list_user_orders)----
+
+
+def _fetch_order_graph():
+    """fetch_order だけの最小 graph。**interrupt() は compiled graph の中でしか動かない。**
+
+    graph の外から node を直接呼ぶと例外になるので、interrupt を通るテストは必ず
+    ここを経由する。checkpointer は InMemorySaver で、本番の
+    data/05_checkpoints.sqlite には触らない。
+    """
+    b = StateGraph(ConversationState)
+    b.add_node("fetch_order", nodes.fetch_order)
+    b.add_edge(START, "fetch_order")
+    b.add_edge("fetch_order", END)
+    return b.compile(checkpointer=InMemorySaver())
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    ("注文1001について教えてください", "1001"),
+    ("注文番号は 1001 です", "1001"),
+    ("注文番号: 1001", "1001"),
+    ("1001番の商品を返品したい", "1001"),
+    ("末尾 20260701 の注文を返品したい", "20260701"),
+    ("注文１００１を返品したい", "1001"),          # 全角(日本語入力でそのまま出る)
+    ("order 1001 を返品したい", "1001"),
+])
+def test_extract_order_id_reads_common_ways_of_writing(text, expected):
+    assert nodes._extract_order_id(text) == expected
+
+
+@pytest.mark.parametrize("text", [
+    "3日以内に返品したいです",       # 「3」を注文番号にすると存在しない注文を引く
+    "2回目です",
+    "10日前に届きました",
+    # 単位が続かないので、桁数の下限だけが誤認を止めている 2 例
+    "3営業日以内に返品できますか",
+    "2番目に届いた商品を返品したい",  # 「番」は注文番号の目印でもあるので特に危ない
+    "500円の商品です",
+    "1500円の商品を返品したい",      # 桁数は足りるが単位付き
+    "2026年に買った商品を返品したい",  # 4 桁だが年
+    "返品したいのですが",
+    "",
+])
+def test_extract_order_id_does_not_mistake_a_quantity_for_an_order(text):
+    assert nodes._extract_order_id(text) is None
+
+
+async def test_fetch_order_uses_the_order_number_written_in_the_question():
+    out = await nodes.fetch_order(
+        {"messages": [HumanMessage("注文1001を返品したい")], "user_id": "u-1"})
+    assert out["order_id"] == "1001"
+    assert out["order_data"] == business.order_snapshot("1001")
+    assert out["trace"]["fetch_order"] == {"order_id": "1001", "source": "query"}
+
+
+async def test_fetch_order_prefers_the_resolved_query():
+    """「それ」を coref が書き下した文にだけ注文番号が出る場合。"""
+    out = await nodes.fetch_order({
+        "messages": [HumanMessage("それを返品したい")],
+        "resolved_query": "注文1001を返品したい",
+        "user_id": "u-1"})
+    assert out["order_id"] == "1001"
+
+
+async def test_fetch_order_uses_the_order_id_already_in_state():
+    """State に注文番号があれば一覧は出さない。
+
+    node を直接呼んでいるので、ここで interrupt を呼べば例外になる
+    (graph の外では interrupt() は動かない)。
+    """
+    out = await nodes.fetch_order({"messages": [HumanMessage("返品したい")],
+                                   "order_id": "2002", "user_id": "u-1"})
+    assert out["order_id"] == "2002"
+    assert out["order_data"] == business.order_snapshot("2002")
+    assert out["trace"]["fetch_order"] == {"order_id": "2002", "source": "state"}
+
+
+async def test_fetch_order_does_not_show_the_list_when_the_state_has_an_order_id():
+    g = _fetch_order_graph()
+    cfg = {"configurable": {"thread_id": "fetch-order-state"}}
+    out = await g.ainvoke({"messages": [HumanMessage("返品したい")],
+                           "order_id": "2002", "user_id": "u-1"}, cfg)
+    assert "__interrupt__" not in out
+    assert out["order_id"] == "2002"
+
+
+async def test_fetch_order_interrupts_with_the_order_list_when_no_number_is_given():
+    """注文番号が無いときは model に推測させず、一覧を画面へ出して選ばせる。"""
+    g = _fetch_order_graph()
+    cfg = {"configurable": {"thread_id": "fetch-order-ask"}}
+    out = await g.ainvoke(
+        {"messages": [HumanMessage("返品したいのですが")], "user_id": "u-1"}, cfg)
+
+    payload = out["__interrupt__"][0].value
+    assert payload["type"] == "select_order"
+    assert payload["orders"] == business.list_user_orders("u-1")
+    assert payload["orders"]
+    for o in payload["orders"]:
+        assert set(o) == {"order_id", "product", "status", "amount"}
+    # 選ばれるまで注文は確定しない
+    assert "order_id" not in out
+
+
+@pytest.mark.parametrize(("label", "resumed"), [
+    ("str", "1001"),
+    ("int", 1001),
+    ("dict", {"order_id": "1001"}),
+    ("fullwidth", "１００１"),
+    ("sentence", "注文1001"),
+])
+async def test_fetch_order_resume_fills_the_order_whatever_shape_the_value_has(
+        label, resumed):
+    """画面が何を返してくるかは決めきれない。dict でも数値でも文字列でも同じ注文に落ちる。"""
+    g = _fetch_order_graph()
+    cfg = {"configurable": {"thread_id": f"fetch-order-resume-{label}"}}
+    await g.ainvoke({"messages": [HumanMessage("返品したいのですが")],
+                     "user_id": "u-1"}, cfg)
+
+    out = await g.ainvoke(Command(resume=resumed), cfg)
+    assert out["order_id"] == "1001"
+    assert out["order_data"] == business.order_snapshot("1001")
+    assert out["trace"]["fetch_order"] == {"order_id": "1001", "source": "selected"}
+
+
+async def test_fetch_order_does_not_invent_an_order_when_the_selection_is_unreadable():
+    """読めない値で再開されても注文をでっち上げない(もう一度 interrupt もしない)。"""
+    g = _fetch_order_graph()
+    cfg = {"configurable": {"thread_id": "fetch-order-broken"}}
+    await g.ainvoke({"messages": [HumanMessage("返品したいのですが")],
+                     "user_id": "u-1"}, cfg)
+
+    out = await g.ainvoke(Command(resume={"cancelled": True}), cfg)
+    assert "__interrupt__" not in out
+    assert not out.get("order_id")
+    assert out["trace"]["fetch_order"] == {"order_id": None, "source": "unresolved"}
+
+
+def test_list_user_orders_is_stable_for_the_same_user():
+    assert business.list_user_orders("u-1") == business.list_user_orders("u-1")
+    assert business.list_user_orders("u-1") != business.list_user_orders("u-2")
+
+
+def test_list_user_orders_entries_match_order_snapshot():
+    """一覧と詳細が食い違うと、画面で選んだ注文と後段が読む注文が別物になる。"""
+    orders = business.list_user_orders("u-1")
+    assert 2 <= len(orders) <= 5
+    assert len({o["order_id"] for o in orders}) == len(orders)
+    for o in orders:
+        snap = business.order_snapshot(o["order_id"])
+        assert o == {k: snap[k] for k in ("order_id", "product", "status", "amount")}
+
+
+async def test_order_snapshot_is_the_only_source_of_query_order():
+    got = await business.query_order.ainvoke({"order_id": "1001"})
+    assert got == business.order_snapshot("1001")
+
+
+def test_order_snapshot_keeps_the_chapter_02_golden_value():
+    """抽出で乱数の引き順が変わっていないこと(tests/test_tools_mock.py と同じ値)。"""
+    assert business.order_snapshot("1001") == {
+        "order_id": "1001",
+        "status": "支払い済み",
+        "amount": 1739,
+        "created_at": "2026-07-04 10:00",
+        "product": "自動猫トイレ",
+        "tracking_no": "JP213502378238",
+    }

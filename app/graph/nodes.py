@@ -20,8 +20,10 @@ app/graph/state.py の ConversationState に宣言済みのものだけにする
 
 import json
 import logging
+import re
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langgraph.types import interrupt
 
 from app.config import settings
 from app.core import coref as coref_mod
@@ -36,6 +38,7 @@ from app.core.prompts import (
 )
 from app.db import repository
 from app.graph import routing
+from app.tools.business import list_user_orders, order_snapshot
 from app.tools.infra import execute_tool_call
 from app.tools.registry import get_all_tools
 
@@ -256,6 +259,130 @@ async def confidence_check(state) -> dict:
     """
     decision = "strong" if state.get("evidence_strong") else "weak"
     return {"trace": {"confidence": decision}}
+
+
+# ---------------------------------------------------------------------------
+# 返金返品 / アフターサービス(決定的な subflow)
+# ---------------------------------------------------------------------------
+
+
+# 注文番号として拾う数字の桁数の下限。app/tools/business.py の _ORDER_ID_RANGE
+# (4 桁で採番)に合わせてある。**下げてはいけない。**「3日以内に返品したい」の 3 や
+# 「2回目です」の 2 を注文番号と読むと、存在しない注文の中身を引いて、ユーザーが
+# 一度も言っていない商品について返品可否を答えることになる。
+_ORDER_ID_MIN_DIGITS = 4
+
+# 数字の直後がこの文字なら数量・日付であって注文番号ではない。桁数だけでは
+# 「2026年に買った」「1500円の商品」を弾けないため。「番」は逆に注文番号の
+# 目印なので、ここには入れない。
+_COUNTER_SUFFIX = "年月日円個回件点名分秒時週台冊枚本人%％"
+
+# 日本語入力からは全角数字がそのまま出てくる。半角へ寄せてから数字を探す
+_FULLWIDTH_DIGITS = str.maketrans("０１２３４５６７８９", "0123456789")
+
+# 注文番号の目印が付いた書き方(「注文1001」「注文番号: 1001」「1001番」)。
+# 目印のない数字より先に見るのは、1 文に数字が複数あるとき
+# (「3日以内に注文1001を返品したい」)に目印の付いた方を選ぶため。
+_ORDER_MARKED = re.compile(
+    rf"(?:注文番号|注文|オーダー|order)\s*(?:番号|no\.?|#|は|[:：]|の)?\s*"
+    rf"(\d{{{_ORDER_ID_MIN_DIGITS},}})"
+    rf"|(\d{{{_ORDER_ID_MIN_DIGITS},}})\s*番",
+    re.IGNORECASE,
+)
+_ORDER_BARE = re.compile(rf"\d{{{_ORDER_ID_MIN_DIGITS},}}")
+
+
+def _extract_order_id(text: str) -> str | None:
+    """質問文から注文番号を取り出す。見つからなければ None。
+
+    **見つからないことを None で正直に返すのが仕事。** ここで無理に数字を拾うと、
+    fetch_order がユーザーに選ばせる経路へ行かなくなり、結局「番号を推測して進む」
+    という 06 章が避けたい形になる。
+    """
+    if not text:
+        return None
+    s = text.translate(_FULLWIDTH_DIGITS)
+    for pattern in (_ORDER_MARKED, _ORDER_BARE):
+        for m in pattern.finditer(s):
+            group = next((i for i, g in enumerate(m.groups(), start=1) if g), None)
+            digits = m.group(0) if group is None else m.group(group)
+            end = m.end() if group is None else m.end(group)
+            tail = s[end:end + 1]
+            # tail が空文字のときに in で判定すると常に True になるので先に弾く
+            if tail and tail in _COUNTER_SUFFIX:
+                continue
+            return digits
+    return None
+
+
+def _normalize_order_id(picked) -> str | None:
+    """interrupt() の戻り値を注文番号の文字列に揃える。揃えられなければ None。
+
+    画面が何を返してくるかはこちら側では決めきれない。一覧の要素をそのまま返して
+    {"order_id": "1001"} で来ることも、JSON の数値として 1001 で来ることもある。
+    どれで来ても同じ注文に落ちるようにする。
+
+    **桁数の下限はここでは掛けない。** 一覧に出した番号はこちらが採番したものなので、
+    ユーザーが選んだ値を桁数で弾く理由が無い。下限が要るのは、番号かどうか分からない
+    自由入力を相手にする _extract_order_id の方だけ。
+    """
+    if isinstance(picked, dict):
+        picked = picked.get("order_id")
+    # bool は int の subclass。True を "1" にすると存在しない注文を引いてしまう
+    if isinstance(picked, bool):
+        return None
+    if isinstance(picked, int):
+        return str(picked)
+    if not isinstance(picked, str):
+        return None
+    s = picked.translate(_FULLWIDTH_DIGITS).strip()
+    if s.isdigit():
+        return s
+    # 「注文1001」のように文で返してくる画面もありうるので、文からの抽出も試す
+    return _extract_order_id(s)
+
+
+async def fetch_order(state) -> dict:
+    """返金フローの最初の段。対象の注文を特定する。
+
+    見つからないときは model に推測させず、interrupt で画面に一覧を出して選ばせる。
+
+    **interrupt() より前に副作用を置かないこと。** Command(resume=v) で再開すると、
+    この node は先頭から実行し直され、interrupt() の呼び出しがそこで v を返す
+    (Task 1 の実測: node の足跡が
+     ['ask_order:enter', 'ask_order:enter', 'ask_order:resumed(1001)', 'confirm'] と
+     なり、node に 2 回入っている)。したがって interrupt より手前に DB 書き込みや
+    上流呼び出しを置くと、ユーザーが 1 回選んだだけで 2 回起きる。手前に置いてよいのは
+    2 回走っても同じ結果になる純粋な処理だけ。
+
+    trace の source は、注文をどうやって特定したかを後から切り分けるためのもの。
+    state = 既に State にあった / query = 発話から拾った / selected = ユーザーが選んだ /
+    unresolved = 画面の戻り値が読めなかった。
+    """
+    order_id = state.get("order_id")
+    source = "state"
+    if not order_id:
+        order_id = _extract_order_id(state.get("resolved_query") or _user_text(state))
+        source = "query"
+    if not order_id:
+        # ここから先は model に選ばせない。一覧を画面へ出してユーザーの選択を待つ。
+        # list_user_orders は純粋な関数なので、再実行で 2 回呼ばれても害が無い。
+        order_id = _normalize_order_id(interrupt({
+            "type": "select_order",
+            "orders": list_user_orders(state.get("user_id") or ""),
+        }))
+        source = "selected"
+    if not order_id:
+        # 画面の戻り値を解釈できなかった場合。もう一度 interrupt すると、壊れた値が
+        # 返り続ける限り画面と往復し続けて会話が進まない。注文なしで先へ進め、
+        # 後段の会話で聞き直す(「注文をでっち上げない」という要件は満たしたまま)。
+        logger.warning("fetch_order: 選択された注文番号を解釈できなかった")
+        return {"trace": {"fetch_order": {"order_id": None, "source": "unresolved"}}}
+    return {
+        "order_id": order_id,
+        "order_data": order_snapshot(order_id),
+        "trace": {"fetch_order": {"order_id": order_id, "source": source}},
+    }
 
 
 # ---------------------------------------------------------------------------

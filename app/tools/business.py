@@ -26,9 +26,16 @@ class LogisticsInput(BaseModel):
     )
 
 
-@tool(args_schema=OrderInput)
-async def query_order(order_id: str) -> dict:
-    """注文のステータス、金額、注文日時、商品名を確認する。ユーザーが特定の注文について質問した場合に使用する。"""
+def order_snapshot(order_id: str) -> dict:
+    """注文番号から決定的な注文の中身を作る。**注文の内容の唯一の出所。**
+
+    tool(query_order)と node(app/graph/nodes.py の fetch_order)で別々に組み立てると、
+    同じ注文の中身が経路によって食い違う。画面に出した一覧と、選ばれた後に後段が読む
+    注文が別物になると、返品可否の判断がユーザーの見ていない注文に対して下される。
+
+    **draw の順序が値そのもの**なので、既存のキーの間に新しい draw を挟まないこと
+    (02 章の golden value テストがこの順序に乗っている)。
+    """
     rng = random.Random(f"order:{order_id}")
     return {
         "order_id": order_id,
@@ -42,6 +49,40 @@ async def query_order(order_id: str) -> dict:
         # 既存キーの値を変えないよう、この draw は必ず末尾に置くこと。
         "tracking_no": f"JP{rng.randint(10**11, 10**12 - 1)}",
     }
+
+
+# 一覧に出す注文の件数の幅。0 件だと画面に選ぶものが無く、多すぎると選ばせる意味が薄れる。
+_USER_ORDER_COUNT = (2, 5)
+# 注文番号は 4 桁で採番する。app/graph/nodes.py の _ORDER_ID_MIN_DIGITS と揃えてあり、
+# 片方だけ変えると「一覧には出るが、ユーザーが打った文からは拾えない番号」が生まれる。
+_ORDER_ID_RANGE = (1000, 9999)
+
+
+def list_user_orders(user_id: str) -> list[dict]:
+    """そのユーザーの注文一覧。注文番号が分からないときに画面へ出して選ばせるためのもの。
+
+    **@tool にしていない。** モデルへ渡すと「一覧から自分で 1 件選ぶ」ができてしまい、
+    ユーザーに選ばせるという 06 章の要件が崩れる。呼ぶのは fetch_order node だけ。
+
+    同じ user_id なら常に同じ一覧を返す。各要素は order_snapshot から作るので、
+    画面に出した product / status / amount と、選ばれた後に後段が読む注文の中身は
+    必ず一致する。
+    """
+    rng = random.Random(f"orders:{user_id}")
+    count = rng.randint(*_USER_ORDER_COUNT)
+    # sample にするのは、同じ注文番号が一覧に 2 度出ると画面で見分けが付かないため
+    numbers = rng.sample(range(_ORDER_ID_RANGE[0], _ORDER_ID_RANGE[1] + 1), count)
+    orders = []
+    for n in numbers:
+        snap = order_snapshot(str(n))
+        orders.append({k: snap[k] for k in ("order_id", "product", "status", "amount")})
+    return orders
+
+
+@tool(args_schema=OrderInput)
+async def query_order(order_id: str) -> dict:
+    """注文のステータス、金額、注文日時、商品名を確認する。ユーザーが特定の注文について質問した場合に使用する。"""
+    return order_snapshot(order_id)
 
 
 # 取り扱い商品カタログ。正は data/kb/product-spec-manual.md(この店が説明している商品)。

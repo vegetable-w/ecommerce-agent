@@ -13,6 +13,7 @@ import json
 import pathlib
 
 import pytest
+from langchain_core.runnables import RunnableLambda
 
 from scripts import eval_04 as ev
 
@@ -490,3 +491,244 @@ def test_scripts_package_is_importable_without_a_live_collection():
     """本番 collection が壊れていても import と単体テストは通ること。"""
     assert pathlib.Path(ev.__file__).name == "eval_04.py"
     assert ev.K == 10
+
+
+# ---------------------------------------------------------------------------
+# 幻覚ケース台帳(faith_cases への保存と、今回の実行だけで測る幻覚率)
+#
+# DB には触れない。repository の 2 つの関数を差し替えて、
+# 「何を渡したか」と「返ってきたものをどう読むか」だけをここで固定する。
+# ---------------------------------------------------------------------------
+
+
+# 根拠スナップショットの元になる hit。citations の chunk_id は hit の id をそのまま使う
+_KB_HITS = [
+    {"id": 41, "section_path": "返品・返金ポリシー / 未開封の場合",
+     "question": "未開封なら返品できますか", "answer": "到着後 7 日以内に限り承ります。"},
+    {"id": 42, "section_path": "返品・返金ポリシー / 開封済みの場合",
+     "question": "開封後も返品できますか", "answer": "初期不良の場合のみ交換で対応します。"},
+    {"id": 7, "section_path": "配送 / お届け日数",
+     "question": "何日で届きますか", "answer": "本州は 2〜3 日が目安です。"},
+]
+
+
+def test_citations_are_numbered_exactly_like_the_evidence_given_to_the_model():
+    """回答本文の [n] が指す根拠と、台帳へ残す citations の n は同じでなければならない。
+
+    ずれても両方それらしく見えるので、後から判定を見直す人は間違った根拠を読まされる。
+
+    変異で確認済み(DATABASE_URL を存在しないホストへ向けた状態で実行):
+      * build_citations の番号を 1 つずらす(enumerate(hits, 2))→ 2 件 fail(このテストを含む)。
+    """
+    citations = ev.build_citations(_KB_HITS)
+    lines = ev.build_evidence(_KB_HITS).splitlines()
+    assert [c["n"] for c in citations] == [1, 2, 3]
+    assert [c["chunk_id"] for c in citations] == [41, 42, 7]
+    for c, h in zip(citations, _KB_HITS, strict=True):
+        assert lines[c["n"] - 1] == f"[{c['n']}] {h['question']}: {h['answer']}"
+
+
+def test_citations_keep_every_retrieved_hit_not_only_the_cited_ones():
+    """回答が引用するのは 2〜3 件でも、判定に渡した入力を再現するには全件が要る。"""
+    citations = ev.build_citations(_KB_HITS)
+    assert len(citations) == len(_KB_HITS)
+    assert set(citations[0]) == {"n", "chunk_id", "section_path", "question", "answer"}
+    assert citations[2] == {"n": 3, "chunk_id": 7, "section_path": "配送 / お届け日数",
+                            "question": "何日で届きますか", "answer": "本州は 2〜3 日が目安です。"}
+    assert ev.build_citations([]) == []
+
+
+class _Msg:
+    """chat model の戻り値。_generate_one が読むのは .content だけ。"""
+
+    def __init__(self, content: str):
+        self.content = content
+
+
+class _FakeChat(RunnableLambda):
+    """本物の上流の代わり。`prompt | model` と `model.with_structured_output(...)` の
+    両方に応える最小の Runnable。"""
+
+    def __init__(self, answer: str, faithful: bool):
+        super().__init__(self._reply)
+        self._answer = answer
+        self._faithful = faithful
+
+    def _reply(self, value):
+        return _Msg(self._answer)
+
+    def with_structured_output(self, schema):
+        def _judge(value):
+            if schema is ev._Faithful:
+                return ev._Faithful(faithful=self._faithful,
+                                    reason="evidence に無い日数を答えている")
+            return ev._Coverage(covered_numbers=[1])
+        return RunnableLambda(_judge)
+
+
+async def _generation(monkeypatch, faithful: bool) -> dict:
+    monkeypatch.setattr(ev, "get_chat_model",
+                        lambda: _FakeChat("到着後 30 日以内なら返品できます[1]。", faithful))
+    samples = [{"id": "A1", "bucket": "A_policy", "query": "返品はいつまでできますか",
+                "expect_section": ["未開封の場合"], "expect_points": ["7 日以内"],
+                "should_refuse": False}]
+    return await ev.run_generation(samples, {("hybrid_rerank", "A1"): _KB_HITS},
+                                   ["hybrid_rerank"])
+
+
+async def test_generation_keeps_the_judged_evidence_of_a_hallucination_case(monkeypatch):
+    """faithful=false の問いは、判定の理由と「そのとき渡した根拠の全件」ごと残す。"""
+    out = await _generation(monkeypatch, faithful=False)
+    cases = out["faithfulness_cases"]
+    assert [c["id"] for c in cases] == ["A1"]
+    assert cases[0]["bucket"] == "A_policy"
+    assert cases[0]["query"] == "返品はいつまでできますか"
+    assert cases[0]["reason"] == "evidence に無い日数を答えている"
+    # judge に渡した evidence と同じ番号付けの全件スナップショット
+    assert cases[0]["citations"] == ev.build_citations(_KB_HITS)
+
+
+async def test_generation_leaves_no_case_when_the_answer_was_faithful(monkeypatch):
+    out = await _generation(monkeypatch, faithful=True)
+    assert out["faithfulness_cases"] == []
+    assert out["faithfulness"]["value"] == 1.0
+    # 指標側の per_sample は 0/1 だけ。回答本文や根拠まで並べると 300 問のレポートが読めなくなる
+    assert set(out["faithfulness"]["per_sample"][0]) == {"id", "bucket", "faithful"}
+
+
+def _case(eval_id: str = "A1") -> dict:
+    return {"id": eval_id, "bucket": "A_policy", "query": "返品はいつまでできますか",
+            "answer": "到着後 30 日以内なら返品できます[1]。",
+            "reason": "evidence に無い日数を答えている",
+            "citations": ev.build_citations(_KB_HITS)}
+
+
+def _fake_repository(monkeypatch, status_map: dict, *, previous_status=None,
+                     upsert_error: Exception | None = None,
+                     map_error: Exception | None = None) -> list[dict]:
+    """repository の 2 関数を差し替え、upsert に渡された内容を記録して返す。"""
+    saved: list[dict] = []
+
+    async def _upsert(eval_id, **kw):
+        if upsert_error is not None:
+            raise upsert_error
+        saved.append({"eval_id": eval_id, **kw})
+        return {"id": len(saved), "eval_id": eval_id, "status": "unresolved",
+                "seen_count": 2, "created": False, "recurred": previous_status == "resolved",
+                "previous_status": previous_status}
+
+    async def _status_map():
+        if map_error is not None:
+            raise map_error
+        return dict(status_map)
+
+    monkeypatch.setattr("app.db.repository.upsert_faith_case", _upsert)
+    monkeypatch.setattr("app.db.repository.faith_case_status_map", _status_map)
+    return saved
+
+
+def _generation_dict(cases: list[dict], n: int = 300) -> dict:
+    return {"faithfulness": {"strategy": "hybrid_rerank", "value": 1 - len(cases) / n,
+                             "n": n, "per_sample": []},
+            "faithfulness_cases": cases}
+
+
+async def test_hallucination_rate_counts_only_this_run_not_the_whole_ledger(monkeypatch):
+    """台帳に 3 行あっても、今回の実行で幻覚と判定されたのが 1 問なら 1/300。
+
+    台帳は実行をまたいで積み上がるので、そこには前回までに直したケースも残っている。
+    総行数を分子にすると、修正が進むほど率が上がるという逆の数字になる
+    (実測 2.33%、今回の実態は 0.33%)。累計は hallucination.ledger に別途出す。
+
+    変異で確認済み(DATABASE_URL を存在しないホストへ向けた状態で実行):
+      * build_hallucination の分子を len(cases) から ledger["total"] へ差し替え
+        → 2 件 fail(このテストを含む)。
+    """
+    _fake_repository(monkeypatch, {"A1": "unresolved", "B2": "resolved",
+                                   "C3": "no_action_needed"})
+    out = await ev.run_hallucination(_generation_dict([_case("A1")]))
+
+    assert out["rate"] == {"value": pytest.approx(1 / 300), "cases": 1, "n": 300}
+    assert out["ledger"] == {"total": 3, "counts": {"unresolved": 1, "resolved": 1,
+                                                    "no_action_needed": 1}}
+
+
+async def test_hallucination_case_is_written_to_the_ledger_with_its_evidence(monkeypatch):
+    """台帳へ積むのは今回の実行のケースだけ。根拠は全件スナップショットのまま渡す。"""
+    saved = _fake_repository(monkeypatch, {"A1": "unresolved"})
+    cases = [_case("A1")]
+    out = await ev.run_hallucination(_generation_dict(cases))
+
+    assert [s["eval_id"] for s in saved] == ["A1"]
+    assert saved[0]["citations"] == ev.build_citations(_KB_HITS)
+    assert saved[0]["strategy"] == "hybrid_rerank"
+    assert saved[0]["reason"] == "evidence に無い日数を答えている"
+    assert saved[0]["judge_model"]
+    assert cases[0]["saved"] is True
+    assert cases[0]["seen_count"] == 2
+    assert cases[0]["ledger_status"] == "unresolved"
+    assert out["strategy"] == "hybrid_rerank"
+
+
+async def test_confirmed_rate_counts_only_the_cases_a_person_called_a_hallucination(monkeypatch):
+    """人手の判断は今回の書き込みで unresolved へ戻る前の状態で見る。
+
+    no_action_needed(judge の行き過ぎ)は確認済みに数えない。
+    """
+    _fake_repository(monkeypatch, {"A1": "unresolved"}, previous_status="resolved")
+    out = await ev.run_hallucination(_generation_dict([_case("A1")]))
+    assert out["confirmed_rate"] == {"value": pytest.approx(1 / 300), "cases": 1, "n": 300}
+
+    _fake_repository(monkeypatch, {"A1": "unresolved"}, previous_status="no_action_needed")
+    out = await ev.run_hallucination(_generation_dict([_case("A1")]))
+    assert out["confirmed_rate"] == {"value": 0.0, "cases": 0, "n": 300}
+    assert out["rate"]["cases"] == 1
+
+
+async def test_a_dead_database_does_not_change_the_numbers_of_this_run(monkeypatch):
+    """台帳は追加の管理ビューであって評価そのものではない。
+
+    DB が落ちていても make eval-rag は完走してレポートを出し切ること。
+    """
+    _fake_repository(monkeypatch, {}, upsert_error=RuntimeError("台帳の DB へ接続できない"),
+                     map_error=RuntimeError("台帳の DB へ接続できない"))
+    cases = [_case("A1")]
+    out = await ev.run_hallucination(_generation_dict(cases))
+
+    assert out["rate"] == {"value": pytest.approx(1 / 300), "cases": 1, "n": 300}
+    assert out["ledger"] is None            # 累計だけが欠ける
+    assert cases[0]["saved"] is False       # 画面が「積めなかった」と分かる形で残す
+    assert any("台帳へ書けませんでした" in ln for ln in ev._LINES)
+
+
+async def test_a_duplicate_eval_id_is_swallowed_like_any_other_write_failure(monkeypatch):
+    """upsert_faith_case は同時書き込みを想定していない。衝突もここで握り潰す。"""
+    from sqlalchemy.exc import IntegrityError
+
+    _fake_repository(monkeypatch, {"A1": "resolved"},
+                     upsert_error=IntegrityError("INSERT", {}, Exception("uk_eval_id")))
+    cases = [_case("A1")]
+    out = await ev.run_hallucination(_generation_dict(cases))
+
+    assert out["rate"]["cases"] == 1
+    assert cases[0]["saved"] is False
+    # 積めなかったケースの人手の判断は、台帳に残っている前回までの状態で見る
+    assert cases[0]["human_status"] == "resolved"
+    assert out["confirmed_rate"]["cases"] == 1
+
+
+def test_ledger_summary_reports_every_status_even_when_it_is_empty():
+    """0 件の status も 0 として出す。キーが欠けると画面で「0 件」と「集計失敗」が
+    区別できなくなる(list_faith_cases の counts と同じ方針)。"""
+    assert ev.ledger_summary({}) == {
+        "total": 0,
+        "counts": {"unresolved": 0, "resolved": 0, "no_action_needed": 0},
+    }
+    assert ev.ledger_summary({"A1": "resolved", "B2": "resolved"})["counts"]["resolved"] == 2
+
+
+def test_hallucination_rate_is_none_when_nothing_was_judged():
+    """判定が 1 問も成立しなかった実行は 0% ではない(_mean と同じ扱い)。"""
+    out = ev.build_hallucination([], 0, "hybrid_rerank", None)
+    assert out["rate"] == {"value": None, "cases": 0, "n": 0}
+    assert out["confirmed_rate"]["value"] is None

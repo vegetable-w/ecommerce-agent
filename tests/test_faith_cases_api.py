@@ -280,6 +280,30 @@ async def test_an_empty_ledger_is_not_an_error(db_session_factory):
 
 
 # ---------------------------------------------------------------------------
+# 評価スクリプトが引く状態表
+# ---------------------------------------------------------------------------
+
+
+async def test_the_status_map_covers_every_row_of_the_ledger(db_session_factory):
+    """eval_id -> status を 1 回の問い合わせで返すこと。
+
+    評価スクリプトはこれを台帳の累計(hallucination.ledger)に使う。ページ送りの
+    list_faith_cases と違い、**全行**が入っていなければ累計が実態より少なく出る。
+    """
+    a = await _add("A48")
+    await _add("B48")
+    await _set_status(a["id"], "resolved", "ナレッジに配送日数の表を追加した")
+
+    got = await repository.faith_case_status_map()
+
+    assert got == {"A48": "resolved", "B48": "unresolved"}
+
+
+async def test_the_status_map_of_an_empty_ledger_is_empty(db_session_factory):
+    assert await repository.faith_case_status_map() == {}
+
+
+# ---------------------------------------------------------------------------
 # 根拠スナップショット
 # ---------------------------------------------------------------------------
 

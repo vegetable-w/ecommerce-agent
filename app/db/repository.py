@@ -505,6 +505,19 @@ async def upsert_faith_case(
         }
 
 
+async def faith_case_status_map() -> dict[str, str]:
+    """台帳全体の eval_id -> status。読み取り専用。
+
+    評価スクリプトが「今回の実行で幻覚と判定された問いが、台帳ではどう扱われているか」を
+    引くために使う。ケースごとに 1 件ずつ問い合わせると、幻覚が増えた実行ほど問い合わせが
+    増えて評価の最後だけが遅くなるので、まとめて 1 回で読む。台帳の行数は多くても
+    評価セットの問題数(300)程度で、値も status の短い文字列だけなので全件を載せてよい。
+    """
+    async with db.async_session() as s:
+        rows = (await s.execute(select(FaithCase.eval_id, FaithCase.status))).all()
+    return {eval_id: status for eval_id, status in rows}
+
+
 async def list_faith_cases(
     status: str | None = None, page: int = 1, size: int = 20
 ) -> dict:

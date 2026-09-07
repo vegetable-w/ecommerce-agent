@@ -12,6 +12,11 @@ Stage 1/2 は上流を 1 つも介さない**わけではない**(dense と hybr
 同じ入力に対して同じ数字を返す。Stage 3 だけがモデルの気分に左右されるので、失敗しても
 Stage 1/2 の結果は必ず書き出す(report の meta.generation_complete を false にする)。
 
+Stage 3 で幻覚と判定された問いは faith_cases テーブル(実行をまたぐ台帳)へも積む。
+台帳は追加の管理ビューなので、DB が落ちていてもレポートは最後まで出し切る。
+今回の実行の幻覚率と台帳の累計は別の数字で、report では hallucination.rate と
+hallucination.ledger に分けてある(混ぜると過去のケースが今回の率に紛れ込む)。
+
 検索クエリはユーザーの原文をそのまま使い、query_understanding による書き換えは通さない。
 書き換えを挟むと同じ入力でも毎回違う検索になり Stage 1/2 の再現性が失われるため。
 書き換え器そのものの質は --check-rewrite で別途測る。
@@ -38,6 +43,7 @@ from app.config import settings
 from app.core import query_understanding, retrieval, selfcheck
 from app.core.llm import get_chat_model
 from app.core.prompts import FAITHFULNESS_PROMPT, RAG_ANSWER_PROMPT
+from app.db import repository
 from app.kb import milvus_client
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -72,6 +78,11 @@ REFUSAL_MARKERS = (
     "記載がありません",
     "お答えできません",
 )
+
+# judge が理由を返さなかったときに台帳へ入れる文言。faith_cases.reason は NOT NULL で、
+# 空文字を入れると画面では「理由の欄が空の行」として、判定した理由が無かったのか
+# 取りこぼしたのかが区別できなくなる。
+NO_REASON = "(judge が理由を返しませんでした)"
 
 
 # ---------------------------------------------------------------------------
@@ -187,6 +198,11 @@ def looks_refused(answer: str | None) -> bool:
 
 def _mean(values: list[float]) -> float | None:
     return sum(values) / len(values) if values else None
+
+
+def _ratio(numerator: int, denominator: int) -> float | None:
+    """分母が 0 なら None。「0 件だった」ではなく「測っていない」を表す(_mean と同じ扱い)。"""
+    return numerator / denominator if denominator else None
 
 
 def aggregate(records: list[dict], field: str, buckets: list[str]) -> dict:
@@ -355,10 +371,26 @@ _COVERAGE_INSTRUCTION = (
 )
 
 
+def build_citations(hits: list[dict]) -> list[dict]:
+    """その実行でモデルへ渡した Top-K 根拠の全件スナップショット([{n, chunk_id, ...}])。
+
+    台帳(faith_cases.citations)へ残すのはこの形。回答が実際に引用するのは普通 2〜3 件だが、
+    「引用しなかった根拠に答えが載っていた」ことまで後から確かめられるように全件を残す。
+    """
+    return [{"n": i, "chunk_id": h.get("id"), "section_path": h.get("section_path"),
+             "question": h.get("question"), "answer": h.get("answer")}
+            for i, h in enumerate(hits, 1)]
+
+
 def build_evidence(hits: list[dict]) -> str:
-    """query_faq と同じ体裁の番号付き evidence。生成にも判定にもこの文字列を渡す。"""
-    return "\n".join(f"[{i}] {h.get('question')}: {h.get('answer')}"
-                     for i, h in enumerate(hits, 1))
+    """query_faq と同じ体裁の番号付き evidence。生成にも判定にもこの文字列を渡す。
+
+    番号は build_citations が振ったものをそのまま使う(app/tools/business.py と同じ考え方)。
+    同じ番号付けを 2 か所に書くと、片方だけ直したときに回答中の [n] と台帳のスナップショットが
+    別の根拠を指すようになり、しかもどちらもそれらしく見えるので誰も気づけない。
+    """
+    return "\n".join(f"[{c['n']}] {c['question']}: {c['answer']}"
+                     for c in build_citations(hits))
 
 
 async def _try(coro, label: str):
@@ -434,23 +466,126 @@ async def run_generation(samples: list[dict], hits_by: dict, strategies: list[st
         answer = answers[target].get(s["id"])
         if not answer:
             return
+        hits = hits_by[(target, s["id"])]
         async with sem:
             r = await _try(
-                faith_chain.ainvoke({"evidence": build_evidence(hits_by[(target, s["id"])]),
-                                     "answer": answer}),
+                faith_chain.ainvoke({"evidence": build_evidence(hits), "answer": answer}),
                 f"faithfulness[{s['id']}]")
         if r is not None:
             faith_records.append({"id": s["id"], "bucket": s["bucket"],
-                                  "faithful": 1.0 if r.faithful else 0.0})
+                                  "faithful": 1.0 if r.faithful else 0.0,
+                                  "query": s["query"], "answer": answer,
+                                  "reason": (r.reason or "").strip() or NO_REASON,
+                                  # 判定に渡した根拠そのもの。引用された分だけでなく全件
+                                  "citations": build_citations(hits)})
 
     await asyncio.gather(*[faith(s) for s in samples], return_exceptions=True)
+    faith_records.sort(key=lambda r: r["id"])
     out["faithfulness"] = {
         "strategy": target,
         "value": _mean([r["faithful"] for r in faith_records]),
         "n": len(faith_records),
-        "per_sample": sorted(faith_records, key=lambda r: r["id"]),
+        # 指標の per_sample は 0/1 だけ。回答本文や根拠まで並べると、300 問ぶんの
+        # レポートが読めない大きさになる(それらは幻覚と判定された問いにだけ残す)
+        "per_sample": [{"id": r["id"], "bucket": r["bucket"], "faithful": r["faithful"]}
+                       for r in faith_records],
     }
+    # 幻覚ケース = 今回の実行で faithful=false と判定された問い。台帳へ積むのも、
+    # 幻覚率の分子に数えるのも、このリストだけである(run_hallucination を参照)
+    out["faithfulness_cases"] = [
+        {k: r[k] for k in ("id", "bucket", "query", "answer", "reason", "citations")}
+        for r in faith_records if r["faithful"] == 0.0
+    ]
     return out
+
+
+# ---------------------------------------------------------------------------
+# 幻覚ケース台帳(実行をまたいで積み上がる管理ビュー)
+# ---------------------------------------------------------------------------
+
+# 人が「本当に幻覚だった」と認めて手を入れた状態。no_action_needed は逆に
+# 「judge の判定が行き過ぎだった」という結論なので、確認済みの幻覚には数えない。
+CONFIRMED_STATUS = "resolved"
+
+
+def ledger_summary(status_map: dict[str, str]) -> dict:
+    """台帳の累計。今回の実行のケースではなく、過去の実行ぶんを含む全行を数える。"""
+    counts = {k: 0 for k in repository.FAITH_STATUSES}
+    for st in status_map.values():
+        if st in counts:
+            counts[st] += 1
+    return {"total": len(status_map), "counts": counts}
+
+
+def build_hallucination(cases: list[dict], judged: int, strategy: str | None,
+                        ledger: dict | None) -> dict:
+    """今回の実行の幻覚率と、台帳の累計を組み立てる。
+
+    **率の分子は今回の実行で幻覚と判定された問い(cases)だけ**である。台帳の行数
+    (ledger["total"])を分子にしてはいけない。台帳は実行をまたいで積み上がるので、
+    そこには前回までに直したケースも残っている。初回の実行では台帳の中身が今回の
+    ケースと一致するため取り違えても症状が出ず、何件か直した後の実行になって初めて
+    「直したのに率が上がった」という形で現れる(実測 2.33%、今回の実態は 0.33%)。
+    台帳の累計は ledger として別の項目に置き、率とは混ぜない。
+
+    confirmed_rate は「人が本当に幻覚だと認めたケース」だけに絞った率。judge の
+    行き過ぎ(no_action_needed)を除いた実態に近い数字で、画面が判定率と並べて出す。
+    人手の判断は今回の書き込みで unresolved へ戻る前の状態(human_status)を見る。
+    まだ誰も見ていないケースは None なので、どちらの側にも数えない。
+    """
+    confirmed = [c for c in cases if c.get("human_status") == CONFIRMED_STATUS]
+    return {
+        "strategy": strategy,
+        "rate": {"value": _ratio(len(cases), judged), "cases": len(cases), "n": judged},
+        "confirmed_rate": {"value": _ratio(len(confirmed), judged),
+                           "cases": len(confirmed), "n": judged},
+        "ledger": ledger,
+    }
+
+
+async def run_hallucination(generation: dict) -> dict:
+    """今回の幻覚ケースを台帳へ積み、幻覚率と台帳の累計を返す。
+
+    DB は落ちていてもよい。台帳はあくまで追加の管理ビューであって評価そのものではないので、
+    書けなくても読めなくてもログ 1 行に留め、レポートは最後まで出し切る。
+    """
+    cases = generation.get("faithfulness_cases") or []
+    faith = generation.get("faithfulness") or {}
+    strategy = faith.get("strategy")
+    judged = faith.get("n") or 0
+
+    for c in cases:
+        c["saved"], c["human_status"], c["ledger_status"] = False, None, None
+        try:
+            res = await repository.upsert_faith_case(
+                c["id"], bucket=c["bucket"], query=c["query"], answer=c["answer"],
+                reason=c["reason"], strategy=strategy or "hybrid_rerank",
+                citations=c["citations"], judge_model=settings.chat_model)
+        except Exception as exc:
+            # 同一 eval_id が衝突したときの IntegrityError もここへ来る。積めなかった
+            # ことだけを残し、今回のレポートの数字には一切影響させない
+            _log(f"[台帳へ書けませんでした] {c['id']}: {type(exc).__name__}: {exc}")
+            continue
+        c["saved"] = True
+        c["seen_count"] = res["seen_count"]
+        c["recurred"] = res["recurred"]
+        # 今回の書き込みで status は unresolved へ戻るので、人手の判断は
+        # 「書き込む前にどうだったか」で見る
+        c["human_status"] = res["previous_status"]
+
+    ledger = None
+    try:
+        status_map = await repository.faith_case_status_map()
+    except Exception as exc:
+        _log(f"[台帳を読めませんでした] {type(exc).__name__}: {exc}")
+    else:
+        ledger = ledger_summary(status_map)
+        for c in cases:
+            c["ledger_status"] = status_map.get(c["id"])
+            if not c["saved"]:
+                # 積めなかったケースは前回までの状態がそのまま残っている
+                c["human_status"] = status_map.get(c["id"])
+    return build_hallucination(cases, judged, strategy, ledger)
 
 
 # ---------------------------------------------------------------------------
@@ -632,6 +767,19 @@ async def main(argv: list[str] | None = None) -> int:
             f = generation_d["faithfulness"]
             _log(f"\nStage 3 Faithfulness({f['strategy']}) {_pct(f['value'])} (n={f['n']})")
 
+    hallucination_d = None
+    if generation_d is not None:
+        hallucination_d = await run_hallucination(generation_d)
+        rate, conf = hallucination_d["rate"], hallucination_d["confirmed_rate"]
+        _log(f"\n幻覚率 {_pct(rate['value'])} (今回の実行 {rate['cases']}/{rate['n']} 問。"
+             f"うち人手で確認済み {conf['cases']} 件 = {_pct(conf['value'])})")
+        if hallucination_d["ledger"]:
+            counts = hallucination_d["ledger"]["counts"]
+            # 台帳は過去の実行ぶんを含む累計。上の幻覚率とは別の数字である
+            _log(f"幻覚ケース台帳 累計 {hallucination_d['ledger']['total']} 件"
+                 f"(未対処 {counts['unresolved']} / 対処済み {counts['resolved']} / "
+                 f"対処不要 {counts['no_action_needed']})")
+
     extra = {}
     if args.check_rewrite:
         extra["query_rewrite"] = await run_rewrite_check()
@@ -662,6 +810,7 @@ async def main(argv: list[str] | None = None) -> int:
         "retrieval": retrieval_d,
         "evidence_coverage": coverage_d,
         "generation": generation_d,
+        "hallucination": hallucination_d,
         **extra,
     }
     paths = write_report(report, pathlib.Path(args.out_dir))

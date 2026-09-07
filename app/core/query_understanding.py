@@ -68,7 +68,7 @@ async def expand_queries(query: str, model=None) -> list[str]:
     model は単体テストからの注入口(understand / classify と同じ形)。
     """
     try:
-        model = model or get_chat_model()
+        model = model or get_chat_model(temperature=0)
         chain = EXPAND_QUERIES_PROMPT | model.with_structured_output(_Expanded)
         r: _Expanded = await chain.ainvoke({"query": query})
         raw = [q.strip() for q in (r.queries or []) if isinstance(q, str) and q.strip()]

@@ -451,3 +451,27 @@ async def test_expand_queries_degrades_to_the_raw_query_when_upstream_fails(capl
 async def test_expand_queries_degrades_to_the_raw_query_when_everything_is_blank():
     model = _FakeModel(qu._Expanded(queries=["", "  ", "\u3000"]))
     assert await qu.expand_queries("返品したい", model=model) == ["返品したい"]
+
+
+async def test_trailing_punctuation_alone_is_not_a_rewrite(monkeypatch):
+    """末尾の句読点だけ足された回を「書き下した」と記録しない。
+
+    モデルは素通しのつもりでも「。」を付けてくる(実測: 素通しすべき 9 件中 4 件)。
+    そのままだと trace が rewrite だらけになり、本当に書き下した回を見分けられない。
+    """
+    async def _echo_with_period(q, history="", model=None):
+        return q + "。"
+
+    monkeypatch.setattr(nodes.coref_mod, "resolve", _echo_with_period)
+    out = await nodes.coref({"messages": [HumanMessage("送料はいくらですか")]})
+    assert out["trace"]["coref"] == "passthrough"
+    assert out["resolved_query"] == "送料はいくらですか。"   # 中身は書き下し結果のまま
+
+
+async def test_a_real_rewrite_is_still_recorded(monkeypatch):
+    async def _rewrite(q, history="", model=None):
+        return "注文1001のスマート家電は返品できますか"
+
+    monkeypatch.setattr(nodes.coref_mod, "resolve", _rewrite)
+    out = await nodes.coref({"messages": [HumanMessage("これは返品できますか")]})
+    assert out["trace"]["coref"] == "rewrite"

@@ -154,7 +154,10 @@ async def coref(state) -> dict:
     """
     original = _user_text(state)
     resolved = await coref_mod.resolve(original, _history_text(state))
-    changed = resolved != original
+    # 末尾の句読点だけの差は「書き下した」と数えない。モデルは素通しのつもりでも
+    # 「。」を足してくることがあり(実測: 素通しすべき 9 件のうち 4 件)、そのままだと
+    # trace が rewrite だらけになって、本当に書き下した回を見分けられなくなる。
+    changed = resolved.rstrip("。.?？!！ ") != original.rstrip("。.?？!！ ")
     return {"resolved_query": resolved,
             "trace": {"coref": "rewrite" if changed else "passthrough"}}
 

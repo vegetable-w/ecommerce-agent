@@ -34,3 +34,24 @@ def test_shared_shell_is_served():
 
 def test_chat_page_links_to_admin():
     assert 'href="/admin"' in client.get("/").text
+
+
+@pytest.mark.parametrize("path", ["/", "/kb", "/admin", "/rag-eval", "/static/admin.js"])
+def test_frontend_is_never_served_stale(path):
+    """画面と静的ファイルは必ず確認してから使わせる。
+
+    Cache-Control を付けないと browser は発見的キャッシュに落ち、サーバへ聞かずに
+    手元の写しを再利用する。実測: kb.html にボタンを足しても画面に出てこなかった
+    (サーバ側は新しい内容を返せる状態だった)。「直したのに反映されない」は、
+    この画面群でいちばん時間を溶かす類の不具合なので、ここで固定する。
+    """
+    res = client.get(path)
+    assert res.status_code == 200
+    assert res.headers.get("cache-control") == "no-cache"
+
+
+def test_api_responses_are_not_touched_by_the_cache_header():
+    """no-cache を足すのは画面と静的ファイルだけ。API の応答には付けない。"""
+    res = client.get("/api/jobs")
+    assert res.status_code == 200
+    assert "cache-control" not in {k.lower() for k in res.headers}

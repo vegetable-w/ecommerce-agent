@@ -12,6 +12,10 @@
 3. C bucket が「見出しそのもの」になっている。見出しを丸写しした質問は口語耐性を測れない。
    → 質問と見出しの最長共通部分文字列が短いことを確かめる。
 
+複数根拠 (expect_sections_all) の問いにも同じ検査が掛かる。節の一意性はグループごとに見て、
+さらに 4 つ目として「根拠ごとに key point を 1 つ以上持つこと」を確かめる。片方の文書だけで
+満点が取れる出題では cross-document を測れないため。
+
 Milvus にも上流にも触れない。data/kb/*.md を読んで chunk に組み立てるだけ。
 """
 
@@ -62,9 +66,23 @@ def samples():
             if ln.strip()]
 
 
-def _targets(chunks, expect_section):
-    """expect_section の全語を section_path に含む chunk。検索側の判定と同じ AND。"""
-    return [c for c in chunks if all(k in c.section_path for k in expect_section)]
+def _targets(chunks, group):
+    """グループの全語を section_path に含む chunk。検索側の判定と同じ AND。"""
+    return [c for c in chunks if all(k in c.section_path for k in group)]
+
+
+def _groups(sample):
+    """1 問の期待値を「グループのリスト」へ揃える。グループ 1 つが根拠 chunk 1 つ。
+
+    単一根拠は expect_section(グループ 1 個)、複数根拠は expect_sections_all
+    (グループ複数)。scripts/eval_04.py の as_groups と同じ揃え方にして、採点側と
+    この検査とで「どこが正解か」の解釈がずれないようにする。ずれると
+    「検査は通るのに Recall が 0」という最悪の食い違いが起きる。
+    """
+    expect = sample.get("expect_sections_all") or sample.get("expect_section") or []
+    if all(isinstance(e, str) for e in expect):
+        return [list(expect)] if expect else []
+    return [list(g) for g in expect if g]
 
 
 def test_bucket_counts(samples):
@@ -79,16 +97,20 @@ def test_every_sample_has_required_fields(samples):
     for s in samples:
         assert s["query"].strip(), s["id"]
         assert isinstance(s["should_refuse"], bool), s["id"]
-        assert isinstance(s["expect_section"], list) and isinstance(s["expect_points"], list)
+        # 正解の書き方は 2 つ。単一根拠は expect_section、複数根拠は expect_sections_all。
+        # 両方書くと片方の直し忘れが静かに効いてしまうので、どちらか一方だけにする。
+        keys = {"expect_section", "expect_sections_all"} & set(s)
+        assert len(keys) == 1, f"{s['id']}: 正解の書き方は片方だけにする({sorted(keys)})"
+        assert isinstance(s[keys.pop()], list) and isinstance(s["expect_points"], list), s["id"]
 
 
 def test_graded_buckets_have_expectations_and_d_bucket_has_none(samples):
     for s in samples:
         if s["bucket"] == "D_absent":
-            assert s["expect_section"] == [] and s["expect_points"] == [], s["id"]
+            assert _groups(s) == [] and s["expect_points"] == [], s["id"]
             assert s["should_refuse"] is True, s["id"]
         else:
-            assert s["expect_section"], s["id"]
+            assert _groups(s), s["id"]
             assert s["expect_points"], s["id"]
             assert s["should_refuse"] is False, s["id"]
 
@@ -99,7 +121,7 @@ def test_no_duplicate_queries(samples):
 
 
 def test_expect_section_matches_exactly_one_section_path(chunks, samples):
-    """期待した節が 1 つに定まること。
+    """期待した節が 1 つに定まること。複数根拠の問いはグループごとに定まること。
 
     複数の section_path に当たる語(例:「送料」は 4 節に当たる)を期待値にすると、
     Recall が「正解を引けた」ではなく「似た節を引けた」を測ってしまう。
@@ -110,9 +132,11 @@ def test_expect_section_matches_exactly_one_section_path(chunks, samples):
     for s in samples:
         if s["bucket"] == "D_absent":
             continue
-        paths = {c.section_path for c in _targets(chunks, s["expect_section"])}
-        if len(paths) != 1:
-            bad.append(f"{s['id']}: {s['expect_section']} → {len(paths)} 節 {sorted(paths)[:3]}")
+        for i, group in enumerate(_groups(s), 1):
+            paths = {c.section_path for c in _targets(chunks, group)}
+            if len(paths) != 1:
+                bad.append(f"{s['id']}(グループ {i}): {group} → {len(paths)} 節 "
+                           f"{sorted(paths)[:3]}")
     assert not bad, "\n".join(bad)
 
 
@@ -125,10 +149,35 @@ def test_expect_points_exist_verbatim_in_target_chunk(chunks, samples):
     for s in samples:
         if s["bucket"] == "D_absent":
             continue
-        body = _norm("\n".join(c.answer for c in _targets(chunks, s["expect_section"])))
+        body = _norm("\n".join(c.answer for g in _groups(s) for c in _targets(chunks, g)))
         for p in s["expect_points"]:
             if _norm(p) not in body:
                 bad.append(f"{s['id']}: {p!r} が対象 chunk 本文に無い")
+    assert not bad, "\n".join(bad)
+
+
+def test_multi_evidence_points_cover_every_group(chunks, samples):
+    """複数根拠の問いは、根拠ごとに key point を 1 つ以上持つこと。
+
+    point がすべて片方の文書から取られていると、もう片方を 1 度も引かなくても
+    evidence coverage が満点になり、「複数の文書をまたげたか」を測れなくなる。
+    根拠の数も 2〜3 に収める(1 つなら単一根拠の書き方で足りる)。
+    """
+    bad = []
+    for s in samples:
+        groups = _groups(s)
+        if "expect_sections_all" not in s:
+            continue
+        if not 2 <= len(groups) <= 3:
+            bad.append(f"{s['id']}: 根拠が {len(groups)} 個(2〜3 個であること)")
+        if len(s["expect_points"]) < len(groups):
+            bad.append(f"{s['id']}: 根拠 {len(groups)} 個に対し "
+                       f"key point が {len(s['expect_points'])} 個しかない")
+        for i, group in enumerate(groups, 1):
+            body = _norm("\n".join(c.answer for c in _targets(chunks, group)))
+            if not any(_norm(p) in body for p in s["expect_points"]):
+                bad.append(f"{s['id']}(グループ {i}): {group} の本文から取った "
+                           "key point が 1 つも無い")
     assert not bad, "\n".join(bad)
 
 
@@ -138,7 +187,7 @@ def test_colloquial_queries_are_not_the_heading(chunks, samples):
     for s in samples:
         if s["bucket"] != "C_colloquial":
             continue
-        title = sorted({c.section_path for c in _targets(chunks, s["expect_section"])})[0]
+        title = sorted({c.section_path for c in _targets(chunks, _groups(s)[0])})[0]
         title = title.split(" / ")[-1]
         common = _longest_common_substring(s["query"], title)
         if len(common) > _MAX_TITLE_OVERLAP:

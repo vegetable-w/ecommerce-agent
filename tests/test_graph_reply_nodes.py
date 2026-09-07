@@ -1,8 +1,12 @@
-"""決定的な出口 node(chitchat / complaint / fallback)。
+"""決定的な出口 node(script / complaint / fallback)。
 
 この 3 つは graph の「必ず終わる経路」で、model を呼ばずに固定文を返すことそのものが
 存在理由になっている。雑談のたびに上流を叩くなら固定文にする意味が無いので、
 上流を取りに行った時点で落ちるように差し替えて確かめる。
+
+雑談 / その他の出口は 06 で script_reply へ置き換わった(intent で文面を出し分ける)。
+文面の出し分けそのものは tests/test_graph_06_nodes.py が見ており、ここでは
+「model を呼ばずに固定文を返す出口である」ことだけを確かめる。
 
 低信頼プールへの投入は monkeypatch で差し替える(support は本番相当の DB であり、
 テストから書き込まない)。
@@ -33,20 +37,24 @@ def _state(text="こんにちは", **extra):
     return {"messages": [HumanMessage(text)], **extra}
 
 
-# --- 雑談 ---------------------------------------------------------------------
+# --- 雑談 / その他 --------------------------------------------------------------
 
 
-async def test_chitchat_reply_returns_fixed_text_without_actions():
-    out = await nodes.chitchat_reply(_state())
-    assert out["answer"] == nodes.CHITCHAT_REPLY
-    assert out["trace"]["route"] == "chitchat"
+async def test_script_reply_returns_fixed_text_without_actions():
+    from app.core.prompts import SCRIPT_REPLY_CHITCHAT
+
+    out = await nodes.script_reply(_state(intent="雑談"))
+    assert out["answer"] == SCRIPT_REPLY_CHITCHAT
+    assert out["trace"]["route"] == "fallback_script"
     # 選択肢を出す出口ではない。雑談に有人対応の導線を付けない
     assert "suggested_actions" not in out
 
 
-async def test_chitchat_reply_names_this_store():
+async def test_script_reply_names_this_store():
     """名乗る店名は既存プロンプトと同じ「STORE」であること。"""
-    assert "STORE" in nodes.CHITCHAT_REPLY
+    from app.core.prompts import SCRIPT_REPLY_CHITCHAT
+
+    assert "STORE" in SCRIPT_REPLY_CHITCHAT
 
 
 # --- 苦情 ---------------------------------------------------------------------

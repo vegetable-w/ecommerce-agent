@@ -63,7 +63,7 @@ class ConversationState(TypedDict, total=False):
     citations: list          # frontend から出典を開くための chunk 情報
     evidence_strong: bool    # 生成前の evidence gate の判定結果
 
-    # 決定的な node（chitchat/complaint/fallback）の回答。
+    # 決定的な node（script/complaint/fallback）の回答。
     # Agent の回答はここに入れない。token を stream して frontend へ直接流すため、
     # ここへ溜め込むと「stream した本文」と「State の本文」の 2 つの正が生まれる
     answer: str

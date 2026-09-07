@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 ANSWER_NODES = {"agent_llm"}
 # 決定的 node は model を呼ばないので token が流れてこない。回答は state["answer"] に
 # 入るので、updates から 1 塊の delta として拾う
-DETERMINISTIC_ANSWER_NODES = {"chitchat_reply", "complaint_reply", "fallback_reply"}
+DETERMINISTIC_ANSWER_NODES = {"script_reply", "complaint_reply", "fallback_reply"}
 
 _graph = None
 # AsyncSqliteSaver.from_conn_string() が返す async context manager。

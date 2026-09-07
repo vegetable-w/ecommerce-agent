@@ -9,6 +9,10 @@
 見るテストは、苦情が Agent に繋がっていても knowledge が retrieval を飛ばしていても
 通ってしまい、守るべきものを 1 つも守れない。
 
+06 で足した制約も同じ形で固定する:返金は必ず fetch_order(注文の特定)と
+retrieve_policy(規約検索)を通ってから Agent に入り、どちらを塞いでも Agent へ
+辿り着けないこと。
+
 上流のモデルは呼ばない。compile と topology の確認だけで、ainvoke / astream は
 実行しない(それは 05 章の後続タスクの担当)。
 """
@@ -16,6 +20,7 @@
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START
 
+from app.graph import nodes
 from app.graph.build import build_graph
 
 # langgraph 1.2.11 の compiled.get_graph() は langchain_core.runnables.graph.Graph を返す。
@@ -31,12 +36,13 @@ from app.graph.build import build_graph
 # 空集合が返ってテストが静かに通ってしまう。
 NODE_NAMES = {
     "coref", "classify_intent", "forced_rag", "confidence_check",
+    "fetch_order", "retrieve_policy",
     "agent_llm", "agent_tools",
-    "complaint_reply", "chitchat_reply", "fallback_reply", "log",
+    "complaint_reply", "script_reply", "fallback_reply", "log",
 }
 
 # 4 つの出口。ここから END までの間に必ず log が挟まる
-EXITS = {"agent_llm", "complaint_reply", "chitchat_reply", "fallback_reply"}
+EXITS = {"agent_llm", "complaint_reply", "script_reply", "fallback_reply"}
 
 
 def _graph():
@@ -145,11 +151,81 @@ def test_complaint_never_reaches_the_agent():
     assert reach == {"complaint_reply", "log", END}
 
 
-def test_chitchat_never_reaches_the_agent():
-    """雑談も同じ。固定文を返すことそのものが目的なので、上流へ落ちる経路を作らない。"""
+def test_the_script_exit_never_reaches_the_agent():
+    """雑談 / その他も同じ。固定文を返すことそのものが目的なので、上流へ落ちる経路を作らない。
+
+    ここから Agent へ入れると、分類が「答えるべき用件が分からない」と言っている状態で
+    モデルに tool を選ばせることになる。行き先は log だけにしておく。
+    """
     g = _graph()
-    assert _route_target(g, "fallback_script") == "chitchat_reply"
-    assert _reachable(g, "chitchat_reply") == {"chitchat_reply", "log", END}
+    assert _route_target(g, "fallback_script") == "script_reply"
+    assert _targets(g, "script_reply") == {"log"}
+    assert _reachable(g, "script_reply") == {"script_reply", "log", END}
+
+
+def test_the_chitchat_node_is_gone():
+    """05 の chitchat_reply は script_reply に置き換わった。両方が残っていないこと。
+
+    node が残っていると、辺を差し替え忘れた側が黙って生き続け、雑談だけ 05 の
+    固定文を返す状態に戻れてしまう。
+    """
+    assert "chitchat_reply" not in set(_graph().nodes)
+    assert not hasattr(nodes, "chitchat_reply")
+
+
+# --- hard constraint: 返金は注文と規約を必ず通ってから Agent へ --------------------
+
+
+def test_refund_enters_the_order_lookup_first():
+    assert _route_target(_graph(), "refund_flow") == "fetch_order"
+
+
+def test_the_refund_chain_is_a_straight_line():
+    """fetch_order → retrieve_policy → agent_llm の 1 本道であること。
+
+    どちらの node も行き先が 1 つしかないことまで固定する。「先へ進める辺」が
+    増えた瞬間に、そちらが順序を飛ばす迂回路になる。
+    """
+    g = _graph()
+    assert _targets(g, "fetch_order") == {"retrieve_policy"}
+    assert _targets(g, "retrieve_policy") == {"agent_llm"}
+
+
+def test_refund_cannot_reach_the_agent_without_identifying_the_order():
+    """fetch_order を塞ぐと、返金の経路から Agent へ辿り着けないこと。
+
+    注文を特定せずに返品可否を答えると、実在しない注文についての判断を返す。
+    番号が無ければ画面で選ばせる(interrupt)ところまで含めて fetch_order の仕事なので、
+    ここを迂回する辺を作らない。
+    """
+    g = _graph()
+    entry = _route_target(g, "refund_flow")
+    assert "agent_llm" not in _reachable(g, entry, cut=frozenset({"fetch_order"}))
+
+
+def test_refund_cannot_reach_the_agent_without_the_policy_retrieval():
+    """retrieve_policy を塞ぐと、返金の経路から Agent へ辿り着けないこと。
+
+    **これが「規約を引かずに一般論で答える」ことを防ぐ経路の固定**。返品の可否は
+    規約にしか正が無く、引かずに答えれば必ず作り話になる。検索するかどうかを
+    Agent に選ばせないために、規約検索を通らない辺を 1 本も作らない。
+    """
+    g = _graph()
+    entry = _route_target(g, "refund_flow")
+    assert "agent_llm" not in _reachable(g, entry, cut=frozenset({"retrieve_policy"}))
+
+
+def test_refund_does_not_go_through_the_knowledge_retrieval():
+    """返金は forced_rag / confidence_check を通らないこと。
+
+    knowledge route の検索とは別物で、規約は retrieve_policy が引く。両方を通すと
+    同じ検索を 2 度やった上に、evidence gate に引っかかった返金の相談が
+    「確認できませんでした」で終わる(返金は注文が特定できていれば会話を続けられる)。
+    """
+    g = _graph()
+    reach = _reachable(g, _route_target(g, "refund_flow"))
+    assert "forced_rag" not in reach
+    assert "confidence_check" not in reach
 
 
 # --- hard constraint: knowledge は必ず retrieval を通る ---------------------------
@@ -169,6 +245,18 @@ def test_knowledge_cannot_reach_the_agent_without_the_forced_retrieval():
     g = _graph()
     entry = _route_target(g, "knowledge")
     assert "agent_llm" not in _reachable(g, entry, cut=frozenset({"forced_rag"}))
+
+
+def test_knowledge_does_not_go_through_the_refund_subflow():
+    """商品相談で注文の特定を挟まないこと。
+
+    knowledge は注文と無関係な質問も来るので、fetch_order を通すと番号を持たない
+    ユーザーに注文の一覧を出して選ばせてしまう(interrupt で会話が止まる)。
+    """
+    g = _graph()
+    reach = _reachable(g, _route_target(g, "knowledge"))
+    assert "fetch_order" not in reach
+    assert "retrieve_policy" not in reach
 
 
 def test_knowledge_passes_the_evidence_gate_before_generating():

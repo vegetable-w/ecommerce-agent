@@ -49,15 +49,15 @@ def _ai_with_tool_call(content="") -> AIMessage:
 
 
 def test_resolve_answer_prefers_the_state_answer():
-    """決定的な出口(chitchat / complaint / fallback)は answer をそのまま使う。
+    """決定的な出口(script / complaint / fallback)は answer をそのまま使う。
 
     messages 末尾に前 turn の AIMessage が残っていても、今回の回答はこちら。
     checkpointer が履歴を持ち回る以上、末尾を先に見ると前 turn の回答を
     今回の回答として保存してしまう。
     """
-    state = {"answer": nodes.CHITCHAT_REPLY,
+    state = {"answer": nodes.COMPLAINT_REPLY,
              "messages": [HumanMessage("こんにちは"), AIMessage("前の turn の回答")]}
-    assert nodes.resolve_answer(state) == nodes.CHITCHAT_REPLY
+    assert nodes.resolve_answer(state) == nodes.COMPLAINT_REPLY
 
 
 def test_resolve_answer_falls_back_to_the_last_ai_message():

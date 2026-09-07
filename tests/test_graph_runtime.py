@@ -288,7 +288,7 @@ async def test_本文ブロックのtokenはtextだけを取り出す(monkeypatc
 # --- 決定的 node の回答 -----------------------------------------------------------
 
 
-@pytest.mark.parametrize("node", ["chitchat_reply", "complaint_reply", "fallback_reply"])
+@pytest.mark.parametrize("node", ["script_reply", "complaint_reply", "fallback_reply"])
 async def test_決定的nodeのanswerは1塊のdeltaとして出る(monkeypatch, node):
     """この 3 つは model を呼ばないので token が流れてこない。updates から拾わないと
     画面には何も出ないまま done だけが届く。"""

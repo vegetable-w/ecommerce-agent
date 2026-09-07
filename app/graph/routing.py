@@ -36,7 +36,7 @@ def route_by_intent(state) -> str:
 
     未知の intent(prompt の変更、上流の schema 違反、7 分類にない文字列)は
     business へ倒す。business は Agent が tool を使って自分で判断する出口なので、
-    分類を外しても Agent 側で拾い直せる。逆に chitchat へ倒すと固定文を返して
+    分類を外しても Agent 側で拾い直せる。逆に fallback_script へ倒すと固定文を返して
     そこで会話が終わってしまい、取り返しがきかない。**迷ったら手数の多い方**。
     """
     return INTENT_TO_ROUTE.get(state.get("intent", ""), "business")

@@ -2,7 +2,7 @@
 
 node は 2 種類に分かれる。
 
-- **決定的な出口**(chitchat_reply / complaint_reply / fallback_reply): model を呼ばず
+- **決定的な出口**(script_reply / complaint_reply / fallback_reply): model を呼ばず
   固定文を返す。呼ばないことそのものが価値で、雑談のたびに上流を叩くなら固定文にする
   意味が無い。この 3 つは必ず終わるので、graph に「絶対に返答が返る経路」を作る。
 - **上流を使う node**(classify_intent / forced_rag): 分類と検索を行う。どちらも
@@ -32,7 +32,6 @@ from app.core import query_understanding, retrieval, selfcheck
 from app.core.llm import get_chat_model
 from app.core.prompts import (
     AGENT_SYSTEM,
-    CHITCHAT_REPLY_TEXT,
     COMPLAINT_REPLY_TEXT,
     FALLBACK_REPLY_TEXT,
     REFUND_JUDGE_HINT,
@@ -47,7 +46,6 @@ from app.tools.registry import get_all_tools
 
 logger = logging.getLogger(__name__)
 
-CHITCHAT_REPLY = CHITCHAT_REPLY_TEXT
 COMPLAINT_REPLY = COMPLAINT_REPLY_TEXT
 FALLBACK_REPLY = FALLBACK_REPLY_TEXT
 
@@ -92,11 +90,6 @@ def _history_text(state, max_turns: int = 6) -> str:
 # ---------------------------------------------------------------------------
 # 決定的な出口
 # ---------------------------------------------------------------------------
-
-
-async def chitchat_reply(state) -> dict:
-    """雑談: 固定文を返す。model は呼ばない。"""
-    return {"answer": CHITCHAT_REPLY, "trace": {"route": "chitchat"}}
 
 
 async def script_reply(state) -> dict:
@@ -673,7 +666,7 @@ def _message_text(m: AIMessage) -> str:
 def resolve_answer(state) -> str:
     """最終的な回答文を 1 つに決める。経路によって回答の置き場所が違うため。
 
-    決定的な node(chitchat / complaint / fallback)は state["answer"] に固定文を書く。
+    決定的な node(script / complaint / fallback)は state["answer"] に固定文を書く。
     Agent は書かない(token を stream して frontend へ直接流すため、State へ溜めると
     「stream した本文」と「State の本文」の 2 つの正が生まれる)ので、末尾から
     AIMessage を辿る。answer を先に見るのは、checkpointer が履歴を turn をまたいで

@@ -68,3 +68,16 @@ MINING_SYSTEM = """あなたはカスタマーサポートのナレッジベー�
 MINING_PROMPT = ChatPromptTemplate.from_messages(
     [("system", MINING_SYSTEM), ("human", "過去の会話:\n{conversations}")]
 )
+
+
+QUERY_REWRITE_SYSTEM = """あなたは EC カスタマーサポートの検索前に置かれるクエリ正規化器です。
+ユーザーの口語的・曖昧・感情的な質問を簡潔な標準質問へ書き換え、あわせてキーワード検索用の同義語を出してください。
+
+- standard: 1 文の標準質問。口語表現と感情を取り除き、重要な語(型番、商品名、ポリシー用語)は必ず残す。
+- expanded: その質問に関連する同義語・言い換え・別称を 3〜6 語(例:「郵送料」→「送料」「配送料」、「いつ届く」→「お届け日数」「配送日数」)。
+  語だけを列挙し、文にしない。standard に含まれる語をそのまま繰り返さない。
+- 元の質問に無い商品名・型番・数値を作らない。判断できない場合は書き換えず、そのままの意味を保つ。"""
+
+QUERY_REWRITE_PROMPT = ChatPromptTemplate.from_messages(
+    [("system", QUERY_REWRITE_SYSTEM), ("human", "ユーザーの質問:{query}")]
+)

@@ -1,4 +1,4 @@
-.PHONY: dev test eval seed seed-conv kb-preview kb-build kb-vectorize kb-mine kb-reset eval-retrieval eval-mining eval-rag eval-check
+.PHONY: dev test eval seed seed-conv kb-preview kb-build kb-vectorize kb-mine kb-reset eval-retrieval eval-mining eval-rag eval-check judge-check
 
 # --reload は付けない。この環境では watchfiles が入っていても変更を検知せず
 # (実測: 起動後の app/tools/business.py の更新で reload されなかった)、
@@ -61,3 +61,9 @@ eval-rag:
 # 評価セットの自己検証。MySQL の knowledge_chunks を読むだけで、上流も Milvus も使わない。
 eval-check:
 	uv run --env-file .env python scripts/validate_eval_04.py
+
+# judge の回帰チェック。幻覚ケース台帳に人が付けた印を正解として judge だけを測り直す。
+# 検索も生成もやり直さない(台帳のスナップショットを judge へ渡すだけ)。DB は読み取りのみ。
+# 対象 1 件につき judge を 1 回呼ぶので、eval-rag よりずっと軽いが課金はされる。
+judge-check:
+	uv run --env-file .env python scripts/judge_check.py

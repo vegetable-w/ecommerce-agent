@@ -26,6 +26,7 @@ from app.core.prompts import (
     FALLBACK_REPLY_TEXT,
 )
 from app.db import repository
+from app.graph import routing
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +102,15 @@ async def fallback_reply(state) -> dict:
 # ---------------------------------------------------------------------------
 
 
+# evidence が弱いと判定したときに State へ書く値。
+# **空にすることが必要**で、単に「書かない」では足りない。checkpointer が State を
+# turn をまたいで保持するため、前の turn で strong だった citations がそのまま残り、
+# 拒否の返答の横に前回の出典が並ぶ(実際に起こりうる: 1 turn 目 knowledge/strong →
+# 2 turn 目 knowledge/weak)。読む側それぞれに evidence_strong を見させるより、
+# 書く側で 1 度だけ揃える方が取りこぼさない。
+_NO_EVIDENCE = {"evidence_strong": False, "evidence": "", "citations": []}
+
+
 async def coref(state) -> dict:
     """指示対象解決: 本章では最小実装としてそのまま透過する。正式版は 06 章。
 
@@ -116,7 +126,12 @@ async def classify_intent(state) -> dict:
     intent.classify は上流が落ちても例外を投げず「雑談」へ倒すので、ここでは握らない。
     """
     intent = await intent_mod.classify(_user_text(state))
-    return {"intent": intent, "trace": {"intent": intent}}
+    # route も一緒に確定させて State へ書く。conditional edge(route_by_intent)は
+    # 分岐先を返すだけで State を書けないので、ここで持たないと ConversationState の
+    # route field を誰も埋めないまま残る(log node と trace が読めなくなる)。
+    route = routing.route_by_intent({"intent": intent})
+    return {"intent": intent, "route": route,
+            "trace": {"intent": intent, "route": route}}
 
 
 async def forced_rag(state) -> dict:
@@ -143,7 +158,7 @@ async def forced_rag(state) -> dict:
         search_query, strategy="hybrid_rerank", min_score=_UNGATED
     )
     if not hits:
-        return {"evidence_strong": False,
+        return {**_NO_EVIDENCE,
                 "trace": {"forced_rag": True, "evidence_top": 0.0}}
 
     # 機械ゲート。リランク上流が落ちた場合、search_knowledge は rerank_score なしの
@@ -157,14 +172,14 @@ async def forced_rag(state) -> dict:
     else:
         hits = [h for h in hits if h.get("rerank_score", 0.0) >= settings.rerank_min_score]
         if not hits:
-            return {"evidence_strong": False, "trace": trace}
+            return {**_NO_EVIDENCE, "trace": trace}
 
     # 意味ゲート: この根拠だけで答えきれるかをモデル自身に判定させる
     chk = await selfcheck.check_sufficient(
         query, [f"{h.get('question', '')} {h.get('answer', '')}" for h in hits]
     )
     if not chk["useful"]:
-        return {"evidence_strong": False, "trace": {**trace, "self_check": chk["reason"]}}
+        return {**_NO_EVIDENCE, "trace": {**trace, "self_check": chk["reason"]}}
 
     # head/tail 配置の「後」に番号を振る。evidence 本文の [n] と citations の n が
     # 同じ chunk を指すのは、この順番が唯一の正であるため

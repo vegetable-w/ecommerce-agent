@@ -10,6 +10,7 @@ confidence_gate の入力になるので、ここが誤ると根拠なしの回�
 """
 
 import pytest
+from langchain_core.messages import HumanMessage
 
 from app.config import settings
 from app.graph import nodes
@@ -100,8 +101,9 @@ async def test_weak_when_nothing_is_recalled(monkeypatch):
     out = await nodes.forced_rag(_state("火星探査車はどう買えますか"))
     assert out["evidence_strong"] is False
     assert out["trace"]["forced_rag"] is True
-    # 弱いときは根拠を書かない。生成側が古い turn の根拠を掴まないようにする
-    assert "evidence" not in out and "citations" not in out
+    # 弱いときは根拠を**空で上書きする**。書かないだけでは、checkpointer が
+    # 持ち越した前の turn の出典が残る(test_weak_clears_evidence_and_citations)
+    assert out["evidence"] == "" and out["citations"] == []
 
 
 async def test_weak_below_threshold_keeps_the_real_top_score(monkeypatch):
@@ -205,3 +207,32 @@ async def test_confidence_check_traces_the_decision():
     assert (await nodes.confidence_check({"evidence_strong": False}))["trace"]["confidence"] == "weak"
     # 書き忘れた上流がいた場合も weak 扱い(confidence_gate と同じ既定)
     assert (await nodes.confidence_check({}))["trace"]["confidence"] == "weak"
+
+
+async def test_weak_clears_evidence_and_citations(monkeypatch):
+    """weak では evidence / citations を**空で上書きする**。書かないでは足りない。
+
+    checkpointer が State を turn 間で持ち越すので、前の turn が strong だった場合の
+    citations がそのまま残り、拒否の返答の横に前回の出典が並ぶ。
+    """
+    _stub(monkeypatch, hits=[])
+    out = await nodes.forced_rag({"messages": [HumanMessage("アカウント削除")]})
+    assert out["evidence_strong"] is False
+    assert out["evidence"] == ""
+    assert out["citations"] == []
+
+
+async def test_classify_intent_also_writes_route():
+    """conditional edge は State を書けないので、route はここで確定させる。"""
+    async def _fake(q):
+        return "苦情"
+    import app.core.intent as intent_mod
+    orig = intent_mod.classify
+    nodes.intent_mod.classify = _fake
+    try:
+        out = await nodes.classify_intent({"messages": [HumanMessage("苦情です")]})
+    finally:
+        nodes.intent_mod.classify = orig
+    assert out["intent"] == "苦情"
+    assert out["route"] == "complaint"
+    assert out["trace"]["route"] == "complaint"

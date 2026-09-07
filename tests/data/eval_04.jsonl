@@ -18,6 +18,46 @@
 {"id":"A18","bucket":"A_policy","query":"予約商品のデポジットは自己都合で返金してもらえますか。残金を期限までに払わなかった場合はどうなりますか","expect_section":["予約商品とデポジット"],"expect_points":["デポジットの返金を受け付けない場合がある","残金が期限内に支払われなかった"],"should_refuse":false}
 {"id":"A19","bucket":"A_policy","query":"有人サポートの受付時間と、混雑してつながらない場合の対応を教えてください","expect_section":["オペレーターへの問い合わせ方法と受付時間"],"expect_points":["9:00〜22:00","メッセージを残して"],"should_refuse":false}
 {"id":"A20","bucket":"A_policy","query":"修理の問い合わせは初回何時間で対応され、解決までの目安は何営業日ですか","expect_section":["よくある問い合わせの対応時間"],"expect_points":["4時間","7営業日"],"should_refuse":false}
+{"id": "A21", "bucket": "A_policy", "query": "返品を申請できるのは商品を受け取ってから何日以内ですか。商品の状態にはどのような条件がありますか", "expect_section": ["返品ポリシーについて"], "expect_points": ["商品受取後7日以内", "未使用に近い状態"], "should_refuse": false}
+{"id": "A22", "bucket": "A_policy", "query": "特に不満はないのですが理由を伝えずに返品できますか。細かい条件はどこを確認すればよいですか", "expect_section": ["返品ポリシーについて"], "expect_points": ["理由を問わない返品", "アフターサービス規約を優先"], "should_refuse": false}
+{"id": "A23", "bucket": "A_policy", "query": "返金の申請はサイトのどの画面から行いますか", "expect_section": ["返金の申請方法"], "expect_points": ["「注文履歴」から対象注文を開き", "「返金を申請」を選択"], "should_refuse": false}
+{"id": "A24", "bucket": "A_policy", "query": "交換を申請するには付属品もそろっている必要がありますか。申請できる期限も教えてください", "expect_section": ["商品交換の流れ"], "expect_points": ["商品本体および付属品がそろっている", "商品受取後7日以内"], "should_refuse": false}
+{"id": "A25", "bucket": "A_policy", "query": "予約商品の発送日はどこを確認すればよいですか", "expect_section": ["発送までどのくらいかかりますか"], "expect_points": ["予約商品・受注商品", "発送予定日を優先"], "should_refuse": false}
+{"id": "A26", "bucket": "A_policy", "query": "一部の地域では表示されている送料のほかに費用がかかることがありますか", "expect_section": ["送料はいくらですか"], "expect_points": ["一部の遠隔地域", "追加送料が発生する場合がある"], "should_refuse": false}
+{"id": "A27", "bucket": "A_policy", "query": "配送費と郵送料は別々の料金ですか。3,000円に満たない場合の金額も教えてください", "expect_section": ["送料はいくらですか"], "expect_points": ["「郵送料」「配送費」も同じ送料", "3,000円未満の場合は500円"], "should_refuse": false}
+{"id": "A28", "bucket": "A_policy", "query": "領収書はどの画面から申請しますか。電子で発行してもらえますか", "expect_section": ["請求書・領収書の発行方法"], "expect_points": ["「注文履歴」→「請求書を申請」", "電子請求書"], "should_refuse": false}
+{"id": "A29", "bucket": "A_policy", "query": "注文時に利用できるのはオンライン決済のみですか。QR コード決済にも対応していますか", "expect_section": ["利用できる支払い方法"], "expect_points": ["以下のオンライン決済を利用できる", "PayPay などの QR コード決済"], "should_refuse": false}
+{"id": "A30", "bucket": "A_policy", "query": "決済に失敗した場合はどのように対応すればよいですか", "expect_section": ["利用できる支払い方法"], "expect_points": ["決済に失敗した場合", "再試行するか別の支払い方法を選択"], "should_refuse": false}
+{"id": "A31", "bucket": "A_policy", "query": "会員ランクは何段階ありますか。ランクはどのように上がりますか", "expect_section": ["会員ランクとポイント"], "expect_points": ["会員ランクは以下の3段階", "累計購入金額に応じて自動的にランクアップ"], "should_refuse": false}
+{"id": "A32", "bucket": "A_policy", "query": "割引キャンペーンの適用条件や詳細はどこを確認すればよいですか", "expect_section": ["クーポンと割引キャンペーンの使い方"], "expect_points": ["各キャンペーンページの記載を優先", "商品ページに表示されている条件"], "should_refuse": false}
+{"id": "A33", "bucket": "A_policy", "query": "台湾や海外への発送に対応していますか", "expect_section": ["配送エリアと遠隔地域"], "expect_points": ["香港・マカオ・台湾および海外", "自社配送には現在対応していない"], "should_refuse": false}
+{"id": "A34", "bucket": "A_policy", "query": "注文した商品の数量を増やしたい場合はどうすればよいですか", "expect_section": ["注文内容の変更やキャンセル"], "expect_points": ["商品の数量を変更したい場合", "元の注文をキャンセルしたうえで再注文"], "should_refuse": false}
+{"id": "A35", "bucket": "A_policy", "query": "限定商品が売り切れた場合も再入荷しますか", "expect_section": ["欠品した商品はいつ再入荷しますか"], "expect_points": ["限定商品や生産終了商品については再入荷しない", "通常商品が一時的に売り切れた場合"], "should_refuse": false}
+{"id": "A36", "bucket": "A_policy", "query": "価格保証はどの商品が対象ですか。申請はどこから行いますか", "expect_section": ["価格保証の申請方法"], "expect_points": ["自社販売商品については", "「注文履歴」→「価格保証を申請」"], "should_refuse": false}
+{"id": "A37", "bucket": "A_policy", "query": "シルバー会員の送料無料特典は月に何回使えますか。遠隔地域の追加送料にも使えますか", "expect_section": ["会員の送料無料特典"], "expect_points": ["シルバー会員は月1回", "遠隔地域の追加送料には適用されない"], "should_refuse": false}
+{"id": "A38", "bucket": "A_policy", "query": "お客様都合で返品する場合、商品はどの程度の状態であれば認められますか。申請の期限も教えてください", "expect_section": ["適用条件"], "expect_points": ["商品が良好な状態", "商品受取日から7日以内"], "should_refuse": false}
+{"id": "A39", "bucket": "A_policy", "query": "返品した商品が確認された後、返金はどのタイミングで行われますか", "expect_section": ["返金時期"], "expect_points": ["返品条件を満たしていると判断された後", "返品商品がプラットフォーム側で確認され"], "should_refuse": false}
+{"id": "A40", "bucket": "A_policy", "query": "同一商品の交換を申請するには、商品や付属品はどのような状態である必要がありますか", "expect_section": ["交換条件"], "expect_points": ["商品本体および付属品がそろい", "商品状態に問題がない場合"], "should_refuse": false}
+{"id": "A41", "bucket": "A_policy", "query": "誤って違う商品が届いたための交換では、往復の送料は誰が負担しますか", "expect_section": ["交換ポリシー", "交換時の送料"], "expect_points": ["誤配送などプラットフォーム側に原因がある場合", "往復送料をプラットフォームが負担"], "should_refuse": false}
+{"id": "A42", "bucket": "A_policy", "query": "品質不良の場合の送料負担と、最終的にどの基準で判断されるのかを教えてください", "expect_section": ["返品・交換時の送料負担"], "expect_points": ["商品の品質不良", "アフターサービス規約に基づいて判断"], "should_refuse": false}
+{"id": "A43", "bucket": "A_policy", "query": "水没させてしまった場合や分解した場合、修理費用は自己負担になりますか", "expect_section": ["品質不良と保証"], "expect_points": ["有償修理となる可能性がある", "不適切な改造や分解"], "should_refuse": false}
+{"id": "A44", "bucket": "A_policy", "query": "商品ごとに保証条件が設定されている場合、どちらの記載が優先されますか", "expect_section": ["品質不良と保証"], "expect_points": ["商品ごとに個別の保証条件", "商品詳細ページの内容を優先"], "should_refuse": false}
+{"id": "A45", "bucket": "A_policy", "query": "配送中の破損が認められた場合、再発送にかかる送料は誰が負担しますか", "expect_section": ["配送中の破損"], "expect_points": ["関連送料はプラットフォームが負担", "無償で再発送または返金"], "should_refuse": false}
+{"id": "A46", "bucket": "A_policy", "query": "オーダーメイド商品や生鮮食品は自己都合で返品できますか", "expect_section": ["返品対象外の商品"], "expect_points": ["オーダーメイド商品", "生鮮食品"], "should_refuse": false}
+{"id": "A47", "bucket": "A_policy", "query": "ライセンスコードなどのデジタルコンテンツは返品できますか。品質不良の場合はどうなりますか", "expect_section": ["返品対象外の商品"], "expect_points": ["デジタルコンテンツやライセンスコード", "品質不良や誤配送の場合は、この限りではない"], "should_refuse": false}
+{"id": "A48", "bucket": "A_policy", "query": "予約商品の発送時期は何を基準に判断すればよいですか", "expect_section": ["予約商品とデポジット"], "expect_points": ["予約商品の発送時期", "商品詳細ページに表示された予定日を基準"], "should_refuse": false}
+{"id": "A49", "bucket": "A_policy", "query": "返金と交換の問い合わせは、それぞれ初回対応と対応目安がどのくらいですか", "expect_section": ["よくある問い合わせの対応時間"], "expect_points": ["|返金|2時間|3営業日|", "|交換|2時間|5営業日|"], "should_refuse": false}
+{"id": "A50", "bucket": "A_policy", "query": "商品に関する問い合わせと苦情は、それぞれ何時間で初回対応がありますか", "expect_section": ["よくある問い合わせの対応時間"], "expect_points": ["|商品に関する問い合わせ|1時間|当日中|", "|苦情|1時間|3営業日|"], "should_refuse": false}
+{"id": "A51", "bucket": "A_policy", "query": "保証の対象になる故障と対象外になる故障の違いを教えてください", "expect_section": ["保証について"], "expect_points": ["通常使用による故障は保証対象", "購入者の過失による損傷は保証対象外"], "should_refuse": false}
+{"id": "A52", "bucket": "A_policy", "query": "Wi-Fi 対応家電を初めて使うときの設定手順を教えてください", "expect_section": ["機器の設置と初期設定"], "expect_points": ["ショッピングアプリまたはメーカー指定アプリ", "取扱説明書に従って初期設定"], "should_refuse": false}
+{"id": "A53", "bucket": "A_policy", "query": "空気清浄機の風量が弱いとき、自分で確認できることはありますか", "expect_section": ["よくある故障のセルフチェック"], "expect_points": ["吸気口が塞がれていないか", "フィルターを清掃・交換する"], "should_refuse": false}
+{"id": "A54", "bucket": "A_policy", "query": "ペット用の給水器から水が出ない場合、どこを確認すればよいですか", "expect_section": ["よくある故障のセルフチェック"], "expect_points": ["水位が最低ラインを下回っていないか", "ポンプを洗浄してから再起動"], "should_refuse": false}
+{"id": "A55", "bucket": "A_policy", "query": "有人チャットにはアプリのどこから接続できますか", "expect_section": ["オペレーターへの問い合わせ方法と受付時間"], "expect_points": ["「マイページ」→「カスタマーサポート」", "有人チャットへ接続できる"], "should_refuse": false}
+{"id": "A56", "bucket": "A_policy", "query": "保証期間が過ぎた商品の修理は有償になりますか", "expect_section": ["修理受付の流れ"], "expect_points": ["保証期間外の商品や、購入者の過失による破損", "修理費用が発生する場合がある"], "should_refuse": false}
+{"id": "A57", "bucket": "A_policy", "query": "シルバー会員が利用できるアフターサービス特典と、条件の確認先を教えてください", "expect_section": ["会員向けアフターサービス特典"], "expect_points": ["シルバー会員は、月1回まで返品・交換時の送料特典", "会員センターに表示される最新の内容を優先"], "should_refuse": false}
+{"id": "A58", "bucket": "A_policy", "query": "注文と異なる商品が届いた場合や商品が不足していた場合、送料はどちらの負担になりますか", "expect_section": ["返品・交換時の送料負担"], "expect_points": ["注文内容と異なる商品の配送", "商品の不足・欠品"], "should_refuse": false}
+{"id": "A59", "bucket": "A_policy", "query": "価格保証と、返品・交換時の送料に関する問い合わせは、それぞれどのくらいで対応されますか", "expect_section": ["よくある問い合わせの対応時間"], "expect_points": ["|価格保証|2時間|3営業日|", "|返品・交換時の送料|2時間|3営業日|"], "should_refuse": false}
+{"id": "A60", "bucket": "A_policy", "query": "スマート家電が Wi-Fi に接続できないとき、何を確認すればよいですか", "expect_section": ["機器の設置と初期設定"], "expect_points": ["2.4GHz Wi-Fi のみ対応する商品", "利用中の Wi-Fi 周波数帯を確認"], "should_refuse": false}
 {"id":"B1","bucket":"B_model","query":"EC-RV100 の吸引力と稼働時間を教えてください","expect_section":["EC-RV100"],"expect_points":["4,000Pa","約120分"],"should_refuse":false}
 {"id":"B2","bucket":"B_model","query":"EC-RV300 の稼働時間はどれくらいですか。自動ゴミ収集には対応していますか","expect_section":["EC-RV300"],"expect_points":["約210分","自動ゴミ収集"],"should_refuse":false}
 {"id":"B3","bucket":"B_model","query":"EC-EA10 の連続再生時間と、ノイズキャンセリングの対応可否を教えてください","expect_section":["EC-EA10"],"expect_points":["約6時間","ノイズキャンセリング：非対応"],"should_refuse":false}
@@ -58,6 +98,46 @@
 {"id":"C18","bucket":"C_colloquial","query":"コーヒーが落ちてこないんだけど壊れたのかな","expect_section":["よくある故障のセルフチェック"],"expect_points":["給水タンクの水量","洗浄後に再度試す"],"should_refuse":false}
 {"id":"C19","bucket":"C_colloquial","query":"見守り用のやつがしょっちゅう圏外になる","expect_section":["よくある故障のセルフチェック"],"expect_points":["2.4GHz 帯であること","本体を再起動"],"should_refuse":false}
 {"id":"C20","bucket":"C_colloquial","query":"ランクが上だと修理や返しのときに何か優遇される","expect_section":["会員向けアフターサービス特典"],"expect_points":["優先カスタマーサポート","集荷サービス"],"should_refuse":false}
+{"id": "C21", "bucket": "C_colloquial", "query": "まだ袋のままなんだけど、売り物として出せる状態なら引き取ってくれる？何日まで", "expect_section": ["返品ポリシーについて"], "expect_points": ["再販売に支障がない", "商品受取後7日以内"], "should_refuse": false}
+{"id": "C22", "bucket": "C_colloquial", "query": "お金返してほしい。どこ押せばいいの", "expect_section": ["返金の申請方法"], "expect_points": ["必要事項を入力", "審査完了後"], "should_refuse": false}
+{"id": "C23", "bucket": "C_colloquial", "query": "取り替えの話、まずどこに言えばいいの", "expect_section": ["商品交換の流れ"], "expect_points": ["カスタマーサポートで受付後", "交換を申請できる"], "should_refuse": false}
+{"id": "C24", "bucket": "C_colloquial", "query": "先に頼んどいたやつ、いつ出荷されるかどこでわかる", "expect_section": ["発送までどのくらいかかりますか"], "expect_points": ["商品詳細ページに表示されている", "受注商品"], "should_refuse": false}
+{"id": "C25", "bucket": "C_colloquial", "query": "3千円いかないと持ってかれるお金ってあるんだっけ。いくら", "expect_section": ["送料はいくらですか"], "expect_points": ["3,000円未満の場合は500円", "1回の注文金額が3,000円以上"], "should_refuse": false}
+{"id": "C26", "bucket": "C_colloquial", "query": "会社に出す紙が要るんだけど、どこで頼むの。メールで来る？", "expect_section": ["請求書・領収書の発行方法"], "expect_points": ["登録メールアドレスへ送付", "宛名や必要情報"], "should_refuse": false}
+{"id": "C27", "bucket": "C_colloquial", "query": "ペイペイとかスマホのやつで払える？デビットも使える？", "expect_section": ["利用できる支払い方法"], "expect_points": ["PayPay などの QR コード決済", "主要銀行のデビットカード"], "should_refuse": false}
+{"id": "C28", "bucket": "C_colloquial", "query": "たまったやつって値引きに使える？いくら分になるの", "expect_section": ["会員ランクとポイント"], "expect_points": ["1ポイントを1円", "購入金額100円につき1ポイント"], "should_refuse": false}
+{"id": "C29", "bucket": "C_colloquial", "query": "安くなる券ってどこで選ぶの。勝手に引かれるのもあるって聞いた", "expect_section": ["クーポンと割引キャンペーンの使い方"], "expect_points": ["「クーポンを使用」から選択", "条件を満たした場合に自動適用"], "should_refuse": false}
+{"id": "C30", "bucket": "C_colloquial", "query": "台湾のじいちゃんちに送れる？国内ならどこでも届く？", "expect_section": ["配送エリアと遠隔地域"], "expect_points": ["全国の大部分の地域へ配送可能", "香港・マカオ・台湾"], "should_refuse": false}
+{"id": "C31", "bucket": "C_colloquial", "query": "2個にしたいんだけど、あとから増やせる？", "expect_section": ["注文内容の変更やキャンセル"], "expect_points": ["商品の数量を変更したい場合", "元の注文をキャンセルしたうえで再注文"], "should_refuse": false}
+{"id": "C32", "bucket": "C_colloquial", "query": "また置くようになったら知らせてもらえる？", "expect_section": ["欠品した商品はいつ再入荷しますか"], "expect_points": ["「入荷通知」を設定", "再入荷後に通知を受け取れる"], "should_refuse": false}
+{"id": "C33", "bucket": "C_colloquial", "query": "買った後に安くなってた。差額返して", "expect_section": ["価格保証の申請方法"], "expect_points": ["注文後7日以内に同一商品が値下げされた", "元の支払い方法へ返金される"], "should_refuse": false}
+{"id": "C34", "bucket": "C_colloquial", "query": "上のランクだとタダで送ってもらえる回数増える？", "expect_section": ["会員の送料無料特典"], "expect_points": ["ゴールド会員は月3回", "シルバー会員は月1回"], "should_refuse": false}
+{"id": "C35", "bucket": "C_colloquial", "query": "気が変わって返すとき、ボロボロじゃなきゃOK？ダメな種類のもあるんだっけ", "expect_section": ["適用条件"], "expect_points": ["再販売に支障がない", "一部の商品カテゴリは対象外"], "should_refuse": false}
+{"id": "C36", "bucket": "C_colloquial", "query": "戻ってくる日にちってはっきり決まってないの？何次第なの", "expect_section": ["返金時期"], "expect_points": ["実際の着金時期", "アフターサービス規約および決済機関の処理状況"], "should_refuse": false}
+{"id": "C37", "bucket": "C_colloquial", "query": "取り替えって何回もできるの？いつまでに言えばいい", "expect_section": ["交換条件"], "expect_points": ["同一商品の交換を1回申請できる", "商品受取後7日以内"], "should_refuse": false}
+{"id": "C38", "bucket": "C_colloquial", "query": "気分で取り替えるとき、行きも帰りも自腹？", "expect_section": ["交換ポリシー", "交換時の送料"], "expect_points": ["商品不良ではないお客様都合の交換", "往復送料を購入者が負担"], "should_refuse": false}
+{"id": "C39", "bucket": "C_colloquial", "query": "不具合ないけどやっぱ取り替えたい。送り賃どっち持ち", "expect_section": ["返品・交換時の送料負担"], "expect_points": ["商品に不具合がない状態での交換", "返送料は購入者負担"], "should_refuse": false}
+{"id": "C40", "bucket": "C_colloquial", "query": "1年以内に自然に壊れたらタダで直る？", "expect_section": ["品質不良と保証"], "expect_points": ["12か月間の保証対象", "無償修理または交換"], "should_refuse": false}
+{"id": "C41", "bucket": "C_colloquial", "query": "開けたら潰れてた。いつまでに言えばいい？", "expect_section": ["配送中の破損"], "expect_points": ["受取後48時間以内", "カスタマーサポートへ連絡"], "should_refuse": false}
+{"id": "C42", "bucket": "C_colloquial", "query": "使った下着って返せないよね", "expect_section": ["返品対象外の商品"], "expect_points": ["使用済みの下着類", "お客様都合による返品を受け付けない"], "should_refuse": false}
+{"id": "C43", "bucket": "C_colloquial", "query": "先に払った内金って気が変わったら戻ってくる？", "expect_section": ["予約商品とデポジット"], "expect_points": ["デポジット支払い後", "返金を受け付けない場合がある"], "should_refuse": false}
+{"id": "C44", "bucket": "C_colloquial", "query": "レシート系のお願いと、アカウントのことで聞いたら返事どのくらいで来る？", "expect_section": ["よくある問い合わせの対応時間"], "expect_points": ["|領収書・請求書|4時間|3営業日|", "|アカウント関連|2時間|3営業日|"], "should_refuse": false}
+{"id": "C45", "bucket": "C_colloquial", "query": "落として画面割れたのって直してもらえる？タダで？", "expect_section": ["保証について"], "expect_points": ["落下、水没、分解、誤使用など", "保証対象外となる場合がある"], "should_refuse": false}
+{"id": "C46", "bucket": "C_colloquial", "query": "棚みたいな組み立てるやつ、何見ながらやればいい？", "expect_section": ["機器の設置と初期設定"], "expect_points": ["付属の組立説明書に従って設置", "家具や収納用品"], "should_refuse": false}
+{"id": "C47", "bucket": "C_colloquial", "query": "空気きれいにするやつの風が弱い気がする", "expect_section": ["よくある故障のセルフチェック"], "expect_points": ["吸気口が塞がれていないか", "フィルターが汚れていないか"], "should_refuse": false}
+{"id": "C48", "bucket": "C_colloquial", "query": "猫の水飲み機から水が出てこない", "expect_section": ["よくある故障のセルフチェック"], "expect_points": ["水位が最低ラインを下回っていないか", "ポンプが詰まっていないか"], "should_refuse": false}
+{"id": "C49", "bucket": "C_colloquial", "query": "アプリのどこ触ったら中の人と話せる？", "expect_section": ["オペレーターへの問い合わせ方法と受付時間"], "expect_points": ["ショッピングアプリ内の「マイページ」", "有人チャットへ接続できる"], "should_refuse": false}
+{"id": "C50", "bucket": "C_colloquial", "query": "保証中に壊れたやつ、直したらそのまま送り返してくれる？", "expect_section": ["修理受付の流れ"], "expect_points": ["保証対象と判断された場合は無償で修理し返送", "カスタマーサポートへ連絡して修理受付"], "should_refuse": false}
+{"id": "C51", "bucket": "C_colloquial", "query": "シルバーの人は返すときの送り賃どうなるの", "expect_section": ["会員向けアフターサービス特典"], "expect_points": ["月1回まで返品・交換時の送料特典", "会員センターに表示される最新の内容を優先"], "should_refuse": false}
+{"id": "C52", "bucket": "C_colloquial", "query": "支払いが弾かれちゃったんだけどどうすればいい", "expect_section": ["利用できる支払い方法"], "expect_points": ["決済に失敗した場合", "再試行するか別の支払い方法を選択"], "should_refuse": false}
+{"id": "C53", "bucket": "C_colloquial", "query": "ランクって何種類あるの？勝手に上がるやつ？", "expect_section": ["会員ランクとポイント"], "expect_points": ["会員ランクは以下の3段階", "累計購入金額に応じて自動的にランクアップ"], "should_refuse": false}
+{"id": "C54", "bucket": "C_colloquial", "query": "もう出荷されちゃった。届け先変えたいんだけど", "expect_section": ["注文内容の変更やキャンセル"], "expect_points": ["発送済みの場合、配送先情報は原則変更できない", "受取拒否後に返金手続きを行うことは可能"], "should_refuse": false}
+{"id": "C55", "bucket": "C_colloquial", "query": "封切っちゃった食べ物とか、使い切るタイプのやつは返せない？", "expect_section": ["返品対象外の商品"], "expect_points": ["開封済みの食品・飲料", "開封後に再販売できない消耗品"], "should_refuse": false}
+{"id": "C56", "bucket": "C_colloquial", "query": "1年経ったあとに壊れたらお金かかる？", "expect_section": ["品質不良と保証"], "expect_points": ["保証期間終了後の故障", "有償修理となる可能性がある"], "should_refuse": false}
+{"id": "C57", "bucket": "C_colloquial", "query": "荷物のトラブルと、品切れの送り直しって返事どのくらいで来る？", "expect_section": ["よくある問い合わせの対応時間"], "expect_points": ["|配送トラブル|2時間|5営業日|", "|欠品商品の再発送|2時間|5営業日|"], "should_refuse": false}
+{"id": "C58", "bucket": "C_colloquial", "query": "頼んだのと違うのが来た。取り替えの送り賃こっち持ち？", "expect_section": ["交換ポリシー", "交換時の送料"], "expect_points": ["品質不良、誤配送など", "往復送料をプラットフォームが負担"], "should_refuse": false}
+{"id": "C59", "bucket": "C_colloquial", "query": "混んでてつながらないときどうする？", "expect_section": ["オペレーターへの問い合わせ方法と受付時間"], "expect_points": ["混雑時は接続まで時間がかかる", "メッセージを残して後から回答"], "should_refuse": false}
+{"id": "C60", "bucket": "C_colloquial", "query": "残りのお金を期限までに払えなかったらどうなるの", "expect_section": ["予約商品とデポジット"], "expect_points": ["残金が期限内に支払われなかった場合", "対象キャンペーンの規約に従う"], "should_refuse": false}
 {"id":"D1","bucket":"D_absent","query":"代金引換で支払えますか","expect_section":[],"expect_points":[],"should_refuse":true}
 {"id":"D2","bucket":"D_absent","query":"配送日時を指定して受け取ることはできますか","expect_section":[],"expect_points":[],"should_refuse":true}
 {"id":"D3","bucket":"D_absent","query":"不在のときに玄関前へ置き配してもらえますか","expect_section":[],"expect_points":[],"should_refuse":true}
@@ -78,3 +158,43 @@
 {"id":"D18","bucket":"D_absent","query":"空気清浄機の交換用フィルターを単体で購入したいのですが、フィルターの型番を教えてください","expect_section":[],"expect_points":[],"should_refuse":true}
 {"id":"D19","bucket":"D_absent","query":"電話で問い合わせたいので、サポートの電話番号を教えてください","expect_section":[],"expect_points":[],"should_refuse":true}
 {"id":"D20","bucket":"D_absent","query":"修理に出している間、代替機を貸してもらえますか","expect_section":[],"expect_points":[],"should_refuse":true}
+{"id": "D21", "bucket": "D_absent", "query": "商品レビューはどこから投稿できますか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D22", "bucket": "D_absent", "query": "レビューを投稿するとポイントがもらえますか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D23", "bucket": "D_absent", "query": "メールマガジンの配信を停止したいのですが手続きを教えてください", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D24", "bucket": "D_absent", "query": "退会してアカウントを削除する手順を教えてください", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D25", "bucket": "D_absent", "query": "ログイン時の二段階認証を設定できますか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D26", "bucket": "D_absent", "query": "登録したカード情報をアカウントから削除する方法を教えてください", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D27", "bucket": "D_absent", "query": "登録した個人情報はどのように管理されていますか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D28", "bucket": "D_absent", "query": "会員登録をせずに商品を購入できますか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D29", "bucket": "D_absent", "query": "未成年でも自分名義で注文できますか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D30", "bucket": "D_absent", "query": "買い物かごに入れた商品はいつまで保存されますか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D31", "bucket": "D_absent", "query": "注文履歴は何年前の分まで確認できますか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D32", "bucket": "D_absent", "query": "注文の確認メールが届かない場合はどうすればよいですか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D33", "bucket": "D_absent", "query": "荷物の追跡番号はどこで確認できますか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D34", "bucket": "D_absent", "query": "配送を担当している運送会社はどこですか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D35", "bucket": "D_absent", "query": "希望の配送業者を指定して発送してもらえますか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D36", "bucket": "D_absent", "query": "不在で受け取れなかった場合の再配達はどのように依頼しますか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D37", "bucket": "D_absent", "query": "複数の注文をまとめて1つの箱で発送してもらえますか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D38", "bucket": "D_absent", "query": "1回の注文で配送先を複数に分けることはできますか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D39", "bucket": "D_absent", "query": "送り主の名前を伏せて相手に直送することはできますか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D40", "bucket": "D_absent", "query": "梱包に使われた段ボールは回収してもらえますか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D41", "bucket": "D_absent", "query": "支払いにギフトカードや商品券は使えますか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D42", "bucket": "D_absent", "query": "nanaco や WAON などの電子マネーで支払えますか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D43", "bucket": "D_absent", "query": "クーポンの有効期限は発行から何日ですか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D44", "bucket": "D_absent", "query": "誕生日クーポンのような特典はありますか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D45", "bucket": "D_absent", "query": "抽選販売の応募方法を教えてください", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D46", "bucket": "D_absent", "query": "中古品やアウトレット品の取り扱いはありますか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D47", "bucket": "D_absent", "query": "商品ページで在庫数を確認することはできますか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D48", "bucket": "D_absent", "query": "取扱説明書の PDF をサイトからダウンロードできますか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D49", "bucket": "D_absent", "query": "アプリは iOS の何バージョンから利用できますか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D50", "bucket": "D_absent", "query": "保証書を紛失した場合に再発行してもらえますか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D51", "bucket": "D_absent", "query": "クーリングオフ制度はこのサイトでの購入にも適用されますか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D52", "bucket": "D_absent", "query": "領収書に収入印紙は貼られますか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D53", "bucket": "D_absent", "query": "注文時に領収書の但し書きを指定できますか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D54", "bucket": "D_absent", "query": "納品書を商品に同梱してもらえますか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D55", "bucket": "D_absent", "query": "インボイス制度の適格請求書発行事業者の登録番号を教えてください", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D56", "bucket": "D_absent", "query": "大量購入の見積書を発行してもらうことはできますか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D57", "bucket": "D_absent", "query": "年末年始やお盆の休業日はいつですか", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D58", "bucket": "D_absent", "query": "運営会社の所在地と会社概要を教えてください", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D59", "bucket": "D_absent", "query": "問い合わせ用のメールアドレスを教えてください", "expect_section": [], "expect_points": [], "should_refuse": true}
+{"id": "D60", "bucket": "D_absent", "query": "アフィリエイト提携の申し込み窓口はどこですか", "expect_section": [], "expect_points": [], "should_refuse": true}

@@ -23,7 +23,9 @@ import pytest
 from app.kb import documents, sources
 
 EVAL_SET = pathlib.Path(__file__).resolve().parent / "data" / "eval_04.jsonl"
-BUCKETS = ("A_policy", "B_model", "C_colloquial", "D_absent")
+BUCKETS = ("A_policy", "B_model", "C_colloquial", "D_absent", "E_multi")
+# 04 章の評価セットの最終形。5 bucket × 60 問 = 300 問。
+_PER_BUCKET = 60
 # C bucket の質問と対象見出しが共有してよい最長の連続文字数。
 # 「送料」(2 文字)のような話題語の重なりは避けられないが、「送料はいくらですか」のような
 # 見出しの丸写しは口語耐性を測れないので落とす。
@@ -67,9 +69,10 @@ def _targets(chunks, expect_section):
 
 def test_bucket_counts(samples):
     counts = {b: sum(1 for s in samples if s["bucket"] == b) for b in BUCKETS}
-    assert counts == {b: 20 for b in BUCKETS}
-    assert len(samples) == 80
-    assert len({s["id"] for s in samples}) == 80
+    assert counts == {b: _PER_BUCKET for b in BUCKETS}
+    total = _PER_BUCKET * len(BUCKETS)
+    assert len(samples) == total
+    assert len({s["id"] for s in samples}) == total
 
 
 def test_every_sample_has_required_fields(samples):
@@ -159,7 +162,13 @@ def test_absent_bucket_terms_are_really_absent_from_the_documents():
     for term in ["代金引換", "日時指定", "置き配", "店頭", "実店舗", "ギフト", "包装",
                  "メッセージカード", "パスワード", "訪問設置", "下取り", "定期購入",
                  "学生", "分割払い", "リボ", "掛け払い", "有効期限", "譲渡",
-                 "EC-RV500", "交換用フィルター", "電話", "代替機"]:
+                 "EC-RV500", "交換用フィルター", "電話", "代替機",
+                 "レビュー", "メールマガジン", "配信", "退会", "二段階認証", "個人情報",
+                 "買い物かご", "未成年", "追跡番号", "運送会社", "配送業者", "再配達",
+                 "段ボール", "ギフトカード", "商品券", "電子マネー", "誕生日", "抽選",
+                 "中古", "アウトレット", "在庫数", "ダウンロード", "iOS", "保証書",
+                 "クーリングオフ", "収入印紙", "但し書き", "納品書", "インボイス",
+                 "見積", "年末年始", "休業", "会社概要", "アフィリエイト"]:
         assert term not in text, f"D bucket の主題語 {term!r} が資料に存在する"
 
     spec = sources.source_path("product-spec-manual.md").read_text(encoding="utf-8")

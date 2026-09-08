@@ -71,7 +71,7 @@ def _builder() -> StateGraph:
 
     b.add_edge(START, "coref")
     b.add_edge("coref", "classify_intent")
-    # 8 intent → 5 出口。表は routing.INTENT_TO_ROUTE にあり、ここはその 5 つの
+    # 9 intent → 5 出口。表は routing.INTENT_TO_ROUTE にあり、ここはその 5 つの
     # 行き先を辺として置くだけ
     b.add_conditional_edges("classify_intent", route_by_intent, ROUTE_TO_NODE)
 

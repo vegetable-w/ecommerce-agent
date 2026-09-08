@@ -10,7 +10,7 @@ from langchain_core.messages import AIMessage
 
 from app.config import settings
 
-# 8 intent → 5 出口。spec §3.1 の固定 routing で、model には決めさせない。
+# 9 intent → 5 出口。spec §3.1 の固定 routing で、model には決めさせない。
 #
 # 05 からの変更点は 2 つ。
 #  - 「返金返品」と「アフターサービス」を refund_flow へ寄せた。どちらも
@@ -19,8 +19,14 @@ from app.config import settings
 #    決定的な subflow に固定する。
 #  - 「その他」を追加し、雑談と同じ fallback_script へ送る。分類に迷ったものを
 #    無理にどこかの業務経路へ入れるより、聞き直す方が害が小さい。
+#
+# 08 で「人工対応」を足し、business へ送る。escalate(苦情の 2 択)へ送らないのは、
+# あちらが model を呼ばない固定文の出口で、チケットの中身をユーザー自身に
+# 書かせるフォームしか出せないため。business なら main Agent が会話から内容を
+# まとめ、agent_tools の確認カードで中身を見せてから作れる。
 INTENT_TO_ROUTE: dict[str, str] = {
     "苦情": "escalate",
+    "人工対応": "business",
     "雑談": "fallback_script",
     "その他": "fallback_script",
     "商品相談": "knowledge",
@@ -34,7 +40,7 @@ INTENT_TO_ROUTE: dict[str, str] = {
 def route_by_intent(state) -> str:
     """intent で routing する。escalate | fallback_script | knowledge | refund_flow | business のいずれかを返す。
 
-    未知の intent(prompt の変更、上流の schema 違反、7 分類にない文字列)は
+    未知の intent(prompt の変更、上流の schema 違反、9 分類にない文字列)は
     business へ倒す。business は Agent が tool を使って自分で判断する出口なので、
     分類を外しても Agent 側で拾い直せる。逆に fallback_script へ倒すと固定文を返して
     そこで会話が終わってしまい、取り返しがきかない。**迷ったら手数の多い方**。

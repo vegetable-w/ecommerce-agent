@@ -56,7 +56,7 @@ class ConversationState(TypedDict, total=False):
 
     # 指示対象を解決して書き下した完全な質問。以降の分類と検索はこちらを使う
     resolved_query: str
-    intent: str              # 8 分類のいずれか
+    intent: str              # app/core/intent.py の INTENTS のいずれか
     intent_confidence: float # 分類の確信度(0-1)
     route: str               # 5 つの出口のいずれか
 

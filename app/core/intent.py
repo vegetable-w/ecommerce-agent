@@ -1,14 +1,20 @@
-"""発話の intent 分類(single-label 8 class + confidence)。graph の classify_intent node が使う。
+"""発話の intent 分類(single-label 9 class + confidence)。graph の classify_intent node が使う。
 
 ここで決めた 1 語が app/graph/routing.py の routing 表を引き、そのまま 5 つの出口の
 どれを通るかを決める。分類を外すと会話全体の経路が変わるので、出力は自由文ではなく
-Literal に固定して、8 分類の外の文字列が State へ入らないようにする。
+Literal に固定して、9 分類の外の文字列が State へ入らないようにする。
 
 05 章からの変更は 2 点。
- - 「その他」を足して 8 分類にし、**迷ったときの退避先をここに一本化した**。
+ - 「その他」を足して分類を増やし、**迷ったときの退避先をここに一本化した**。
  - confidence を返すようにした。閾値との比較(小さい model へ落として再分類する等)は
    09 章の話で、本章では State と trace に値を残すところまで。数値が残っていれば、
    どの発話で分類が揺れているかを後から実測で見られる。
+
+08 章で「人工対応」を足して 9 分類にした。実測では「チケットを作って」が
+「その他」(0.55)へ落ち、fallback_script の固定文で会話が終わっていた。
+チケット作成そのものを頼まれた発話は 8 分類のどれにも当たらないので、
+退避先の「その他」が受けてしまい、**確認フローを持つ main Agent へ一度も届かない**。
+分類を足して business へ送るのが正しい直し方で、routing 表や Agent 側では直せない。
 """
 
 import logging
@@ -22,7 +28,8 @@ from app.core.prompts import INTENT_CLASSIFY_PROMPT
 
 logger = logging.getLogger(__name__)
 
-INTENTS = ("配送", "注文", "商品相談", "返金返品", "アフターサービス", "苦情", "雑談", "その他")
+INTENTS = ("配送", "注文", "商品相談", "返金返品", "アフターサービス", "苦情",
+           "人工対応", "雑談", "その他")
 
 # 分類できなかったときの退避先。fallback_script(聞き直す出口)へ繋がる。
 # 05 章では「雑談」へ倒していたが、雑談は挨拶に固定文を返す出口であって、
@@ -32,8 +39,9 @@ FALLBACK_INTENT = "その他"
 
 
 class _Intent(BaseModel):
-    intent: Literal["配送", "注文", "商品相談", "返金返品", "アフターサービス", "苦情", "雑談", "その他"] = Field(
-        description="8 種類の intent のいずれか"
+    intent: Literal["配送", "注文", "商品相談", "返金返品", "アフターサービス", "苦情",
+                    "人工対応", "雑談", "その他"] = Field(
+        description="9 種類の intent のいずれか"
     )
     # 値域は Field の制約にせず、受け取ってから丸める。ge/le を付けると上流が 1.5 を
     # 返した瞬間に ValidationError になり、**分類自体は当たっていたのに**「その他」へ
@@ -54,7 +62,7 @@ def _clamp(value) -> float:
 
 
 async def classify(query: str, history: str = "", model=None) -> dict:
-    """{"intent": str, "confidence": float} を返す。intent は 8 分類のいずれか 1 語。
+    """{"intent": str, "confidence": float} を返す。intent は 9 分類のいずれか 1 語。
 
     nested ではなく flat な 2 field にしているのは、上流が nested な output schema で
     502 を返すことがあるため。
@@ -87,6 +95,6 @@ async def classify(query: str, history: str = "", model=None) -> dict:
                        FALLBACK_INTENT, type(exc).__name__, exc)
         return {"intent": FALLBACK_INTENT, "confidence": 0.0}
     # Literal で弾けているはずだが、structured output の実装は上流と版に依存するので念のため。
-    # 8 分類の外の文字列は routing 表を素通りして business へ流れてしまう
+    # 9 分類の外の文字列は routing 表を素通りして business へ流れてしまう
     intent = r.intent if r.intent in INTENTS else FALLBACK_INTENT
     return {"intent": intent, "confidence": _clamp(r.confidence)}

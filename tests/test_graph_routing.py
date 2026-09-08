@@ -19,6 +19,9 @@ from app.graph.routing import (
 
 @pytest.mark.parametrize("intent,expect", [
     ("苦情", "escalate"),
+    # 08: チケット作成 / 有人対応の要求そのもの。escalate(固定文の 2 択)ではなく
+    # business へ送り、main Agent の create_ticket 確認フローを通す
+    ("人工対応", "business"),
     ("雑談", "fallback_script"),
     ("その他", "fallback_script"),
     ("商品相談", "knowledge"),
@@ -37,10 +40,18 @@ def test_route_by_intent_unknown_defaults_business():
     assert route_by_intent({}) == "business"
 
 
-def test_intent_to_route_covers_eight_classes():
-    """8 分類ちょうど。増減したら分類器と routing のどちらかが片方だけ変わっている。"""
+def test_intent_to_route_covers_all_classes():
+    """9 分類ちょうど。増減したら分類器と routing のどちらかが片方だけ変わっている。
+
+    routing 表と INTENTS は別のファイルにあり、片方だけ足すと、足りない方の分類が
+    route_by_intent の既定(business)へ黙って流れる。集合として一致することを見る。
+    """
+    from app.core.intent import INTENTS
+
     assert set(INTENT_TO_ROUTE) == {
-        "苦情", "雑談", "その他", "商品相談", "返金返品", "アフターサービス", "配送", "注文"}
+        "苦情", "人工対応", "雑談", "その他", "商品相談", "返金返品",
+        "アフターサービス", "配送", "注文"}
+    assert set(INTENT_TO_ROUTE) == set(INTENTS)
 
 
 def test_the_five_outlets_are_exactly_these():

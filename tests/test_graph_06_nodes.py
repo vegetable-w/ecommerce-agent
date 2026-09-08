@@ -231,7 +231,7 @@ async def test_classify_degrades_to_other_when_upstream_fails(caplog):
     assert len(warnings) == 1
 
 
-async def test_classify_rejects_values_outside_the_eight_classes():
+async def test_classify_rejects_values_outside_the_known_classes():
     """Literal を素通りした値は INTENTS で弾いて「その他」にする。
 
     routing 表に無い文字列は route_by_intent を素通りして business へ流れる。
@@ -273,9 +273,12 @@ async def test_classify_uses_the_configured_intent_model(monkeypatch):
     assert seen["model"] == "distinct-test-marker-intent-model"
 
 
-def test_eight_classes_and_the_fallback_class():
+def test_the_classes_and_the_fallback_class():
+    """08 で「人工対応」が加わって 9 分類。routing 表との一致は
+    tests/test_graph_routing.py が見る。"""
     assert set(intent_mod.INTENTS) == {
-        "配送", "注文", "商品相談", "返金返品", "アフターサービス", "苦情", "雑談", "その他"}
+        "配送", "注文", "商品相談", "返金返品", "アフターサービス", "苦情",
+        "人工対応", "雑談", "その他"}
     # 迷ったときの退避先は「その他」。05 章の「雑談」から変わっている
     assert intent_mod.FALLBACK_INTENT == "その他"
 
@@ -1176,7 +1179,7 @@ def test_the_date_note_is_only_for_the_refund_route():
 # 規約そのものを聞かれたときは注文を要求しない
 #
 # 返金返品の intent には「自分の注文を返品したい」と「返品の規約を知りたい」の
-# 両方が入る(8 分類はここを分けていない)。後者で注文の一覧を出すと、規約を
+# 両方が入る(intent の分類はここを分けていない)。後者で注文の一覧を出すと、規約を
 # 聞いただけのユーザーが本文なしのカードの山を見て、選ぶ以外に進めなくなる。
 # 実測: 「返品交換ポリシー 教えて」で select_order の中断が起き、回答が空になった。
 # ---------------------------------------------------------------------------

@@ -124,6 +124,72 @@ uv run --env-file .env python scripts/eval_expand.py   # 検索クエリの展�
 
 画面（`http://localhost:8000`）では、「返金したいです」で**注文カード**が並び、選ぶと同じ会話の続きとして判断が流れ、対象なら「返金申請を送信」ボタン → フォーム → `tickets` に `ticket_type='refund'` の行が入ることを確認する。
 
+### 5. 07 章の受け入れ（実サービス）
+
+会話の要約の列とテーブルを 1 度だけ流す:
+
+```bash
+docker compose exec -T mysql mysql --default-character-set=utf8mb4 -uroot -proot support < sql/07-ddl.sql
+docker compose exec -T mysql mysql --default-character-set=utf8mb4 -uroot -proot support < sql/07-layers.sql
+```
+
+要約プロンプトは正解付きのサンプルで見る:
+
+```bash
+make eval-07
+```
+
+画面では、左の切り替え欄で会話を行き来できることと、長い会話でも序盤の事実（注文番号など）を
+覚えていることを確認する。そのターンでモデルへ実際に渡した文脈は log から読める:
+
+```bash
+grep model_ctx log/app.log
+```
+
+### 6. 08 章の受け入れ（実サービス）
+
+監査ログのテーブルを 1 度だけ流す:
+
+```bash
+docker compose exec -T mysql mysql --default-character-set=utf8mb4 -uroot -proot support < sql/08-ddl.sql
+```
+
+**このチャプターからは MCP Server 2 台が要る。** `make dev` が起動時に立ち上げるが、単体でも操作できる:
+
+```bash
+make mcp-up     # logistics=:8101 / after-sales=:8102
+make mcp-down
+```
+
+受け入れのサンプルはラベル付きで機械判定する:
+
+```bash
+make eval-08
+```
+
+確認する内容:
+
+1. **ファイルを 1 つ置くだけでツールが増える** — `cp scripts/demo_08_promotions.py.txt app/tools/builtin/promotions.py`
+   してアプリを再起動すると、core code を 1 行も変えずに registry へ載る
+2. **MCP のツールが built-in と同じ一覧に並ぶ** — 配送状況の照会は別プロセスの MCP Server が担当し、
+   internal な状態コードは client 側の formatter が日本語へ訳す
+3. **MCP Server にツールを足すと、本体を再起動せずに次のターンから見える**（tool list は毎回取得する）
+4. **チケット作成は必ず確認カードを挟む** — 「送信を確認」を押すまで `tickets` には 1 行も入らない
+5. **キャンセルすると作成されず、監査に権限拒否が残る**
+6. **タイムアウトと retry** — `MOCK_DELAY_SECONDS=8` で MCP Server を起動すると再試行の記録が残り、
+   書き込み系（チケット作成）は二重実行を避けるため retry しない
+
+すべてのツール呼び出しは `tool_audit_logs` に 1 行ずつ残る:
+
+```sql
+SELECT tool_name, tool_source, mcp_server, status, retry_count, duration_ms
+  FROM tool_audit_logs ORDER BY id DESC LIMIT 20;
+```
+
+画面（`http://localhost:8000`）では、「猫用トイレのコンセントから火花が出ました。担当の方に対応して
+ほしいです」と伝えると**チケット内容の確認カード**が出て、「送信を確認」でチケット番号が返り、
+「キャンセル」では作成されないことを確認する。
+
 ## ディレクトリ
 
 ```

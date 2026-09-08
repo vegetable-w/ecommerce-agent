@@ -860,7 +860,7 @@ def _forbid_tool_execution(monkeypatch):
     async def _boom(*args, **kwargs):
         raise AssertionError("横取りすべきツールを実行した")
 
-    monkeypatch.setattr(nodes, "execute_tool_call", _boom)
+    monkeypatch.setattr(nodes.engine, "execute_tool_call", _boom)
 
 
 def _ai_calling(*tool_calls):
@@ -1004,10 +1004,15 @@ def test_agent_messages_leaves_the_business_route_alone():
 
 
 def test_submit_refund_is_registered_for_the_model():
-    """モデルへ渡すツール一覧に入っていること(入っていないと呼びようがない)。"""
+    """モデルへ渡すツール一覧に入っていること(入っていないと呼びようがない)。
+
+    08 章で一覧は built-in と MCP の合成になったが、submit_refund は built-in 側に
+    留まる(横取りする以上、外部のサーバへ出す意味がない)。MCP を待たずに
+    built-in の一覧だけで確かめられるので、ここでは生きた Server に依存させない。
+    """
     from app.tools import registry
-    assert registry.get_tool("submit_refund") is not None
-    assert "submit_refund" in {t.name for t in registry.get_all_tools()}
+    assert registry.get_builtin_spec("submit_refund") is not None
+    assert "submit_refund" in {s.name for s in registry.builtin_specs()}
 
 
 async def test_no_refund_form_without_an_order(monkeypatch):
@@ -1017,10 +1022,10 @@ async def test_no_refund_form_without_an_order(monkeypatch):
     からも呼ばれうる。空の draft を出すとユーザーには何の申請か分からないフォームが出て、
     押しても弾かれる。モデルには「提示していない」と正直に返して聞き直させる。
     """
-    async def _boom(tc, cid):
+    async def _boom(tc, cid, specs):
         raise AssertionError("横取りすべきツールを実行した")
 
-    monkeypatch.setattr(nodes, "execute_tool_call", _boom)
+    monkeypatch.setattr(nodes.engine, "execute_tool_call", _boom)
     ai = AIMessage("", tool_calls=[
         {"id": "r1", "name": "submit_refund", "args": {"reason": "初期不良"}}])
     out = await nodes.agent_tools({"messages": [HumanMessage("返金して"), ai]})
@@ -1029,10 +1034,10 @@ async def test_no_refund_form_without_an_order(monkeypatch):
 
 
 async def test_the_refund_form_appears_once_the_order_is_known(monkeypatch):
-    async def _boom(tc, cid):
+    async def _boom(tc, cid, specs):
         raise AssertionError("横取りすべきツールを実行した")
 
-    monkeypatch.setattr(nodes, "execute_tool_call", _boom)
+    monkeypatch.setattr(nodes.engine, "execute_tool_call", _boom)
     ai = AIMessage("", tool_calls=[
         {"id": "r1", "name": "submit_refund", "args": {"reason": "初期不良"}}])
     out = await nodes.agent_tools({"messages": [HumanMessage("返金して"), ai],

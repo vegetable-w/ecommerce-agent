@@ -65,7 +65,7 @@ def test_views_are_empty_when_state_has_no_messages():
 def test_failed_tool_result_is_not_reported_as_ok():
     """status="error" の ToolMessage は ok=False になる。
 
-    app/tools/infra.py も LangGraph の ToolNode も、失敗した tool は例外ではなく
+    app/tools/engine.py も LangGraph の ToolNode も、失敗した tool は例外ではなく
     status="error" の ToolMessage として返す。ここを常に True にすると、評価は失敗した
     呼び出しを成功として数え、「tool は呼べているのに答えがおかしい」の切り分けができなくなる。
     """

@@ -8,6 +8,12 @@ answer / tool_calls / tool_results / suggested_actions しか返さず、「強�
 通ったか」は載っていない。log を grep する手もあるが、出力の書式に依存して脆いので、
 State の trace を直接読む。**上流も DB も本物**なので、実サービスであることは変わらない。
 
+08 章の補足: 受け入れ 2 と 5 で見る query_logistics は built-in から MCP Server 側へ
+移った。**先に `make mcp-up` で 2 台を起動しておくこと**(`make dev` は起動時に
+mcp-up を呼ぶので、そちらでアプリを立てていれば足りる)。Server が落ちていると
+ツール一覧から query_logistics だけが黙って抜け、モデルが選びようのないまま
+受け入れ 2 と 5 が NG になる。
+
 使い方: PYTHONUTF8=1 uv run --env-file .env python scripts/eval_05.py
 """
 
@@ -48,6 +54,8 @@ async def main() -> int:
 
     async with httpx.AsyncClient(timeout=180) as c:
         # 2: 配送の質問で Agent が自分で tool を選ぶ
+        # 08: query_logistics は MCP 側の tool になったが、モデルから見た名前も引数も
+        # 変わらないので、判定はそのままでよい(合成した一覧ごと bind される)。
         b = await agent(c, "注文1001の荷物は今どこ?")
         names = {tc["name"] for tc in b["tool_calls"]}
         results.append(("2 配送 tool を自分で選ぶ", "query_logistics" in names, sorted(names)))

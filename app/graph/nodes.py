@@ -43,9 +43,8 @@ from app.core.prompts import (
 )
 from app.db import repository
 from app.graph import routing
+from app.tools import engine, registry
 from app.tools.business import list_user_orders, order_snapshot
-from app.tools.infra import execute_tool_call
-from app.tools.registry import get_all_tools
 
 logger = logging.getLogger(__name__)
 
@@ -716,7 +715,14 @@ async def agent_llm(state, config=None) -> dict:
     ログへ渡すのは **ainvoke へ渡すその list そのもの**。組み立て直すと、ログに
     出ていない message がモデルへ届いている、という食い違いが検出できなくなる。
     """
-    model = get_chat_model(streaming=True).bind_tools(get_all_tools())
+    # ツール一覧は毎ターン取り直す(cache しない)。MCP Server 側へツールを足すと
+    # 本体を再起動しなくても次のターンから見える、というのが 08 章の狙い。
+    # その代償として get_all_specs() は 1 ターンに 2 回走る(ここの bind と agent_tools の
+    # 実行時)。その間に Server が落ちると 2 つの一覧が食い違い、bind 済みの MCP ツールが
+    # 実行時には「未知のツール」になりうる。engine がその失敗をモデルへ返すので
+    # ターン自体は止まらない。
+    specs = await registry.get_all_specs()
+    model = get_chat_model(streaming=True).bind_tools([s.tool for s in specs])
     msgs = _agent_messages(state)
     _log_model_context(state, msgs)
     ai: AIMessage = await model.ainvoke(msgs, config)
@@ -781,6 +787,9 @@ async def agent_tools(state) -> dict:
     last = state["messages"][-1]
     tool_msgs = []
     actions = list(state.get("suggested_actions", []))
+    # agent_llm が bind した一覧とは別に取り直す(cache しないため)。その間に MCP Server が
+    # 落ちていると、bind 済みのツールがここには無く engine が「未知のツール」として返す。
+    specs = {s.name: s for s in await registry.get_all_specs()}
     for tc in last.tool_calls:
         if tc["name"] == "create_ticket":
             # ticket_type は DB の ENUM と同じ英語の識別子(spec §6.1)。
@@ -822,7 +831,7 @@ async def agent_tools(state) -> dict:
             tool_msgs.append(ToolMessage(content=content,
                                          tool_call_id=tc["id"], name="submit_refund"))
         else:
-            run = await execute_tool_call(tc, state.get("conversation_id", 0))
+            run = await engine.execute_tool_call(tc, state.get("conversation_id", 0), specs)
             tool_msgs.append(run.tool_message)
             await _record_faq_refusal(state, run)
     out = {"messages": tool_msgs}

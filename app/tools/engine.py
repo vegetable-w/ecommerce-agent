@@ -85,13 +85,33 @@ def _summarize(content: str) -> str:
     return content if len(content) <= _SUMMARY_LIMIT else content[:_SUMMARY_LIMIT] + "…（省略）"
 
 
+def _mcp_text(result) -> str | None:
+    """MCP の content block の list から text だけを繋いで返す。block でなければ None。
+
+    adapters は MCP のツールの戻りを
+    `[{"type": "text", "text": "...", "id": "lc_<uuid>"}]` の形で渡してくる
+    (dict でも JSON 文字列でもない)。ここを剥がさないと format_result が
+    「dict ではない」という理由で一度も呼ばれず、内部 enum も carrier_code も
+    そのままモデルへ流れる。`id` は呼び出しごとに変わるので text 以外は捨てる。
+    """
+    if not isinstance(result, list) or not result:
+        return None
+    if not all(isinstance(b, dict) for b in result):
+        return None
+    texts = [b.get("text", "") for b in result if b.get("type") == "text"]
+    return "".join(texts) if texts else None
+
+
 def _format_content(spec: ToolSpec, result) -> str:
     """結果の整形。
 
-    MCP のツールは JSON の文字列を返すことがあるので、まず dict へ戻す。
+    MCP のツールは content block の list、または JSON の文字列を返すので、まず dict へ戻す。
     format_result があれば、必要なフィールドの選択と内部 enum の翻訳をそこへ任せる。
     最後に ensure_ascii=False で直列化し、日本語を escape しない。
     """
+    unwrapped = _mcp_text(result)
+    if unwrapped is not None:
+        result = unwrapped
     if isinstance(result, str):
         try:
             result = json.loads(result)

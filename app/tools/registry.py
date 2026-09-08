@@ -126,22 +126,24 @@ def get_builtin_spec(name: str) -> ToolSpec | None:
     return _BUILTIN.get(name)
 
 
-# ---- 移行用の互換 API(旧 infra.py と main_agent がまだ使う。Task 5 の MCP 配線後に削除)----
+async def get_all_specs() -> list[ToolSpec]:
+    """built-in と MCP(その都度取得)を 1 つの一覧へまとめる。
 
-NO_RETRY: set[str] = {"create_ticket", "submit_refund"}  # 書き込み系ツールは自動 retry しない
-# submit_refund は agent_tools が横取りするので本来ここへ来ない。それでも入れるのは、
-# 横取りを外したときに申請の意思表示が黙って 2 回流れるのを防ぐため
-INJECT_CONVERSATION: set[str] = {"create_ticket"}  # 会話主キーを注入するツール
-# ツールごとの timeout。**まだ誰も読んでいない**(旧 infra.execute_tool_call は引数の
-# 既定値 5.0 を使う)。Task 3 の実行エンジンが ToolSpec.timeout を見るようになるまでの
-# 置き場所で、ここに値を足しても現在の挙動は変わらない。
-TOOL_TIMEOUTS: dict[str, float] = {"query_faq": 30.0}
+    名前がぶつかったら built-in を残し、後から来た MCP のツールを警告付きで捨てる
+    (register() と同じ「先に登録した方を残す」規則)。本章では built-in の
+    query_logistics を廃止しているので、通常はぶつからない。
 
+    **cache しない。** 呼ぶたびに MCP へ問い合わせるので、Server 側へツールを足すと
+    本体を再起動しなくても次のターンから見えるようになる。
+    """
+    from app.tools import mcp_client   # 循環 import を避けるための遅延 import
 
-def get_all_tools() -> list[BaseTool]:
-    return [s.tool for s in builtin_specs()]
-
-
-def get_tool(name: str) -> BaseTool | None:
-    spec = get_builtin_spec(name)
-    return spec.tool if spec else None
+    merged: dict[str, ToolSpec] = {s.name: s for s in builtin_specs()}
+    for s in await mcp_client.fetch_mcp_specs():
+        if s.name in merged:
+            logger.warning(
+                "MCP のツールが既登録のツールと重複したため破棄 name=%s server=%s", s.name, s.mcp_server
+            )
+            continue
+        merged[s.name] = s
+    return list(merged.values())

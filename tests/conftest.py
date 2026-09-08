@@ -11,11 +11,32 @@ _test_engine はセッションスコープのイベントループ上に作ら�
 
 import pathlib
 
+import pytest
 import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import settings
+
+@pytest.fixture(autouse=True)
+def _no_live_mcp(monkeypatch):
+    """既定で MCP Server への接続を断つ。
+
+    08 章から agent_llm / agent_tools が毎ターン registry.get_all_specs() を呼ぶ。
+    素のままだと単体テストが 127.0.0.1:8101 / 8102 を叩きに行き、繋がらなければ
+    warning を出して skip するだけなので、**黙って遅くなる**という一番たちの悪い形になる。
+    ここで塞いでおけば、built-in だけの一覧で回ることが既定の振る舞いになる。
+
+    実際に Server と往復するテスト(tests/test_mcp_servers.py)は、import 時に捕まえて
+    おいた本物の関数を自分で戻す。
+    """
+    from app.tools import mcp_client
+
+    async def _refuse(*, server_name):
+        raise ConnectionError(f"単体テストは MCP Server へ接続しない(server={server_name})")
+
+    monkeypatch.setattr(mcp_client, "_get_tools_of", _refuse)
+
 
 _DDL_FILES = [
     pathlib.Path(__file__).resolve().parent.parent / "sql" / "02-ddl.sql",

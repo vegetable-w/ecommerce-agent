@@ -1,8 +1,28 @@
+import pathlib
 import re
 
 from langchain_core.messages import HumanMessage
 
 from app.core.prompts import CUSTOMER_SERVICE_PROMPT, EXTRACT_PROMPT, AGENT_SYSTEM, AGENT_PROMPT
+
+_MCP_SERVERS_DIR = pathlib.Path(__file__).resolve().parent.parent / "mcp_servers"
+
+
+def _mcp_tool_names() -> set[str]:
+    """MCP Server の実装から tool 名を機械的に読み取る。
+
+    registry.get_all_specs() は async なうえ生きた Server への接続を伴うので、
+    プロンプトの単体テストをそれに依存させると、Server が起動していないだけで
+    「プロンプトが実在しないツールを案内している」と報告されてしまう。
+    ツールを名乗る場所は @mcp.tool() の付いた関数定義そのものなので、そこを原本として
+    読む(02 章で labels.py と DDL を突き合わせたのと同じ方式)。
+    """
+    names: set[str] = set()
+    for f in sorted(_MCP_SERVERS_DIR.glob("*_server.py")):
+        names |= set(re.findall(r"@mcp\.tool\(\)\s*\n\s*async def (\w+)",
+                                f.read_text(encoding="utf-8")))
+    assert names, "MCP Server の実装から tool 名を 1 つも抽出できていない"
+    return names
 
 def test_customer_service_prompt_renders_with_history():
     msgs = CUSTOMER_SERVICE_PROMPT.format_messages(
@@ -55,37 +75,40 @@ def test_agent_system_names_match_registry():
     or the model will be told to call a tool that no longer exists under
     that name. This test catches that desync.
 
+    08 章から、照合先は built-in だけでは足りない。配送状況の照会は MCP Server 側へ
+    移ったので、そちらの @mcp.tool() も合わせて「実在するツール」とみなす
+    (生きた Server には繋がず、Server の実装を原本として読む)。
+
     06 章から、常時渡す AGENT_SYSTEM だけでは足りない。submit_refund は返金フローでしか
     呼ばせたくないツールで、AGENT_SYSTEM に書くと全経路で「返金申請を出す」選択肢が
     見えてしまう(注文を特定していない経路でも呼ばれる)。そのため使い方は
     REFUND_JUDGE_HINT の側にあり、対応の検査もその 2 つを合わせて行う。
     """
     from app.core.prompts import REFUND_JUDGE_HINT
-    from app.tools.registry import get_all_tools
+    from app.tools import registry
 
-    # Get actual tool names from registry
-    registry_names = {t.name for t in get_all_tools()}
+    builtin_names = {s.name for s in registry.builtin_specs()}
+    # 08: モデルが呼べるツールは built-in と MCP の合成。プロンプトの名前はその合成に
+    # 対して照合する(get_all_specs と同じ集合を、生きた Server 無しで組み立てる)。
+    real_names = builtin_names | _mcp_tool_names()
 
     # Extract tool names mentioned in the prompts (query_* / create_* / submit_* pattern)
     instructions = AGENT_SYSTEM + REFUND_JUDGE_HINT
     mentioned_names = set(re.findall(r'\b(?:query|create|submit)_[a-z_]+\b', instructions))
 
-    # Forward: all registry tools should be mentioned in the prompts
-    for name in registry_names:
+    # Forward: built-in のツールはすべてプロンプトで案内されていること
+    for name in builtin_names:
         assert name in mentioned_names, f"Tool '{name}' in registry but not mentioned in the prompts"
 
-    # 08 章の移行期間だけの例外。query_logistics は built-in から外し、配送状況の照会は
-    # MCP 側へ移した。AGENT_SYSTEM の書き換えは MCP 側のツール名が決まってから行うので、
-    # それまでの間だけ prompt が registry に無い名前をモデルへ案内している状態が続く。
-    # 例外そのものを assert しておくことで、prompt から名前が消えた時点でここも落ち、
-    # この抜け道が黙って残り続けないようにする。
-    in_transition = {"query_logistics"}
-    assert in_transition <= mentioned_names, \
-        "prompt から query_logistics が消えたなら、この移行用の例外も外すこと"
+    # query_logistics は built-in から MCP へ移したが、案内は残っていなければならない。
+    # 注文 → 追跡番号 → 配送 の連鎖(05 章の受け入れ条件 #5)は、この案内が
+    # プロンプトに在ることで成り立っている。
+    assert "query_logistics" in mentioned_names, \
+        "配送状況の照会を案内する記述がプロンプトから消えている"
 
-    # Reverse: all mentioned names should correspond to real tools in registry
-    for name in mentioned_names - in_transition:
-        assert name in registry_names, f"Tool '{name}' mentioned in the prompts but not in registry"
+    # Reverse: プロンプトが挙げる名前は、実在するツールでなければならない
+    for name in mentioned_names:
+        assert name in real_names, f"Tool '{name}' mentioned in the prompts but not in registry"
 
 
 # ---- 04 章: RAG 生成 / セルフチェック / 忠実性 ---------------------------------

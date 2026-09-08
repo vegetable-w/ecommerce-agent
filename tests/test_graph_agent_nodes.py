@@ -16,12 +16,26 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 
 from app.core.prompts import AGENT_SYSTEM
 from app.graph import nodes
-from app.tools.infra import ToolRun
+from app.tools import registry
+from app.tools.engine import ToolRun
+
+
+def _ok_run(tc, content='{"ok": true}') -> ToolRun:
+    return ToolRun(
+        tool_call_id=tc["id"], name=tc["name"], ok=True, status="success",
+        tool_message=ToolMessage(content=content, tool_call_id=tc["id"], name=tc["name"]),
+    )
 
 
 @pytest.fixture(autouse=True)
 def _forbid_upstream_and_tools(monkeypatch):
-    """モデル取得とツール実行を既定で禁止する。使うテストは自分で偽物を置く。"""
+    """モデル取得・ツール実行・MCP への接続を既定で禁止する。使うテストは自分で偽物を置く。
+
+    08 章で node が毎ターン registry.get_all_specs() を呼ぶようになった。素のままだと
+    単体テストが 127.0.0.1:8101/8102 を叩きに行く(繋がらなければ warning を出して
+    skip するので黙って遅くなるだけ、という一番たちの悪い形になる)。ここで built-in
+    だけを返す偽物へ差し替え、MCP のツールが要るテストは自分で足す。
+    """
 
     def _boom_model(*args, **kwargs):
         raise AssertionError("テストが上流のチャットモデルを呼んだ")
@@ -29,8 +43,12 @@ def _forbid_upstream_and_tools(monkeypatch):
     async def _boom_tool(*args, **kwargs):
         raise AssertionError("テストが本物のツールを実行した")
 
+    async def _builtin_only():
+        return registry.builtin_specs()
+
     monkeypatch.setattr(nodes, "get_chat_model", _boom_model)
-    monkeypatch.setattr(nodes, "execute_tool_call", _boom_tool)
+    monkeypatch.setattr(nodes.engine, "execute_tool_call", _boom_tool)
+    monkeypatch.setattr(nodes.registry, "get_all_specs", _builtin_only)
 
 
 class _FakeModel:
@@ -69,18 +87,11 @@ def _use_tools(monkeypatch) -> list:
     """ツール実行を記録するだけの偽物に差し替え、記録先の list を返す。"""
     called = []
 
-    async def _fake(tc, conversation_id):
-        called.append((tc, conversation_id))
-        return ToolRun(
-            tool_call_id=tc["id"],
-            name=tc["name"],
-            ok=True,
-            tool_message=ToolMessage(
-                content='{"ok": true}', tool_call_id=tc["id"], name=tc["name"]
-            ),
-        )
+    async def _fake(tc, conversation_id, specs):
+        called.append((tc, conversation_id, specs))
+        return _ok_run(tc)
 
-    monkeypatch.setattr(nodes, "execute_tool_call", _fake)
+    monkeypatch.setattr(nodes.engine, "execute_tool_call", _fake)
     return called
 
 
@@ -188,17 +199,29 @@ async def test_agent_llm_survives_missing_usage_metadata(monkeypatch):
 
 
 async def test_agent_llm_binds_every_tool_and_passes_the_config(monkeypatch):
-    """全ツールを bind し、LangGraph から渡された config をそのまま ainvoke へ渡すこと。
+    """built-in も MCP も区別なく bind し、config をそのまま ainvoke へ渡すこと。
 
     config を落とすと stream 用の callback が届かず、token が frontend へ流れない。
+    MCP 側のツールも混ぜるのは、08 章で配送状況の照会が MCP へ移ったため。
+    出所で選り分けていると、bind されずにモデルからは存在しないツールになる。
     """
-    from app.tools.registry import get_all_tools
+    mcp_spec = registry.ToolSpec(
+        name="query_logistics", description="配送状況",
+        json_schema={"type": "object", "properties": {"tracking_no": {"type": "string"}}},
+        tool=type("T", (), {"name": "query_logistics"})(),
+        permission="read", source="mcp", mcp_server="logistics")
+
+    async def _both():
+        return [*registry.builtin_specs(), mcp_spec]
+
+    monkeypatch.setattr(nodes.registry, "get_all_specs", _both)
 
     fake = _use_model(monkeypatch, AIMessage(content="はい"))
     cfg = {"callbacks": ["dummy"]}
     await nodes.agent_llm({"messages": [HumanMessage("hi")], "route": "business"}, cfg)
 
-    assert {t.name for t in fake.bound_tools} == {t.name for t in get_all_tools()}
+    builtin = {s.name for s in registry.builtin_specs()}
+    assert {t.name for t in fake.bound_tools} == builtin | {"query_logistics"}
     assert fake.seen_config is cfg
     assert fake.get_kwargs["streaming"] is True
 
@@ -226,6 +249,9 @@ async def test_agent_tools_executes_a_normal_tool(monkeypatch):
 
     assert [c[0]["name"] for c in called] == ["query_order"]
     assert called[0][1] == 42  # conversation_id が注入経路へ渡ること
+    # 一覧を engine へ渡すのは node の仕事。空のまま渡すと、engine からは全部が
+    # 「未知のツール」に見えて、原因の分からない失敗としてモデルへ返る。
+    assert "query_order" in called[0][2]
     assert [m.tool_call_id for m in out["messages"]] == ["c1"]
     assert isinstance(out["messages"][0], ToolMessage)
     # 通常ツールだけなら選択肢は積まない
@@ -323,8 +349,7 @@ async def test_normal_tool_still_runs_when_mixed_with_create_ticket(monkeypatch)
 # ---------------------------------------------------------------------------
 
 def _faq_run(payload, name="query_faq"):
-    from app.tools.infra import ToolRun
-    return ToolRun(tool_call_id="t1", name=name, ok=True,
+    return ToolRun(tool_call_id="t1", name=name, ok=True, status="success",
                    tool_message=ToolMessage(content=json.dumps(payload, ensure_ascii=False),
                                             tool_call_id="t1", name=name))
 
@@ -336,12 +361,12 @@ async def test_a_refused_faq_on_the_business_route_reaches_the_pool(monkeypatch)
         saved.update(cid=cid, raw=raw, source=source, reason=reason)
         return 1
 
-    async def _exec(tc, cid):
+    async def _exec(tc, cid, specs):
         return _faq_run({"sufficient": False, "source": "retrieval_low_conf",
                          "reason": "リランクの最高スコアが閾値未満(top=0.012)"})
 
     monkeypatch.setattr(nodes.repository, "insert_low_confidence", _fake)
-    monkeypatch.setattr(nodes, "execute_tool_call", _exec)
+    monkeypatch.setattr(nodes.engine, "execute_tool_call", _exec)
     ai = AIMessage("", tool_calls=[{"name": "query_faq", "args": {"keyword": "置き配"}, "id": "t1"}])
     await nodes.agent_tools({"messages": [HumanMessage("置き配できますか"), ai],
                              "conversation_id": 9})
@@ -355,11 +380,11 @@ async def test_a_sufficient_faq_does_not_reach_the_pool(monkeypatch):
     async def _boom(*a, **k):
         raise AssertionError("答えられたターンをプールへ積んではいけない")
 
-    async def _exec(tc, cid):
+    async def _exec(tc, cid, specs):
         return _faq_run({"sufficient": True, "evidence": "[1] ...", "citations": []})
 
     monkeypatch.setattr(nodes.repository, "insert_low_confidence", _boom)
-    monkeypatch.setattr(nodes, "execute_tool_call", _exec)
+    monkeypatch.setattr(nodes.engine, "execute_tool_call", _exec)
     ai = AIMessage("", tool_calls=[{"name": "query_faq", "args": {"keyword": "送料"}, "id": "t1"}])
     await nodes.agent_tools({"messages": [HumanMessage("送料は"), ai], "conversation_id": 9})
 
@@ -369,14 +394,13 @@ async def test_a_broken_faq_payload_does_not_break_the_turn(monkeypatch):
     async def _boom(*a, **k):
         raise AssertionError("読めない payload でプールへ積んではいけない")
 
-    async def _exec(tc, cid):
-        from app.tools.infra import ToolRun
-        return ToolRun(tool_call_id="t1", name="query_faq", ok=False,
+    async def _exec(tc, cid, specs):
+        return ToolRun(tool_call_id="t1", name="query_faq", ok=False, status="failed",
                        tool_message=ToolMessage(content="ツールの実行に失敗しました",
                                                 tool_call_id="t1", name="query_faq"))
 
     monkeypatch.setattr(nodes.repository, "insert_low_confidence", _boom)
-    monkeypatch.setattr(nodes, "execute_tool_call", _exec)
+    monkeypatch.setattr(nodes.engine, "execute_tool_call", _exec)
     ai = AIMessage("", tool_calls=[{"name": "query_faq", "args": {"keyword": "x"}, "id": "t1"}])
     out = await nodes.agent_tools({"messages": [HumanMessage("x"), ai], "conversation_id": 9})
     assert out["messages"]        # ターン自体は続く
@@ -386,11 +410,11 @@ async def test_other_tools_are_not_pooled(monkeypatch):
     async def _boom(*a, **k):
         raise AssertionError("query_faq 以外を積んではいけない")
 
-    async def _exec(tc, cid):
+    async def _exec(tc, cid, specs):
         return _faq_run({"sufficient": False}, name="query_order")
 
     monkeypatch.setattr(nodes.repository, "insert_low_confidence", _boom)
-    monkeypatch.setattr(nodes, "execute_tool_call", _exec)
+    monkeypatch.setattr(nodes.engine, "execute_tool_call", _exec)
     ai = AIMessage("", tool_calls=[{"name": "query_order", "args": {}, "id": "t1"}])
     await nodes.agent_tools({"messages": [HumanMessage("x"), ai], "conversation_id": 9})
 
@@ -409,8 +433,7 @@ def test_faq_payload_is_none_for_other_tools():
 def test_faq_payload_is_none_when_the_tool_errored():
     """ツールが失敗すると content は JSON ではなく日本語のエラー文になる。
     ここで例外を漏らすとターン全体が落ちる。"""
-    from app.tools.infra import ToolRun
-    run = ToolRun(tool_call_id="t1", name="query_faq", ok=False,
+    run = ToolRun(tool_call_id="t1", name="query_faq", ok=False, status="failed",
                   tool_message=ToolMessage(content="ツール実行失敗: 一時的なエラー",
                                            tool_call_id="t1", name="query_faq"))
     assert nodes._faq_payload(run) is None
@@ -418,8 +441,7 @@ def test_faq_payload_is_none_when_the_tool_errored():
 
 def test_faq_payload_is_none_when_the_content_is_not_an_object():
     """json.loads は数値や文字列も通す。dict でなければ扱わない。"""
-    from app.tools.infra import ToolRun
-    run = ToolRun(tool_call_id="t1", name="query_faq", ok=True,
+    run = ToolRun(tool_call_id="t1", name="query_faq", ok=True, status="success",
                   tool_message=ToolMessage(content="123", tool_call_id="t1", name="query_faq"))
     assert nodes._faq_payload(run) is None
 
@@ -432,13 +454,13 @@ async def test_only_the_refused_faq_is_pooled_when_several_tools_run(monkeypatch
         saved.append(source)
         return 1
 
-    async def _exec(tc, cid):
+    async def _exec(tc, cid, specs):
         if tc["name"] == "query_faq":
             return _faq_run({"sufficient": False, "source": "self_check", "reason": "根拠不足"})
         return _faq_run({"order_id": "1001"}, name="query_order")
 
     monkeypatch.setattr(nodes.repository, "insert_low_confidence", _fake)
-    monkeypatch.setattr(nodes, "execute_tool_call", _exec)
+    monkeypatch.setattr(nodes.engine, "execute_tool_call", _exec)
     ai = AIMessage("", tool_calls=[
         {"name": "query_order", "args": {}, "id": "t1"},
         {"name": "query_faq", "args": {"keyword": "x"}, "id": "t2"}])

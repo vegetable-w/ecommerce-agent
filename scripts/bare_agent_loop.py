@@ -12,7 +12,7 @@ LangGraph はこの loop を消すものではなく、この loop を**より�
 固定するためのもの。だから「LangGraph が Agent を作る」のではなく、
 「Agent は元からこの形で、LangGraph はその外側を作る」と理解するのが正しい。
 
-使い方:
+使い方(配送状況を試すなら先に `make mcp-up` で MCP Server を起動しておく):
     PYTHONUTF8=1 uv run --env-file .env python scripts/bare_agent_loop.py "注文1001の配送状況は?"
 """
 
@@ -23,12 +23,14 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.core.llm import get_chat_model
 from app.core.prompts import AGENT_SYSTEM
-from app.tools.infra import execute_tool_call
-from app.tools.registry import get_all_tools
+from app.tools import engine, registry
 
 
 async def run_agent(query: str, max_turns: int = 6) -> str:
-    model = get_chat_model().bind_tools(get_all_tools())
+    # 08: ツール一覧は built-in と MCP を毎回まとめて取る。MCP Server が落ちていても
+    # built-in だけで loop は回る(fetch_mcp_specs が warning を出して skip する)。
+    specs = {s.name: s for s in await registry.get_all_specs()}
+    model = get_chat_model().bind_tools([s.tool for s in specs.values()])
     messages = [SystemMessage(AGENT_SYSTEM), HumanMessage(query)]
 
     for step in range(1, max_turns + 1):
@@ -41,7 +43,7 @@ async def run_agent(query: str, max_turns: int = 6) -> str:
 
         for tc in ai.tool_calls:
             print(f"[step {step}] tool {tc['name']} を実行 args={tc['args']}")
-            run = await execute_tool_call(tc, conversation_id=0)
+            run = await engine.execute_tool_call(tc, 0, specs)
             print(f"[step {step}]   → {run.tool_message.content[:90]}")
             messages.append(run.tool_message)
 

@@ -12,6 +12,7 @@ app/core/labels.py の TOOL_AUDIT_STATUS だけが持つ。
 """
 
 import asyncio
+import json
 
 import httpx
 import pytest
@@ -237,6 +238,67 @@ async def test_format_result_hook_translates_enum(audits):
     )
     assert "輸送中" in run.tool_message.content and "internal_ref" not in run.tool_message.content
     assert audits[-1]["tool_source"] == "mcp"
+
+
+async def test_mcp_content_blocks_are_unwrapped_before_formatting(audits):
+    """MCP の戻り(content block の list)を剥がしてから formatter へ渡すこと。
+
+    adapters は `[{"type": "text", "text": "...", "id": "lc_<uuid>"}]` を返す。
+    dict でも JSON 文字列でもないので、剥がさずに渡すと format_result は
+    「dict ではない」という理由で一度も呼ばれず、内部 enum も内部コードも
+    そのままモデルへ流れる(実 Server と繋ぐまで表に出なかった穴)。
+    id は呼び出しごとに変わるので、残すと監査の突き合わせもできなくなる。
+    """
+    async def ok(_):
+        return [{"type": "text",
+                 "text": '{"tracking_no": "SF1", "status_code": "IN_TRANSIT", "carrier_code": "X"}',
+                 "id": "lc_1111"}]
+
+    def fmt(d):
+        return {"tracking_no": d["tracking_no"],
+                "status": {"IN_TRANSIT": "輸送中"}.get(d.get("status_code"))}
+
+    spec = _spec("query_logistics", source="mcp", tool=_tool(ok, "query_logistics"),
+                 schema=LOGISTICS_SCHEMA, fmt=fmt)
+    run = await engine.execute_tool_call(
+        {"name": "query_logistics", "args": {"tracking_no": "SF1"}, "id": "c1"},
+        1,
+        {"query_logistics": spec},
+    )
+    assert run.ok is True
+    assert "輸送中" in run.tool_message.content
+    assert "carrier_code" not in run.tool_message.content
+    assert "lc_1111" not in run.tool_message.content       # block の id は答えに要らない
+
+
+async def test_mcp_plain_text_block_is_passed_through(audits):
+    """JSON でない text block は、そのままの文字列としてモデルへ渡すこと。"""
+    async def ok(_):
+        return [{"type": "text", "text": "該当する配送情報が見つかりません", "id": "lc_2"}]
+
+    spec = _spec("query_logistics", source="mcp", tool=_tool(ok, "query_logistics"),
+                 schema=LOGISTICS_SCHEMA, fmt=lambda d: {"never": "called"})
+    run = await engine.execute_tool_call(
+        {"name": "query_logistics", "args": {"tracking_no": "SF1"}, "id": "c1"},
+        1,
+        {"query_logistics": spec},
+    )
+    assert run.tool_message.content == "該当する配送情報が見つかりません"
+
+
+async def test_a_plain_list_result_is_not_mistaken_for_content_blocks(audits):
+    """ただの list を返すツールを content block と取り違えないこと。"""
+    async def ok(_):
+        return [{"order_id": "1"}, {"order_id": "2"}]
+
+    spec = _spec(tool=_tool(ok))
+    run = await engine.execute_tool_call(
+        {"name": "query_order", "args": {"order_id": "1"}, "id": "c1"},
+        1,
+        {"query_order": spec},
+    )
+    assert run.ok is True
+    assert json.loads(run.tool_message.content) == [{"order_id": "1"}, {"order_id": "2"}]
 
 
 async def test_audit_failure_never_blocks_execution(monkeypatch):

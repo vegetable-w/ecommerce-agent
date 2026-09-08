@@ -1,4 +1,4 @@
-"""app.tools.business.create_ticket のテスト。
+"""app.tools.builtin.tickets.create_ticket のテスト。
 
 DB を触る test_create_ticket_injects_conversation_id_and_writes だけが
 tests/conftest.py の注記どおり pytest.mark.asyncio(loop_scope="session") を必要とする。
@@ -11,7 +11,7 @@ test_conversation_id_hidden_from_model_schema は DB を触らない同期関数
 import pytest
 
 from app.db.models import Conversation, Ticket
-from app.tools.business import create_ticket
+from app.tools.builtin.tickets import create_ticket
 
 
 def test_conversation_id_hidden_from_model_schema():

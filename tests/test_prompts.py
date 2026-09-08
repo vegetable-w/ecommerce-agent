@@ -74,8 +74,17 @@ def test_agent_system_names_match_registry():
     for name in registry_names:
         assert name in mentioned_names, f"Tool '{name}' in registry but not mentioned in the prompts"
 
+    # 08 章の移行期間だけの例外。query_logistics は built-in から外し、配送状況の照会は
+    # MCP 側へ移した。AGENT_SYSTEM の書き換えは MCP 側のツール名が決まってから行うので、
+    # それまでの間だけ prompt が registry に無い名前をモデルへ案内している状態が続く。
+    # 例外そのものを assert しておくことで、prompt から名前が消えた時点でここも落ち、
+    # この抜け道が黙って残り続けないようにする。
+    in_transition = {"query_logistics"}
+    assert in_transition <= mentioned_names, \
+        "prompt から query_logistics が消えたなら、この移行用の例外も外すこと"
+
     # Reverse: all mentioned names should correspond to real tools in registry
-    for name in mentioned_names:
+    for name in mentioned_names - in_transition:
         assert name in registry_names, f"Tool '{name}' mentioned in the prompts but not in registry"
 
 

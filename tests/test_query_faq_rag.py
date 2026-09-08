@@ -11,7 +11,7 @@ import pytest
 
 from app.config import settings
 from app.core.prompts import RAG_INSUFFICIENT_NOTICE
-from app.tools.business import query_faq
+from app.tools.builtin.faq import query_faq
 
 
 def _hit(i, score, q, a, section="送料ポリシー", ctype="faq", cat="送料"):

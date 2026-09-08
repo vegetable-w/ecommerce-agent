@@ -1,4 +1,4 @@
-"""app.tools.business.query_faq の入力契約とツール説明のテスト。
+"""app.tools.builtin.faq.query_faq の入力契約とツール説明のテスト。
 
 pipeline そのものの振る舞い(2 段階ゲート / 番号付き evidence / 引用)は
 tests/test_query_faq_rag.py が見る。ここは 03 章から変えてはいけない入口の契約を守る。
@@ -11,7 +11,7 @@ pytest.mark.asyncio(loop_scope="session") は不要。
 import pytest
 from pydantic import ValidationError
 
-from app.tools.business import query_faq
+from app.tools.builtin.faq import query_faq
 
 
 @pytest.fixture(autouse=True)
@@ -42,7 +42,7 @@ def _stub_search(monkeypatch, hits):
     async def fake_check(q, texts, **kw):
         return {"useful": True, "reason": "十分"}
 
-    monkeypatch.setattr("app.tools.business.retrieval.search_knowledge", fake_search)
+    monkeypatch.setattr("app.tools.builtin.faq.retrieval.search_knowledge", fake_search)
     monkeypatch.setattr("app.core.query_understanding.understand", fake_understand)
     monkeypatch.setattr("app.core.selfcheck.check_sufficient", fake_check)
     return seen

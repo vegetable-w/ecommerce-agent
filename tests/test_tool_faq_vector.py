@@ -8,7 +8,7 @@
 import pytest
 
 from app.core.prompts import RAG_CITATION_NOTICE
-from app.tools.business import query_faq
+from app.tools.builtin.faq import query_faq
 
 
 @pytest.fixture(autouse=True)
@@ -32,7 +32,7 @@ async def test_query_faq_maps_hits_to_citations(monkeypatch):
         return [{"id": 7, "rerank_score": 0.8, "question": "送料はどう計算されますか",
                  "answer": "3,000円以上で送料無料", "section_path": "送料ポリシー",
                  "content_type": "faq", "category": "送料"}]
-    monkeypatch.setattr("app.tools.business.retrieval.search_knowledge", fake_search)
+    monkeypatch.setattr("app.tools.builtin.faq.retrieval.search_knowledge", fake_search)
     out = await query_faq.ainvoke({"keyword": "送料はいくらですか"})
     assert out == {
         "sufficient": True,
@@ -53,7 +53,7 @@ async def test_sufficient_result_tells_the_model_to_cite(monkeypatch):
     async def fake_search(query, **kw):
         return [{"id": 7, "rerank_score": 0.8, "question": "q", "answer": "a",
                  "section_path": "p", "content_type": "faq", "category": "c"}]
-    monkeypatch.setattr("app.tools.business.retrieval.search_knowledge", fake_search)
+    monkeypatch.setattr("app.tools.builtin.faq.retrieval.search_knowledge", fake_search)
     out = await query_faq.ainvoke({"keyword": "送料"})
     assert "[1] [2] の形式" in out["notice"]
     assert "evidence に書かれていないことは" in out["notice"]
@@ -62,7 +62,7 @@ async def test_sufficient_result_tells_the_model_to_cite(monkeypatch):
 async def test_query_faq_empty_returns_refusal(monkeypatch):
     async def fake_search(query, **kw):
         return []
-    monkeypatch.setattr("app.tools.business.retrieval.search_knowledge", fake_search)
+    monkeypatch.setattr("app.tools.builtin.faq.retrieval.search_knowledge", fake_search)
     out = await query_faq.ainvoke({"keyword": "無関係な質問"})
     assert out["sufficient"] is False
     assert out["citations"] == []

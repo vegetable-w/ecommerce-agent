@@ -77,7 +77,7 @@ async def test_complaint_draft_uses_the_english_ticket_type_identifier():
 
 async def test_complaint_draft_is_accepted_by_create_ticket():
     """draft はそのまま create_ticket へ渡る前提なので、tool の受け口と突き合わせる。"""
-    from app.tools.business import create_ticket
+    from app.tools.builtin.tickets import create_ticket
 
     schema = create_ticket.args_schema.model_json_schema()
     allowed = schema["properties"]["ticket_type"]["enum"]

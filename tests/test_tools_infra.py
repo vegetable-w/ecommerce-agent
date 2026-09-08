@@ -18,9 +18,10 @@ from app.db.models import Conversation, Ticket
 from app.tools import infra, registry
 
 
-def test_registry_has_six_tools():
+def test_registry_has_five_tools():
+    # 08: query_logistics は built-in から外し、配送状況の照会は MCP 側が担う
     names = {t.name for t in registry.get_all_tools()}
-    assert names == {"query_order", "query_product", "query_logistics", "query_faq",
+    assert names == {"query_order", "query_product", "query_faq",
                      "create_ticket", "submit_refund"}
 
 

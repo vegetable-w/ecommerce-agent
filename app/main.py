@@ -47,6 +47,12 @@ async def lifespan(app: FastAPI):
     # graph より先に呼ぶ。ここから後ろで起きることを記録できるようにする。
     # これを呼ばないとアプリ自身のログは 1 行も出ない(logging_setup の冒頭)。
     logging_setup.configure()
+    # 08: built-in ツールはこの scan で初めて登録される(各 module の import が登録を兼ねる)。
+    # graph より前に呼ぶ。graph はツール一覧をモデルへ束ねるため、空のまま組むと
+    # 「起動はしたがツールを 1 つも呼べない」サーバになる。
+    from app.tools import registry as tool_registry
+
+    tool_registry.scan_builtin()
     await runtime.init_graph()
     try:
         yield

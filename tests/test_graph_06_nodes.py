@@ -641,7 +641,9 @@ def test_list_user_orders_entries_match_order_snapshot():
 
 
 async def test_order_snapshot_is_the_only_source_of_query_order():
-    got = await business.query_order.ainvoke({"order_id": "1001"})
+    from app.tools.builtin.orders import query_order
+
+    got = await query_order.ainvoke({"order_id": "1001"})
     assert got == business.order_snapshot("1001")
 
 

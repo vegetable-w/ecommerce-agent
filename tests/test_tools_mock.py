@@ -1,12 +1,15 @@
-"""Tests for mock business tools (query_order, query_product, query_logistics)."""
+"""Tests for mock business tools (query_order, query_product)。
+
+08 章で query_logistics は built-in から外し、配送状況の照会は MCP 側へ移した。
+その分のテストはここには無い(MCP サーバを足す章で改めて書く)。
+"""
 import pathlib
 import re
 
 import pytest
-from pydantic import ValidationError
 
-from app.tools import business
-from app.tools.business import query_logistics, query_order, query_product
+from app.tools.builtin import orders
+from app.tools.builtin.orders import query_order, query_product
 
 
 @pytest.mark.asyncio
@@ -79,7 +82,7 @@ async def test_query_product_refuses_unstocked_items():
 def test_product_catalogue_matches_the_knowledge_document():
     """カタログの写しが原本(商品仕様マニュアル)とずれていないこと。
 
-    カタログを business.py に写しているのは query_product を deterministic に保つため。
+    カタログを builtin/orders.py に写しているのは query_product を deterministic に保つため。
     写しである以上ずれるので、原本を parse して機械的に突き合わせる
     (02 章で labels.py と DDL を突き合わせたのと同じ方式)。
     """
@@ -90,14 +93,14 @@ def test_product_catalogue_matches_the_knowledge_document():
         for m in re.finditer(r"^##\s+(.+?)（型番\s*([A-Z0-9-]+)）\s*$", doc, re.M)
     )
     assert found, "原本から型番を 1 件も抽出できていない(見出し書式が変わった可能性)"
-    assert business.PRODUCT_CATALOGUE == found
+    assert orders.PRODUCT_CATALOGUE == found
 
 
 @pytest.mark.asyncio
 async def test_query_order_tracking_no_is_deterministic_per_order():
     """追跡番号は注文ごとに一意で、同じ注文なら何度引いても同じであること。
 
-    追跡番号は query_logistics の唯一の入口なので、呼ぶたびに変わると
+    追跡番号は配送状況を照会する唯一の入口なので、呼ぶたびに変わると
     「注文を引く → その追跡番号で配送を引く」という手順そのものが成立しなくなる。
     """
     a = await query_order.ainvoke({"order_id": "1001"})
@@ -108,40 +111,9 @@ async def test_query_order_tracking_no_is_deterministic_per_order():
 
 
 @pytest.mark.asyncio
-async def test_query_logistics_deterministic_and_shaped():
-    """query_logistics must return reproducible output for the same tracking_no."""
-    tracking_no = (await query_order.ainvoke({"order_id": "1001"}))["tracking_no"]
-    lg1 = await query_logistics.ainvoke({"tracking_no": tracking_no})
-    lg2 = await query_logistics.ainvoke({"tracking_no": tracking_no})
-
-    # Same seed => same output
-    assert lg1 == lg2
-
-    # Correct shape and valid values
-    assert lg1["tracking_no"] == tracking_no
-    assert lg1["status"] in {"集荷済み", "輸送中", "配達中", "配達完了"}
-    assert isinstance(lg1["location"], str)
-    assert "配送センター" in lg1["location"]
-    assert isinstance(lg1["timeline"], list)
-
-
-@pytest.mark.asyncio
-async def test_query_logistics_does_not_accept_an_order_id():
-    """注文番号では配送を引けないこと。
-
-    両ツールが同じ order_id を取っていた頃は、モデルが 1 step で 2 つを並べて呼べてしまい、
-    「注文を引く → 追跡番号を得る → その番号で配送を引く」という順序依存が生まれなかった。
-    追跡番号を query_order の戻り値からしか得られなくすることで、その順序を強制する。
-    """
-    with pytest.raises(ValidationError):
-        await query_logistics.ainvoke({"order_id": "1001"})
-
-
-@pytest.mark.asyncio
-async def test_query_product_and_logistics_names():
+async def test_query_product_and_order_names():
     """All tools must have correct .name attributes."""
     assert query_product.name == "query_product"
-    assert query_logistics.name == "query_logistics"
     assert query_order.name == "query_order"
 
 
@@ -155,10 +127,6 @@ async def test_different_inputs_produce_different_outputs():
     p1 = await query_product.ainvoke({"product_name": "キャットフード"})
     p2 = await query_product.ainvoke({"product_name": "キャットタワー"})
     assert p1 != p2
-
-    lg1 = await query_logistics.ainvoke({"tracking_no": o1["tracking_no"]})
-    lg2 = await query_logistics.ainvoke({"tracking_no": o2["tracking_no"]})
-    assert lg1 != lg2
 
 
 @pytest.mark.asyncio
@@ -208,39 +176,3 @@ async def test_query_product_golden_value():
         "stock": 265,
     }
     assert result == expected
-
-
-@pytest.mark.asyncio
-async def test_query_logistics_golden_value():
-    """
-    Golden value test for query_logistics to protect Task 14's eval reproducibility.
-
-    This literal is pinned for eval reproducibility. Changing it will invalidate
-    recorded eval results. If the seeding logic must change, update this value
-    after verifying the new output is intentional.
-    """
-    result = await query_logistics.ainvoke({"tracking_no": "JP213502378238"})
-    expected = {
-        "tracking_no": "JP213502378238",
-        "status": "配達完了",
-        "location": "横浜配送センター",
-        "timeline": ["横浜配送センターから発送", "現在の状態: 配達完了"],
-    }
-    assert result == expected
-
-
-async def test_the_tracking_number_actually_chains_the_two_tools():
-    """golden value のリテラルではなく、2 つの tool を実際に繋いで確かめる。
-
-    query_logistics の golden は query_order の戻り値と一致していないと意味が無いが、
-    どちらもリテラルで固定しているので、片方だけ書き換えてもテストは通ってしまう。
-    ここで実際に繋ぐことで、その静かなズレを落とせるようにする。
-    これは受け入れ条件 #5(注文 → 追跡番号 → 配送)が成立する前提そのもの。
-    """
-    order = await query_order.ainvoke({"order_id": "1001"})
-    logi = await query_logistics.ainvoke({"tracking_no": order["tracking_no"]})
-    assert logi["tracking_no"] == order["tracking_no"]
-
-    # 別の注文からは別の追跡番号が出る(定数を返していないこと)
-    other = await query_order.ainvoke({"order_id": "2002"})
-    assert other["tracking_no"] != order["tracking_no"]

@@ -95,6 +95,14 @@ class Settings(BaseSettings):
     # (途中で切ると注文番号が半分になる)
     summary_max_chars: int = Field(default=200, gt=0)
 
+    # --- 08 Tool System（registry + 実行エンジン + MCP 連携）---
+    mcp_logistics_url: str = "http://127.0.0.1:8101/mcp"    # 物流 MCP Server
+    mcp_aftersales_url: str = "http://127.0.0.1:8102/mcp"   # アフターサービス MCP Server
+    tool_default_timeout: float = 5.0    # built-in tool の既定 timeout（秒）
+    mcp_tool_timeout: float = 10.0       # MCP tool の既定 timeout（HTTP 経由なので余裕を持たせる）
+    tool_max_retries: int = 2            # read-only tool の一時的な失敗に対する最大 retry 数
+    demo_ticket_delay_seconds: float = 0.0  # acceptance 6：>0 で create_ticket を意図的に遅延させる（write の timeout を見せるため）
+
     # ログ。app.* の logger をどこへどの水準で出すか(app/core/logging_setup.py)。
     # 既定を INFO にするのは、model_ctx と要約の進行が受け入れ検証の見どころで、
     # WARNING だと 1 行も出ないため。

@@ -25,6 +25,7 @@ from app.db.models import (
     Message,
     QaExtractionStaging,
     Ticket,
+    ToolAuditLog,
 )
 from app.kb.dedup import normalize_question
 
@@ -800,3 +801,51 @@ async def list_conversations(user_id: str, limit: int = 50) -> list[dict]:
         }
         for c in convs
     ]
+
+
+# ---------------------------------------------------------------------------
+# tool 監査 (08 Task 1)
+# ---------------------------------------------------------------------------
+
+
+async def insert_tool_audit(
+    conversation_id: int | None,
+    tool_call_id: str | None,
+    tool_name: str,
+    tool_source: str,
+    mcp_server: str | None,
+    arguments: dict | None,
+    result_summary: str | None,
+    status: str,
+    error_message: str | None,
+    retry_count: int,
+    duration_ms: int | None,
+) -> None:
+    """tool 呼び出しの監査記録を 1 件保存する。
+
+    status は DDL の ENUM('success','failed','timeout','validation_blocked',
+    'permission_denied') に従う英語識別子。日本語は app/core/labels.py の
+    TOOL_AUDIT_STATUS でのみ対応付ける。
+
+    例外はここで握り潰さず、そのまま呼び出し元(execution engine)へ返す。
+    監査の書き込みが失敗しても tool の実行自体は止めてはいけないが、その判断は
+    engine 側の責務で、データ層が黙って失敗を飲み込むと「記録が無い」ことに
+    誰も気づけなくなる。
+    """
+    async with db.async_session() as s:
+        s.add(
+            ToolAuditLog(
+                conversation_id=conversation_id,
+                tool_call_id=tool_call_id,
+                tool_name=tool_name,
+                tool_source=tool_source,
+                mcp_server=mcp_server,
+                arguments=arguments,
+                result_summary=result_summary,
+                status=status,
+                error_message=error_message,
+                retry_count=retry_count,
+                duration_ms=duration_ms,
+            )
+        )
+        await s.commit()

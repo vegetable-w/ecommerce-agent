@@ -23,6 +23,15 @@ TICKET_STATUS: dict[str, str] = {
     "resolved": "対応済み",
 }
 
+# tool_audit_logs.status（08 章）。運用画面で監査ログを読むときの表示名。
+TOOL_AUDIT_STATUS: dict[str, str] = {
+    "success": "成功",
+    "failed": "失敗",
+    "timeout": "タイムアウト",
+    "validation_blocked": "検証ブロック",
+    "permission_denied": "権限拒否",
+}
+
 
 def label(table: dict[str, str], value: str) -> str:
     """未知の値が来ても落とさず、識別子をそのまま返す。

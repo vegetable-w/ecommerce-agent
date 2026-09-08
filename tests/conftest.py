@@ -29,14 +29,18 @@ _DDL_FILES = [
     # 順序は file の並びで保証している(CREATE より前に ALTER が来ないこと)。
     pathlib.Path(__file__).resolve().parent.parent / "sql" / "07-ddl.sql",
     pathlib.Path(__file__).resolve().parent.parent / "sql" / "07-layers.sql",
+    # 08 は tool_audit_logs の CREATE TABLE。FK を持たないので順序の制約はない。
+    pathlib.Path(__file__).resolve().parent.parent / "sql" / "08-ddl.sql",
 ]
 # 削除順: 子 → 親。knowledge_chunks の自己参照 FK は FOREIGN_KEY_CHECKS=0 で吸収する。
 # low_confidence_questions は conversations への FK を持つので conversations より先に置く。
 # faith_cases は FK を持たないため末尾でよい。
+# tool_audit_logs も FK を持たないが、conversation_id で会話を指すので会話より先に消す。
 # conversation_summaries は conversations への FK を持たないが、会話より先に消す
 # (会話が消えたのに要約の断片だけ残ると、次のテストが前のテストの断片を読む)。
 _TABLES = ["low_confidence_questions", "conversation_summaries", "messages", "tickets",
-           "conversations", "faq", "qa_extraction_staging", "knowledge_chunks", "faith_cases"]
+           "tool_audit_logs", "conversations", "faq", "qa_extraction_staging",
+           "knowledge_chunks", "faith_cases"]
 
 
 def _split_sql_statements(sql: str) -> list[str]:

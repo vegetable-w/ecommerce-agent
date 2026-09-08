@@ -222,3 +222,34 @@ class FaithCase(Base):
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     resolution: Mapped[str | None] = mapped_column(String(300), nullable=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class ToolAuditLog(Base):
+    """tool 呼び出しの監査記録。1 回の呼び出しにつき 1 行。
+
+    **conversations への FK を持たない**(sql/08-ddl.sql)。監査は「何が起きたか」の
+    記録で、いちばん残したいのは異常時の行なのに、参照整合性制約を付けるとその行の
+    書き込み自体が落ちる。会話の外から呼ばれた tool(評価スクリプトや smoke test)も
+    そのまま記録できるよう、conversation_id はただの nullable な列にしてある。
+
+    status は英語識別子。日本語の表示ラベルは app/core/labels.py の
+    TOOL_AUDIT_STATUS だけが持つ(DB へ日本語を書く経路は作らない)。
+    """
+
+    __tablename__ = "tool_audit_logs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    conversation_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    tool_call_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    tool_name: Mapped[str] = mapped_column(String(128))
+    tool_source: Mapped[str] = mapped_column(Enum("builtin", "mcp"))
+    mcp_server: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    arguments: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    result_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(
+        Enum("success", "failed", "timeout", "validation_blocked", "permission_denied")
+    )
+    error_message: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    retry_count: Mapped[int] = mapped_column(Integer, server_default="0")
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

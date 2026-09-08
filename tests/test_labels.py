@@ -15,7 +15,9 @@ import re
 from app.core import labels
 
 _SQL_DIR = pathlib.Path(__file__).resolve().parent.parent / "sql"
-_DDL_PATH = _SQL_DIR / "02-ddl.sql"
+# ENUM 列を持つ表を作る章のファイル。新しい章が ENUM 列を足したらここに追記する
+# (追記しないと、その列は下の未対応チェックをすり抜ける)。
+_DDL_PATHS = [_SQL_DIR / "02-ddl.sql", _SQL_DIR / "08-ddl.sql"]
 # ENUM 列を後から書き換える章のファイル。適用順に並べる(後のものが勝つ)。
 _ALTER_PATHS = [_SQL_DIR / "06-ticket-type.sql"]
 
@@ -28,9 +30,11 @@ _ENUM_TO_LABEL_TABLE: dict[tuple[str, str], dict[str, str]] = {
     ("conversations", "status"): labels.CONVERSATION_STATUS,
     ("tickets", "ticket_type"): labels.TICKET_TYPE,
     ("tickets", "status"): labels.TICKET_STATUS,
+    ("tool_audit_logs", "status"): labels.TOOL_AUDIT_STATUS,
 }
 _NO_LABEL_NEEDED: set[tuple[str, str]] = {
     ("messages", "role"),  # user/assistant/tool は内部プロトコル値であり画面表示しない
+    ("tool_audit_logs", "tool_source"),  # builtin/mcp は registry の内部区分で画面に出さない
 }
 
 _TABLE_RE = re.compile(r"^CREATE TABLE (\w+)")
@@ -81,7 +85,9 @@ def _apply_alter_enums(
 
 
 def _ddl_enums() -> dict[tuple[str, str], set[str]]:
-    enums = _parse_ddl_enums(_DDL_PATH.read_text(encoding="utf-8"))
+    enums: dict[tuple[str, str], set[str]] = {}
+    for path in _DDL_PATHS:
+        enums |= _parse_ddl_enums(path.read_text(encoding="utf-8"))
     for path in _ALTER_PATHS:
         enums = _apply_alter_enums(enums, path.read_text(encoding="utf-8"))
     return enums
@@ -96,6 +102,10 @@ def test_ddl_has_expected_enum_columns():
         # refund は 06 章の sql/06-ticket-type.sql が ALTER で足した値
         ("tickets", "ticket_type"): {"after_sales", "complaint", "inquiry", "refund"},
         ("tickets", "status"): {"pending", "resolved"},
+        ("tool_audit_logs", "tool_source"): {"builtin", "mcp"},
+        ("tool_audit_logs", "status"): {
+            "success", "failed", "timeout", "validation_blocked", "permission_denied",
+        },
     }
 
 

@@ -77,6 +77,17 @@ class Settings(BaseSettings):
     intent_mode: str = "accuracy"     # accuracy | cost
     intent_conf_threshold: float = 0.6
 
+    # --- 07 会話コンテキスト管理 ---
+    # 前回の要約以降にこの件数が増えたら要約を起動する。小さくすると要約の呼び出しが
+    # 増えるだけで、窓に載る原文はほとんど変わらない。
+    summary_trigger_messages: int = Field(default=30, gt=0)
+    # スライディングウィンドウの token 上限。token_budget(02 章)とは別に持つ。
+    # あちらは「履歴を丸ごと刈る」ための予算で、こちらは要約より後ろの区間にだけ効く
+    window_max_tokens: int = Field(default=3000, gt=0)
+    # 要約の目安の長さ。プロンプトへ埋めるだけで、機械的な切り詰めはしない
+    # (途中で切ると注文番号が半分になる)
+    summary_max_chars: int = Field(default=200, gt=0)
+
     @property
     def rerank_key(self) -> SecretStr:
         return self.rerank_api_key or self.embed_api_key

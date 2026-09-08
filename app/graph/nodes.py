@@ -625,6 +625,17 @@ def _agent_messages(state) -> list:
     材料を SystemMessage で入れるのは、ToolMessage として差し込むと対応する tool_call が
     存在せず上流に弾かれるため。
 
+    要約を 2 件目の SystemMessage にすると prompt cache が丸ごと外れる、という懸念が
+    あったが、この上流では**外れない**。実測(AGENT_SYSTEM + 履歴 = 706 tokens、
+    tool schema = 1194 tokens、要約だけを差し替えて 2 回呼ぶ):
+
+        要約を 2 件目の SystemMessage に置く : cache_read = 1792
+        要約を user 側の材料 message に置く   : cache_read = 1920
+
+    差は cache block 1 つ分で、どちらも 706 を大きく超える。つまり tool schema は
+    可変内容より前で cache されており、system を 2 件に割っても prefix は生きている。
+    並びを変えるときは同じ測定をやり直すこと。
+
     窓は「要約の境界で切る + token 上限で刈る」の 2 段(app/core/memory.py)。
     State の全履歴には手を触れず、ここで毎回 compact な版を組み立てるだけにする。
     """

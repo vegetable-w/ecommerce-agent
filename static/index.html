@@ -286,6 +286,30 @@
                               background:#fff2f6; border-color:#ffc7d8}
   .order-card.picked .no::after{content:"（選択済み）"; color:var(--accent-d)}
 
+  /* チケット内容の確認カード。注文カードと同じピンクの語彙で、送信前に必ず一度出る。
+     ここを押すまで backend は書き込まない(権限は engine 側の闸で止まっている)。 */
+  .confirm{
+    margin-top:10px; border:1px solid #ffd9e5; background:#fff7fa;
+    border-radius:16px; padding:12px 14px; animation:pop .2s ease-out;
+  }
+  .confirm h4{margin:0 0 8px; font-size:13px; font-weight:600}
+  .confirm dl{display:grid; grid-template-columns:auto 1fr; gap:4px 10px; margin:0 0 11px}
+  .confirm dt{font-size:11.5px; color:var(--muted); white-space:nowrap}
+  .confirm dd{margin:0; font-size:13.5px; word-break:break-word}
+  .confirm .btns{display:flex; gap:8px}
+  .confirm button{
+    font:inherit; font-size:13px; cursor:pointer; border-radius:999px;
+    padding:7px 16px; transition:transform .1s, background .15s, border-color .15s, opacity .15s;
+  }
+  .confirm button:active:not(:disabled){transform:translateY(1px)}
+  .confirm button:disabled{cursor:default; opacity:.42}
+  .confirm .ok{border:1px solid #ffc7d8; background:var(--me); color:var(--me-ink); font-weight:600}
+  .confirm .ok:hover:not(:disabled){background:#ffa0bd}
+  .confirm .no{border:1px solid var(--line); background:#fff; color:var(--muted)}
+  .confirm .no:hover:not(:disabled){background:#fdfafc; border-color:#e3d7e8}
+  /* 押した後は、どちらを選んだのかが後から読めるように 1 行残す */
+  .confirm .done{font-size:12px; color:var(--accent-d); margin:0}
+
   /* ツール履歴バッジ。既存の .hint と同じカプセル語彙で、点線にして「補足情報」であることを示す。 */
   .tools:empty{display:none}
   .tools{display:flex; flex-direction:column; align-items:flex-start; gap:5px; margin-bottom:8px}
@@ -776,7 +800,61 @@ async function pickOrder(box, card){
   setBusy(true);
   // 読み取りは発話のときと同じ。フレームの形が同じなので分ける理由が無い
   try { await streamTurn('/api/actions/resume',
-                         { conversation_id: conversationId, value: card.dataset.order }); }
+                         { conversation_id: conversationId, order_id: card.dataset.order }); }
+  finally { setBusy(false); }
+}
+
+/* チケット内容の確認カード。08 章。create_ticket は唯一の書き込み系ツールで、
+   engine の権限闸が「確認済みでなければ実行しない」を守っている。その確認を
+   取るのがこのカードで、押されるまで tickets には 1 行も入らない。
+   注文カードと同じ interrupt → resume の仕組みだが、返す値が真偽値である点だけが違う。 */
+function renderTicketConfirm(bub, preview, cid){
+  const p = preview || {};
+  const box = document.createElement('div');
+  box.className = 'confirm';
+  // ticket_type は英語識別子で来る。表示するのは backend が付けた日本語ラベルで、
+  // 画面側に対応表を持たない(表示名の出所を 2 つにしない)
+  const kind = p.ticket_type_label || p.ticket_type || '';
+  box.innerHTML =
+    '<h4>チケット内容の確認</h4>' +
+    '<dl>' +
+      '<dt>種別</dt><dd>' + esc(String(kind)) + '</dd>' +
+      '<dt>問題内容</dt><dd>' + esc(String(p.description == null ? '' : p.description)) + '</dd>' +
+    '</dl>' +
+    '<div class="btns">' +
+      '<button type="button" class="ok">送信を確認</button>' +
+      '<button type="button" class="no">キャンセル</button>' +
+    '</div>';
+
+  const btns = box.querySelectorAll('button');
+  btns[0].addEventListener('click', () => decideTicket(box, true, cid));
+  btns[1].addEventListener('click', () => decideTicket(box, false, cid));
+  bub.appendChild(box); scroll();
+}
+
+/* 押したら再開する。注文カードと同じで、押した瞬間に両方のボタンを無効にする。
+   1 つの中断は 1 回しか再開できないので、もう片方を押せる状態で残すと
+   「キャンセルしたのにチケットが立つ」ように見える。 */
+async function decideTicket(box, confirmed, cid){
+  if (busy || box.dataset.done) return;
+  box.dataset.done = '1';
+  box.querySelectorAll('button').forEach(b => { b.disabled = true; });
+
+  // 何を選んだのかをカードに残す。次の吹き出しだけでは、後から読み返したときに
+  // 「送ったのか取り消したのか」がカード側から読み取れない
+  const note = document.createElement('p');
+  note.className = 'done';
+  note.textContent = confirmed ? '送信を確認しました' : 'キャンセルしました';
+  box.appendChild(note);
+
+  const id = cid || conversationId;
+  if (!id){
+    addRow('err').textContent = '会話を特定できませんでした。もう一度お試しください';
+    return;
+  }
+  setBusy(true);
+  try { await streamTurn('/api/actions/resume',
+                         { conversation_id: id, confirmed: confirmed }); }
   finally { setBusy(false); }
 }
 
@@ -1100,8 +1178,14 @@ async function streamTurn(url, body){
        (本文も tool バッジも無いまま止まるので、消すと出す先が無くなる)。 */
     if (interrupt){
       closed = true;
-      if (!started) md.textContent = 'どのご注文についてでしょうか。以下からお選びください。';
-      renderOrders(bub, interrupt.orders);
+      // 中断の種類で出し分ける。kind が増えたらここに足す(既定は注文の選択)
+      if (interrupt.kind === 'confirm_ticket'){
+        if (!started) md.textContent = '以下の内容でチケットを作成します。よろしいでしょうか。';
+        renderTicketConfirm(bub, interrupt.preview, interrupt.conversation_id);
+      } else {
+        if (!started) md.textContent = 'どのご注文についてでしょうか。以下からお選びください。';
+        renderOrders(bub, interrupt.orders);
+      }
       return;
     }
 

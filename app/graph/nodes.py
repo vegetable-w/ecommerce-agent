@@ -29,6 +29,7 @@ from langgraph.types import interrupt
 from app.config import settings
 from app.core import coref as coref_mod
 from app.core import intent as intent_mod
+from app.core import memory
 from app.core import query_understanding, retrieval, selfcheck
 from app.core.llm import get_chat_model
 from app.core.prompts import (
@@ -70,14 +71,20 @@ def _user_text(state) -> str:
 
 
 def _history_text(state, max_turns: int = 6) -> str:
-    """直近の会話を短いテキストにする。**今回の発話は含めない**。
+    """要約の 1 行 + スライディングウィンドウの直近。**今回の発話は含めない**。
 
     含めると、分類器が「いまの発話」と「履歴」を区別できず、同じ文が 2 回出る。
+
+    07: 先に要約の境界で窓を切り、その中の末尾だけを取る。窓の外へ出た
+    「最初に話していたあの注文」は要約の 1 行が補う。あちらは履歴を 1 つの文字列
+    として受け取るので、SystemMessage ではなく行として先頭に混ぜる。
 
     本文が str でない message(block の list)は読み飛ばす。文脈の補助でしかない
     ここで整形に失敗して node ごと落とすのは割に合わない。
     """
-    msgs = state.get("messages", [])
+    msgs = memory.build_window(state.get("messages", []),
+                               state.get("summary_upto_msg_id") or 0,
+                               settings.context_window_max_tokens)
     prior = msgs[:-1] if msgs else []
     lines = []
     for m in prior[-max_turns:]:
@@ -85,7 +92,9 @@ def _history_text(state, max_turns: int = 6) -> str:
         text = m.content if isinstance(m.content, str) else ""
         if text:
             lines.append(f"{role}:{text}")
-    return "\n".join(lines)
+    body = "\n".join(lines)
+    head = memory.summary_line(state.get("summary"))
+    return f"{head}\n{body}".strip() if head else body
 
 
 # ---------------------------------------------------------------------------
@@ -552,32 +561,84 @@ def _elapsed_note(order: dict) -> str:
     return ""
 
 
-def _agent_messages(state) -> list:
-    """system(evidence があれば連結)+ turn をまたいだ履歴。
+# このターン限りの材料に付ける目印。log で本物のやり取りと見分けるために使う。
+# name ではなく id にするのは、name が上流へのリクエストに載って送る bytes が
+# 変わるのに対し、id は載らないため(prefix cache を動かさない)。
+TURN_CTX_ID = "turn-ctx"
 
-    evidence を system 側へ入れるのは、ToolMessage として差し込むと対応する tool_call が
-    存在せず上流に弾かれるため。空文字を連結しないのは、forced_rag / retrieve_policy が
-    引けなかったときに evidence="" を書くからで、見出しだけ付いた空の evidence は
-    「根拠はあるが中身が無い」という誤った指示になる。
 
-    **route で絞らず「evidence があれば連結」にしている。** 強制検索は knowledge route の
+def _turn_context(state) -> str:
+    """このターン限りの材料。evidence と、返金フローの注文・判断の指示。無ければ空文字。
+
+    **evidence と返金の指示の順を入れ替えないこと。** REFUND_JUDGE_HINT の文面は
+    規約がすでに示されている前提で書かれている(06 章で 4 回の A/B を経て決めた並び)。
+
+    空文字を足さないのは、forced_rag / retrieve_policy が引けなかったときに
+    evidence="" を書くからで、見出しだけ付いた空の evidence は「根拠はあるが中身が無い」
+    という誤った指示になる。
+
+    **route で絞らず「evidence があれば入れる」にしている。** 強制検索は knowledge route の
     forced_rag と refund_flow の retrieve_policy の 2 つがあり、どちらも同じ形で
     evidence / citations を書く。route を条件にすると、経路が増えるたびにここを
     書き足すことになり、書き忘れた経路だけ根拠が黙って届かなくなる。
-
-    refund_flow ではさらに、対象の注文と「可否だけを判断する」指示を足す。注文の中身を
-    渡さないと、規約だけを読んで一般論で答えてしまう。
     """
-    sys = AGENT_SYSTEM
+    parts = []
     if state.get("evidence"):
-        sys = sys + _KNOWLEDGE_EVIDENCE_HINT + state["evidence"]
+        parts.append(_KNOWLEDGE_EVIDENCE_HINT + state["evidence"])
     if state.get("route") == "refund_flow":
         # ensure_ascii=False にするのは、日本語を unicode escape にすると読ませる
         # 文字数が数倍になり、注文の中身が人にもモデルにも読めなくなるため
         order = state.get("order_data") or {}
-        sys = (sys + REFUND_JUDGE_HINT + json.dumps(order, ensure_ascii=False)
-               + _elapsed_note(order))
-    return [SystemMessage(sys), *state.get("messages", [])]
+        parts.append(REFUND_JUDGE_HINT + json.dumps(order, ensure_ascii=False)
+                     + _elapsed_note(order))
+    return "".join(parts)
+
+
+def _with_turn_context(window: list, turn_ctx: str) -> list:
+    """材料を**最後の HumanMessage の直後**へ差し込む。末尾ではない。
+
+    理由は ReAct loop の prefix cache。1 周目は [system, 要約, 窓(質問), 材料] で、
+    2 周目はその後ろへ AI の発話と tool の結果が積まれる。材料を末尾へ置くと
+    2 周目で材料が AI の発話より後ろへ回り、1 周目の prompt が 2 周目の prefix で
+    なくなるので、loop の 2 周目以降が毎回 cache を外す。
+
+    窓に user 発話が 1 件も無ければ末尾へ足す(要約が全区間を覆った直後など)。
+    """
+    msg = SystemMessage(turn_ctx, id=TURN_CTX_ID)
+    for i in range(len(window) - 1, -1, -1):
+        if isinstance(window[i], HumanMessage):
+            return [*window[:i + 1], msg, *window[i + 1:]]
+    return [*window, msg]
+
+
+def _agent_messages(state) -> list:
+    """モデルへ渡す並び。**固定**であることがこの関数の仕事(spec §3)。
+
+        1. persona と制約の system(常に AGENT_SYSTEM。何も連結しない)
+        2. 要約の system(要約が無ければ入れない)
+        3. スライディングウィンドウの原文(今回の発話は窓の末尾にある)
+        4. このターンの材料(最後の HumanMessage の直後)
+
+    **可変の内容を AGENT_SYSTEM へ連結しない。** 連結するとターンごとに prompt の
+    先頭が変わり、prefix cache が毎回 miss する。要約も材料も別の message にする。
+
+    材料を SystemMessage で入れるのは、ToolMessage として差し込むと対応する tool_call が
+    存在せず上流に弾かれるため。
+
+    窓は「要約の境界で切る + token 上限で刈る」の 2 段(app/core/memory.py)。
+    State の全履歴には手を触れず、ここで毎回 compact な版を組み立てるだけにする。
+    """
+    window = memory.build_window(state.get("messages", []),
+                                 state.get("summary_upto_msg_id") or 0,
+                                 settings.context_window_max_tokens)
+    turn_ctx = _turn_context(state)
+    if turn_ctx:
+        window = _with_turn_context(window, turn_ctx)
+    head = [SystemMessage(AGENT_SYSTEM)]
+    summary = memory.summary_system(state.get("summary"))
+    if summary is not None:
+        head.append(summary)
+    return [*head, *window]
 
 
 async def agent_llm(state, config=None) -> dict:

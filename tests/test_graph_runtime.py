@@ -64,7 +64,33 @@ def _runtime_globals_clean():
     runtime._cm = None
 
 
-def _fake_repo(monkeypatch, *, new_id: int = 101, known: tuple[int, ...] = (7,)) -> list:
+@pytest.fixture(autouse=True)
+def _summary_calls(monkeypatch) -> list:
+    """要約の起動を記録用の偽物へ差し替える。
+
+    本物は repository を叩いて background の task を立てる。turn の後で必ず呼ばれる
+    ようになったので、覆っておかないと runtime を通す全テストが本番相当の DB へ
+    出ていく。起動されたことを確かめるテストは、この list を受け取って見る。
+    """
+    calls: list = []
+
+    async def _fake(conversation_id):
+        calls.append(conversation_id)
+
+    monkeypatch.setattr(runtime.summarizer, "maybe_schedule_summary", _fake)
+    return calls
+
+
+class _Conv:
+    """get_conversation が返す会話。runtime が読むのは要約の 2 つだけ。"""
+
+    def __init__(self, summary: str = "", upto: int = 0) -> None:
+        self.summary = summary
+        self.summary_upto_msg_id = upto
+
+
+def _fake_repo(monkeypatch, *, new_id: int = 101, known: tuple[int, ...] = (7,),
+               summary: str = "", upto: int = 0) -> list:
     """repository の 3 関数を記録用の偽物へ差し替え、呼び出し記録の list を返す。"""
     calls: list = []
 
@@ -74,7 +100,7 @@ def _fake_repo(monkeypatch, *, new_id: int = 101, known: tuple[int, ...] = (7,))
 
     async def _get(conversation_id):
         calls.append(("get", conversation_id))
-        return object() if conversation_id in known else None
+        return _Conv(summary, upto) if conversation_id in known else None
 
     async def _append(conversation_id, role, content=None, tool_calls=None, tool_call_id=None):
         calls.append(("append", conversation_id, role, content))
@@ -643,7 +669,7 @@ async def test_別thread_idのturnを同時に流しても履歴が混ざらな�
 # ---------------------------------------------------------------------------
 
 def test_graph_input_resets_every_output_channel():
-    inp = runtime._graph_input("u1", "こんにちは", 7)
+    inp = runtime._graph_input("u1", "こんにちは", 7, 12, "", 0)
     assert inp["answer"] == "" and inp["suggested_actions"] == []
     assert inp["evidence"] == "" and inp["citations"] == []
     assert inp["evidence_strong"] is False
@@ -655,7 +681,7 @@ def test_graph_input_resets_every_output_channel():
 
 def test_graph_input_does_not_reset_the_history():
     """messages は履歴。ここで消すと checkpointer の意味が無くなる。"""
-    inp = runtime._graph_input("u1", "こんにちは", 7)
+    inp = runtime._graph_input("u1", "こんにちは", 7, 12, "", 0)
     assert len(inp["messages"]) == 1
     assert inp["messages"][0].content == "こんにちは"
 
@@ -665,7 +691,7 @@ def test_trace_is_rebuilt_at_the_turn_boundary():
     from app.graph.state import TRACE_RESET, merge_dict
 
     prev = {"forced_rag": True, "route": "knowledge"}
-    fresh = runtime._graph_input("u1", "注文1001は?", 7)["trace"]
+    fresh = runtime._graph_input("u1", "注文1001は?", 7, 12, "", 0)["trace"]
     assert merge_dict(prev, fresh) == {}          # 前 turn の値が残らない
     # 通常の merge は従来どおり足し合わせる
     assert merge_dict({"a": 1}, {"b": 2}) == {"a": 1, "b": 2}
@@ -942,3 +968,93 @@ def test_決定的nodeの一覧が06のnode名と一致する():
     assert runtime.DETERMINISTIC_ANSWER_NODES == {
         "script_reply", "complaint_reply", "fallback_reply"
     }
+
+
+# --- 07 章: anchor / 要約の受け渡し / 要約の起動 ---------------------------------
+#
+# スライディングウィンドウは「要約がどの message まで覆っているか」でしか窓を切れない。
+# その突き合わせに使う anchor(MySQL の message id)を作れるのはここだけで、
+# runtime が付け忘れると memory 側は静かに全履歴を渡し続ける。
+
+
+async def test_今回の発話にはdb_idのanchorが付く(monkeypatch):
+    """本文や並び順で境界を推測させないための唯一の手がかり。"""
+    calls = _fake_repo(monkeypatch, new_id=55)
+    graph = _use(monkeypatch, _ScriptedGraph(final={}))
+
+    await runtime.run_turn("u1", "こんにちは", None)
+
+    msg_id = len(calls)                       # 偽 append_message は呼び出し順を id にする
+    assert graph.calls[0]["input"]["messages"][0].id == f"db-{msg_id}"
+
+
+async def test_要約は毎turn会話から読み直してStateへ入れる(monkeypatch):
+    """前 turn の要約が残ると、更新された後も古い要約を読み続ける。"""
+    _fake_repo(monkeypatch, known=(7,), summary="ユーザーは注文1001を問い合わせた", upto=12)
+    graph = _use(monkeypatch, _ScriptedGraph(final={}))
+
+    await runtime.run_turn("u1", "続きです", 7)
+
+    inp = graph.calls[0]["input"]
+    assert inp["summary"] == "ユーザーは注文1001を問い合わせた"
+    assert inp["summary_upto_msg_id"] == 12
+
+
+async def test_採番したての会話には要約が無い(monkeypatch):
+    _fake_repo(monkeypatch, new_id=55)
+    graph = _use(monkeypatch, _ScriptedGraph(final={}))
+
+    await runtime.run_turn("u1", "はじめまして", None)
+
+    inp = graph.calls[0]["input"]
+    assert inp["summary"] == "" and inp["summary_upto_msg_id"] == 0
+
+
+async def test_会話の読み出しはturnの入口で1回だけ(monkeypatch):
+    """存在確認と要約の取得を分けると、ターンごとに DB 往復が 1 つ増える。"""
+    calls = _fake_repo(monkeypatch, known=(7,))
+    _use(monkeypatch, _ScriptedGraph(final={}))
+
+    await runtime.run_turn("u1", "続きです", 7)
+
+    assert [c for c in calls if c[0] == "get"] == [("get", 7)]
+
+
+async def test_run_turnはturnの後に要約の起動を試す(monkeypatch, _summary_calls):
+    _fake_repo(monkeypatch, new_id=55)
+    _use(monkeypatch, _ScriptedGraph(final={}))
+
+    await runtime.run_turn("u1", "こんにちは", None)
+
+    assert _summary_calls == [55]
+
+
+async def test_stream_turnもturnの後に要約の起動を試す(monkeypatch, _summary_calls):
+    _fake_repo(monkeypatch, new_id=55)
+    _use(monkeypatch, _ScriptedGraph([_token("agent_llm", "はい")]))
+
+    await _events(user_id="u1", message="こんにちは", conversation_id=None)
+
+    assert _summary_calls == [55]
+
+
+async def test_resumeの2つの入口も要約の起動を試す(monkeypatch, _summary_calls):
+    """再開の後にも assistant の発話が 1 件積まれるので、履歴は伸びる。"""
+    _fake_repo(monkeypatch, known=(7,))
+    _use(monkeypatch, _ScriptedGraph([_token("agent_llm", "はい")], final={}))
+
+    await runtime.resume_turn(7, "1001")
+    await _resume_events(conversation_id=7, resume_value="1001")
+
+    assert _summary_calls == [7, 7]
+
+
+async def test_知らない会話では要約を起動しない(monkeypatch, _summary_calls):
+    """存在しない会話 ID で要約を走らせても読む素材が無い。"""
+    _fake_repo(monkeypatch, known=(7,))
+    _use(monkeypatch, _ScriptedGraph())
+
+    with pytest.raises(runtime.ConversationNotFound):
+        await runtime.run_turn("u1", "続きです", 999)
+
+    assert _summary_calls == []

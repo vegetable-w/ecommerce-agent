@@ -938,39 +938,44 @@ async def test_a_ticket_and_a_refund_in_the_same_step_are_both_intercepted(monke
     assert [a["type"] for a in out["suggested_actions"]] == ["create_ticket", "refund_form"]
 
 
+# 07 章で置き場所が変わった: 注文と規約と判断の指示は system への連結をやめ、
+# 最後の HumanMessage の直後へ 1 通の SystemMessage(材料)として入れる。
+# **届く中身は 06 章のまま**で、どの message に入るかだけが変わっている。
+
+
 def test_agent_messages_injects_the_order_the_policy_and_the_judgement_task():
-    """refund route では注文の中身・規約・判断の指示をまとめて system へ入れる。"""
+    """refund route では注文の中身・規約・判断の指示をまとめて材料に入れる。"""
     msgs = nodes._agent_messages({
         "route": "refund_flow",
         "order_data": business.order_snapshot("1001"),
         "evidence": "[1] 返品: 受取後7日以内は返品可能",
         "messages": [HumanMessage("この注文は返品できますか")]})
-    sys = msgs[0]
+    ctx = msgs[-1]
 
-    assert isinstance(sys, SystemMessage)
-    assert sys.content.startswith(AGENT_SYSTEM)
-    assert "[1] 返品: 受取後7日以内は返品可能" in sys.content   # 規約
-    assert "自動猫トイレ" in sys.content and "1001" in sys.content  # 注文の中身
-    assert "submit_refund" in sys.content                       # 可能なら呼ぶ
-    assert "[n]" in sys.content                                 # 不可なら番号を引いて説明
-    assert "規約に無い条件" in sys.content                       # 条件をでっち上げない
-    assert msgs[1:] == [HumanMessage("この注文は返品できますか")]
+    assert msgs[0].content == AGENT_SYSTEM                      # system は素のまま
+    assert msgs[1] == HumanMessage("この注文は返品できますか")
+    assert isinstance(ctx, SystemMessage)
+    assert "[1] 返品: 受取後7日以内は返品可能" in ctx.content   # 規約
+    assert "自動猫トイレ" in ctx.content and "1001" in ctx.content  # 注文の中身
+    assert "submit_refund" in ctx.content                       # 可能なら呼ぶ
+    assert "[n]" in ctx.content                                 # 不可なら番号を引いて説明
+    assert "規約に無い条件" in ctx.content                       # 条件をでっち上げない
 
 
 def test_agent_messages_does_not_escape_japanese_in_the_order_data():
     """注文の中身は日本語のまま入れる。unicode escape に化けるとモデルが読む文字数が増える。"""
-    sys = nodes._agent_messages({"route": "refund_flow",
-                                 "order_data": {"status": "発送済み"}, "messages": []})[0]
-    assert "発送済み" in sys.content
+    ctx = nodes._agent_messages({"route": "refund_flow",
+                                 "order_data": {"status": "発送済み"}, "messages": []})[-1]
+    assert "発送済み" in ctx.content
 
 
 def test_agent_messages_still_injects_evidence_on_the_knowledge_route():
     """05 の挙動を壊していないこと(条件を緩めた後も knowledge route は同じ)。"""
-    sys = nodes._agent_messages({
+    ctx = nodes._agent_messages({
         "route": "knowledge", "evidence": "[1] 送料: 3,000円以上は送料無料",
-        "messages": [HumanMessage("送料はいくらですか")]})[0]
-    assert "3,000円以上は送料無料" in sys.content
-    assert "query_faq" in sys.content and "再度呼ばないでください" in sys.content
+        "messages": [HumanMessage("送料はいくらですか")]})[-1]
+    assert "3,000円以上は送料無料" in ctx.content
+    assert "query_faq" in ctx.content and "再度呼ばないでください" in ctx.content
 
 
 def test_agent_messages_does_not_inject_empty_evidence():
@@ -980,19 +985,20 @@ def test_agent_messages_does_not_inject_empty_evidence():
     見出しだけ付いた空の evidence は「根拠はあるが中身が無い」という誤った指示になる。
     """
     assert nodes._agent_messages(
-        {"route": "knowledge", "evidence": "", "messages": []})[0].content == AGENT_SYSTEM
+        {"route": "knowledge", "evidence": "", "messages": []}) == [SystemMessage(AGENT_SYSTEM)]
 
-    sys = nodes._agent_messages({"route": "refund_flow", "evidence": "",
-                                 "order_data": {"order_id": "1001"}, "messages": []})[0]
-    assert "retrieval 済み" not in sys.content   # evidence の見出しは出ない
-    assert "submit_refund" in sys.content        # 判断の指示は残る
+    ctx = nodes._agent_messages({"route": "refund_flow", "evidence": "",
+                                 "order_data": {"order_id": "1001"}, "messages": []})[-1]
+    assert "retrieval 済み" not in ctx.content   # evidence の見出しは出ない
+    assert "submit_refund" in ctx.content        # 判断の指示は残る
 
 
 def test_agent_messages_leaves_the_business_route_alone():
     """business route は注文の指示も規約も足さない(検索そのものをしていない)。"""
-    sys = nodes._agent_messages({"route": "business",
-                                 "messages": [HumanMessage("注文1001はどこ")]})[0]
-    assert sys.content == AGENT_SYSTEM
+    msgs = nodes._agent_messages({"route": "business",
+                                  "messages": [HumanMessage("注文1001はどこ")]})
+    assert msgs[0].content == AGENT_SYSTEM
+    assert len(msgs) == 2 and isinstance(msgs[1], HumanMessage)   # 材料は付かない
 
 
 def test_submit_refund_is_registered_for_the_model():
@@ -1136,10 +1142,10 @@ def test_the_refund_context_carries_todays_date_and_elapsed_days():
         "order_data": {"order_id": "1001", "created_at": ordered.strftime("%Y-%m-%d %H:%M")},
         "evidence": "[1] 受取後7日以内",
         "messages": [HumanMessage("返品できますか")]})
-    sys = msgs[0].content
-    assert "本日は" in sys
-    assert "経過日数は 3 日" in sys
-    assert "尋ね直さないでください" in sys
+    ctx = msgs[-1].content
+    assert "本日は" in ctx
+    assert "経過日数は 3 日" in ctx
+    assert "尋ね直さないでください" in ctx
 
 
 def test_an_unreadable_order_date_adds_nothing():
@@ -1148,7 +1154,7 @@ def test_an_unreadable_order_date_adds_nothing():
         msgs = nodes._agent_messages({
             "route": "refund_flow", "order_data": bad,
             "messages": [HumanMessage("返品できますか")]})
-        assert "本日は" not in msgs[0].content
+        assert "本日は" not in "".join(str(m.content) for m in msgs)
 
 
 def test_the_date_note_is_only_for_the_refund_route():
@@ -1156,7 +1162,7 @@ def test_the_date_note_is_only_for_the_refund_route():
         "route": "business",
         "order_data": {"created_at": "2026-07-04 10:00"},
         "messages": [HumanMessage("注文1001は?")]})
-    assert "本日は" not in msgs[0].content
+    assert "本日は" not in "".join(str(m.content) for m in msgs)
 
 
 # ---------------------------------------------------------------------------

@@ -45,6 +45,12 @@ class ConversationState(TypedDict, total=False):
     # 会話履歴。checkpointer が turn をまたいで保持し、add_messages が追記する
     messages: Annotated[list[AnyMessage], add_messages]
 
+    # 古いターンの要約と、それがどの message まで覆っているか。どちらもターンの入口で
+    # conversations から読み直す(runtime の _graph_input)。checkpointer は State を
+    # 持ち越すので、入れ直さないと要約が更新されても前のターンの値を使い続ける
+    summary: str
+    summary_upto_msg_id: int  # スライディングウィンドウはこの次の message から原文
+
     user_id: str
     conversation_id: int
 

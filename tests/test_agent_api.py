@@ -84,6 +84,13 @@ class _FakeGraph:
         return self._state
 
 
+class _Conv:
+    """get_conversation が返す会話。runtime が読むのは要約の 2 つだけ(07 章)。"""
+
+    summary = ""
+    summary_upto_msg_id = 0
+
+
 def _use_graph(monkeypatch, state: dict, *, new_id: int = 101) -> _FakeGraph:
     """偽 graph と偽 repository を差し込む。戻り値で graph への入力を検査できる。"""
     graph = _FakeGraph(state)
@@ -93,14 +100,18 @@ def _use_graph(monkeypatch, state: dict, *, new_id: int = 101) -> _FakeGraph:
         return new_id
 
     async def _get(conversation_id):
-        return object()
+        return _Conv()
 
     async def _append(conversation_id, role, content=None, tool_calls=None, tool_call_id=None):
         return 1
 
+    async def _no_summary(conversation_id):
+        """要約の起動は 07 章で turn の後に必ず走る。本物は DB を叩くので塞ぐ。"""
+
     monkeypatch.setattr(runtime.repository, "create_conversation", _create)
     monkeypatch.setattr(runtime.repository, "get_conversation", _get)
     monkeypatch.setattr(runtime.repository, "append_message", _append)
+    monkeypatch.setattr(runtime.summarizer, "maybe_schedule_summary", _no_summary)
     return graph
 
 

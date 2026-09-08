@@ -87,8 +87,12 @@ def _use_tools(monkeypatch) -> list:
 # --- _agent_messages -----------------------------------------------------------
 
 
-def test_knowledge_route_appends_evidence_to_the_system_message():
-    """knowledge route では forced_rag が引いた evidence を system の末尾へ連結する。
+def test_knowledge_route_puts_the_evidence_in_the_turn_material():
+    """knowledge route では forced_rag が引いた evidence が材料として届く。
+
+    07 章で置き場所が変わった(system への連結 → 最後の HumanMessage の直後の
+    SystemMessage)。**届くこと自体は変わらない。** system 本体へ連結すると
+    ターンごとに prompt の先頭が変わり、prefix cache が毎回外れる。
 
     ToolMessage として差し込めないのは、対応する tool_call が存在せず上流に弾かれるため。
     """
@@ -97,24 +101,25 @@ def test_knowledge_route_appends_evidence_to_the_system_message():
     msgs = nodes._agent_messages(state)
 
     assert isinstance(msgs[0], SystemMessage)
-    assert msgs[0].content.startswith(AGENT_SYSTEM)
-    assert "[1] 返品ポリシー: 7日以内は返品可能" in msgs[0].content
+    assert msgs[0].content == AGENT_SYSTEM
+    assert isinstance(msgs[-1], SystemMessage)
+    assert "[1] 返品ポリシー: 7日以内は返品可能" in msgs[-1].content
 
 
 def test_knowledge_route_tells_the_model_not_to_search_again():
-    """引き直しを禁じる指示が system に入ること。
+    """引き直しを禁じる指示が材料に入ること。
 
     forced_rag が引き終えた検索をやり直されると、1 step と 1 回分の課金を捨てるだけでなく、
     2 度目の結果の番号が State の citations とずれ、本文の [n] と出典が食い違う。
     """
     state = {"route": "knowledge", "evidence": "[1] q: a", "messages": []}
-    sys = nodes._agent_messages(state)[0].content
-    assert "query_faq" in sys
-    assert "再度呼ばないでください" in sys
+    ctx = nodes._agent_messages(state)[-1].content
+    assert "query_faq" in ctx
+    assert "再度呼ばないでください" in ctx
 
 
 def test_business_route_has_no_evidence_to_append():
-    """business route では evidence が空なので何も連結されない(そもそも検索していない)。
+    """business route では evidence が空なので材料そのものが付かない(検索していない)。
 
     06 章で連結の条件を「route が knowledge」から「evidence があれば」へ緩めた。
     強制検索は forced_rag(knowledge)と retrieve_policy(refund_flow)の 2 つに増え、
@@ -124,7 +129,9 @@ def test_business_route_has_no_evidence_to_append():
     """
     state = {"route": "business", "evidence": "",
              "messages": [HumanMessage("注文1001はどこ")]}
-    assert nodes._agent_messages(state)[0].content == AGENT_SYSTEM
+    msgs = nodes._agent_messages(state)
+    assert msgs[0].content == AGENT_SYSTEM
+    assert len(msgs) == 2 and isinstance(msgs[1], HumanMessage)
 
 
 def test_empty_evidence_is_not_appended():
@@ -134,7 +141,7 @@ def test_empty_evidence_is_not_appended():
     見出しだけ付いた空の evidence は「根拠はあるが中身が無い」という誤った指示になる。
     """
     state = {"route": "knowledge", "evidence": "", "messages": []}
-    assert nodes._agent_messages(state)[0].content == AGENT_SYSTEM
+    assert nodes._agent_messages(state) == [SystemMessage(AGENT_SYSTEM)]
 
 
 def test_history_follows_the_system_message_in_order():
@@ -196,12 +203,13 @@ async def test_agent_llm_binds_every_tool_and_passes_the_config(monkeypatch):
     assert fake.get_kwargs["streaming"] is True
 
 
-async def test_agent_llm_sends_the_evidence_bearing_system_message(monkeypatch):
+async def test_agent_llm_sends_the_evidence_bearing_messages(monkeypatch):
     """agent_llm が組み立てる入力が _agent_messages の結果であること。"""
     fake = _use_model(monkeypatch, AIMessage(content="はい"))
     await nodes.agent_llm({"route": "knowledge", "evidence": "[1] q: a",
                            "messages": [HumanMessage("返品は?")]})
-    assert "[1] q: a" in fake.seen_messages[0].content
+    assert fake.seen_messages[0].content == AGENT_SYSTEM
+    assert "[1] q: a" in fake.seen_messages[-1].content
 
 
 # --- agent_tools ---------------------------------------------------------------

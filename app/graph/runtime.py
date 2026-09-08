@@ -26,6 +26,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
 
 from app.config import settings
+from app.core import summarizer
 from app.db import repository
 from app.graph import state as state_mod
 from app.graph.build import build_graph
@@ -115,23 +116,37 @@ async def _require_conversation(conversation_id: int) -> int:
     return conversation_id
 
 
-async def _ensure_conversation(user_id: str, conversation_id: int | None) -> int:
-    """会話 ID を確定する。None なら採番、指定があれば存在を確かめる。"""
+async def _ensure_conversation(user_id: str,
+                               conversation_id: int | None) -> tuple[int, str, int]:
+    """(会話 ID, 要約, 要約が覆う範囲)を返す。None なら採番、指定があれば存在を確かめる。
+
+    **要約の 2 つは会話を読んだこの 1 回で一緒に取る。** 存在確認と要約の取得で
+    get_conversation を 2 回叩くと、ターンの入口の DB 往復が毎回 1 つ増える。
+    採番したての会話には要約が無いので ("", 0) を返す。
+    """
     if conversation_id is None:
-        return await repository.create_conversation(user_id)
-    return await _require_conversation(conversation_id)
+        return await repository.create_conversation(user_id), "", 0
+    conv = await repository.get_conversation(conversation_id)
+    if conv is None:
+        raise ConversationNotFound(conversation_id)
+    return conversation_id, conv.summary or "", conv.summary_upto_msg_id or 0
 
 
-def _graph_input(user_id: str, message: str, cid: int) -> dict:
+def _graph_input(user_id: str, message: str, cid: int, msg_id: int,
+                 summary: str, summary_upto: int) -> dict:
     """graph へ渡す 1 turn 分の入力。
 
     messages は今回の発話 1 通だけでよい。過去の履歴は checkpointer が thread_id ごとに
     持っており、add_messages が追記する。steps と tokens_used を 0 で入れ直すのは、
     この 2 つに reducer が無く(後勝ちの上書き)、turn ごとに戻さないと前 turn の
     step 数を引き継いだまま should_continue の上限に当たるため。
+
+    07: 発話に MySQL の message id を `db-{id}` の形で付ける。スライディングウィンドウは
+    この anchor だけを見て要約の境界と突き合わせる(本文や並び順で境界を推測すると、
+    同じ文面が何度も出てくる会話で静かに 1 ターンずれる)。
     """
     return {
-        "messages": [HumanMessage(message)],
+        "messages": [HumanMessage(message, id=f"db-{msg_id}")],
         "user_id": user_id,
         "conversation_id": cid,
         # --- turn ごとに戻す出力チャネル ---
@@ -153,6 +168,10 @@ def _graph_input(user_id: str, message: str, cid: int) -> dict:
         "intent_confidence": 0.0,
         "order_id": "",
         "order_data": {},
+        # 要約もここで入れ直す。会話が進めば要約は更新されるので、前 turn の値が
+        # 残ると、更新された後も古い要約を読み続ける
+        "summary": summary,
+        "summary_upto_msg_id": summary_upto,
         # trace は reducer 付きなので空 dict では消えない。目印を付けて作り直す
         "trace": {state_mod.TRACE_RESET: True},
     }
@@ -218,10 +237,16 @@ async def run_turn(user_id: str, message: str, conversation_id: int | None) -> d
     戻り値の interrupt は、graph が中断したときの payload(fetch_order なら
     {"type": "select_order", "orders": [...]})。中断していなければ None。
     中断した turn は答えが無いので、呼び出し側はこれを見て画面の分岐を決める。
+
+    07: turn の**後**に要約の起動を試す。前でやると、いま答えるために要る履歴を
+    圧縮しながら返答を組み立てることになる。maybe_schedule_summary は件数を見て
+    background の task を立てるだけですぐ返るので、応答は待たされない。
     """
-    cid = await _ensure_conversation(user_id, conversation_id)
-    await repository.append_message(cid, "user", content=message)
-    final = await get_graph().ainvoke(_graph_input(user_id, message, cid), _config(cid))
+    cid, summary, upto = await _ensure_conversation(user_id, conversation_id)
+    msg_id = await repository.append_message(cid, "user", content=message)
+    final = await get_graph().ainvoke(
+        _graph_input(user_id, message, cid, msg_id, summary, upto), _config(cid))
+    await summarizer.maybe_schedule_summary(cid)
     return {
         "conversation_id": cid,
         "state": final,
@@ -240,9 +265,13 @@ async def resume_turn(conversation_id: int, resume_value) -> dict:
     - **_graph_input を通さない。** あれは turn の入口で出力チャネルを 0 に戻す
       入力で、interrupt 待ちの State に被せると再開前の途中経過が消える。
       渡すのは Command(resume=...) だけで、State は checkpointer が持っている。
+
+    user 発話を保存しないので anchor も作らない。要約の起動だけは run_turn と同じく
+    行う(再開の後にも assistant の発話が 1 件積まれ、履歴は伸びる)。
     """
     cid = await _require_conversation(conversation_id)
     final = await get_graph().ainvoke(Command(resume=resume_value), _config(cid))
+    await summarizer.maybe_schedule_summary(cid)
     return {
         "conversation_id": cid,
         "state": final,
@@ -330,10 +359,13 @@ async def stream_turn(
     user_id: str, message: str, conversation_id: int | None
 ) -> AsyncIterator[dict]:
     """ストリーミングの入口。user message を保存し、graph の出力を event として流す。"""
-    cid = await _ensure_conversation(user_id, conversation_id)
-    await repository.append_message(cid, "user", content=message)
-    async for ev in _stream_events(_graph_input(user_id, message, cid), cid):
+    cid, summary, upto = await _ensure_conversation(user_id, conversation_id)
+    msg_id = await repository.append_message(cid, "user", content=message)
+    async for ev in _stream_events(
+        _graph_input(user_id, message, cid, msg_id, summary, upto), cid
+    ):
         yield ev
+    await summarizer.maybe_schedule_summary(cid)
 
 
 async def stream_resume(conversation_id: int, resume_value) -> AsyncIterator[dict]:
@@ -346,3 +378,4 @@ async def stream_resume(conversation_id: int, resume_value) -> AsyncIterator[dic
     cid = await _require_conversation(conversation_id)
     async for ev in _stream_events(Command(resume=resume_value), cid):
         yield ev
+    await summarizer.maybe_schedule_summary(cid)

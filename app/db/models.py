@@ -48,11 +48,6 @@ class Conversation(Base):
     # conversation_summaries に追記だけしていく(同じ事実を何度も圧縮し直さないため)。
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary_upto_msg_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    # 三層構成にするときの「原文のまま残す層」の開始位置。本章では 2 層
-    # (要約 + 窓)しか作らないので誰も読まないが、DDL(sql/07-layers.sql)が
-    # 列を作るので ORM 側にも持たせておく。持たせないと
-    # tests/test_models.py の「ORM と実スキーマが一致すること」が落ちる。
-    layer1_from_msg_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()

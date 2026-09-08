@@ -1,20 +1,22 @@
 -- =============================================================
 -- 07 · Layered Conversation Context · Table Migration DDL
 --
--- Two changes:
---   1. Add an anchor column to conversations to mark the start of Layer 1.
---   2. Create a table for segmented conversation summaries.
+-- One change: create a table for segmented conversation summaries.
 --
--- Layer boundaries are represented by message IDs; data is not moved:
+-- The layer boundary is a message ID; data is never moved:
 --
 --   id <= summary_upto_msg_id
---       Already included in the summary.
+--       Layer 2: already folded into the summary.
 --
---   summary_upto_msg_id < id <= layer1_from_msg_id
---       Layer 2: rendered in a partially compressed form.
+--   id > summary_upto_msg_id
+--       Layer 1: preserved in its original form and replayed verbatim.
 --
---   id > layer1_from_msg_id
---       Layer 1: preserved in its original form.
+-- A single boundary is enough because the summarizer never advances it all
+-- the way to the newest message: it stops short by context_window_turns, so
+-- the most recent turns always remain on the Layer 1 side. An earlier draft
+-- of this file also carried a layer1_from_msg_id anchor for a third,
+-- partially compressed tier. That tier was never part of the design, so the
+-- column would have stayed NULL forever and misled anyone reading the schema.
 --
 -- Summaries are stored one segment per row and are append-only.
 -- Once a segment has been compressed, it is never repeatedly summarized.
@@ -29,11 +31,6 @@
 -- =============================================================
 
 SET NAMES utf8mb4;
-
-ALTER TABLE conversations
-  ADD COLUMN layer1_from_msg_id BIGINT UNSIGNED NULL
-    COMMENT 'Start anchor for Layer 1 (original messages); messages after this ID remain in original form, while earlier messages are rendered in partially compressed form'
-    AFTER summary_upto_msg_id;
 
 CREATE TABLE IF NOT EXISTS conversation_summaries (
   id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

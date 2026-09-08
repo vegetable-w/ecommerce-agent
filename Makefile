@@ -1,4 +1,4 @@
-.PHONY: dev test eval seed seed-conv kb-preview kb-build kb-repatch kb-vectorize kb-mine kb-reset eval-retrieval eval-mining eval-rag eval-check judge-check eval-05 eval-06 smoke-interrupt eval-07 mcp-up mcp-down
+.PHONY: dev test eval seed seed-conv kb-preview kb-build kb-repatch kb-vectorize kb-mine kb-reset eval-retrieval eval-mining eval-rag eval-check judge-check eval-05 eval-06 smoke-interrupt eval-07 eval-08 mcp-up mcp-down
 
 # --reload は付けない。この環境では watchfiles が入っていても変更を検知せず
 # (実測: 起動後の app/tools/business.py の更新で reload されなかった)、
@@ -89,6 +89,11 @@ judge-check:
 # 07 章の要約プロンプトを正解付きの 3 件で測る。上流のチャットモデルを呼ぶ。
 eval-07:
 	uv run --env-file .env python scripts/eval_07.py
+
+# 08 章のラベル付きサンプル 5 件を実サービス上で通す。MySQL と MCP Server 2 台
+# (mcp-up)の起動が要る。tickets と tool_audit_logs に行が増える(それが測っているもの)。
+eval-08:
+	uv run --env-file .env python scripts/eval_08.py
 
 # 08:2 台の business MCP Server の起動/停止(independent process、Streamable HTTP :8101/:8102)。
 #

@@ -1,0 +1,54 @@
+"""08 受け入れ 1 の demo。
+
+新しい built-in ツール = この file を builtin/ に置くだけ：
+
+    cp scripts/demo_08_promotions.py.txt app/tools/builtin/promotions.py
+
+service を再起動すると package scan(app/tools/registry.py の scan_builtin)が
+拾って自動で登録される。core code の変更は 0 で、会話からすぐ使えるようになる。
+
+**拡張子が .py.txt なのは意図的。** builtin/ の scan は package 内の module を
+すべて import するので、最初から .py で置いてあると「file を足したから増えた」
+ことを見せられない。demo の直前に cp するまでは登録されない状態にしておく。
+"""
+import random
+from datetime import date, timedelta
+
+from langchain_core.tools import tool
+from pydantic import BaseModel, Field
+
+from app.tools import registry
+
+# キャンペーンの終了日は「今日から何日後か」で決める。固定の日付を書くと、時間が
+# 経つほど「実施中」と言いながら終了済みの日付を返す mock になり、モデルが
+# 「そのキャンペーンは終了しています」と答えかねない(app/tools/business.py の
+# created_at が同じ理由で相対日付になっている)。
+_VALID_DAYS = 30
+
+
+class PromotionInput(BaseModel):
+    keyword: str = Field(description="確認したいキャンペーンのキーワードまたは商品カテゴリ。例: キャットフード")
+
+
+@tool(args_schema=PromotionInput)
+async def query_promotions(keyword: str) -> dict:
+    """現在実施中のキャンペーン・割引情報を検索する。
+    ユーザーが「どんなキャンペーンがある?」「割引はある?」などと質問した場合に使用する。
+    """
+    # 固定 seed。同じキーワードなら何度呼んでも同じ内容を返す(監査の突き合わせのため)。
+    rng = random.Random(f"promo:{keyword}")
+    # 金額は円。この店の他の mock(注文金額)とナレッジの送料条件(3,000円以上で
+    # 送料無料)と桁を揃える。
+    threshold = rng.randrange(3000, 10001, 1000)
+    discount = rng.randrange(300, 1501, 100)
+    return {
+        "keyword": keyword,
+        "promotions": [
+            f"{keyword}カテゴリ: {threshold:,}円以上のご購入で{discount:,}円割引",
+            f"新規会員限定 {rng.choice(['10%OFF', '15%OFF', '5%OFF'])}",
+        ],
+        "valid_until": (date.today() + timedelta(days=_VALID_DAYS)).isoformat(),
+    }
+
+
+registry.register(registry.spec_from_langchain_tool(query_promotions, source="builtin"))

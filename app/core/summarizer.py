@@ -65,6 +65,19 @@ async def summarize_dialog(old_summary: str, dialog: str, model=None) -> str:
     return (r.summary or "").strip()
 
 
+def _keep_boundary(seg: list, keep_turns: int) -> int:
+    """seg のうち何件までを要約に含めるか。後ろの keep_turns ターンは残す。
+
+    1 ターン = ユーザーの発話 1 件とみなし、後ろから keep_turns 番目の
+    ユーザー発話の**手前**で切る。ユーザー発話がそれ以下しか無ければ 0 を返し、
+    今回は要約しない(まだ残すべき原文しか無いということ)。
+    """
+    user_positions = [i for i, m in enumerate(seg) if m.role == "user"]
+    if len(user_positions) <= keep_turns:
+        return 0
+    return user_positions[-keep_turns]
+
+
 async def summarize_conversation(conversation_id: int) -> None:
     """要約の本体。素材を読み、要約し、断片を追記して投影を書き戻す。
 
@@ -84,6 +97,10 @@ async def summarize_conversation(conversation_id: int) -> None:
         msgs = await repository.list_dialog_messages(conversation_id)
         old_upto = conv.summary_upto_msg_id or 0
         seg = [m for m in msgs if m.id > old_upto and m.content]
+        # 直近の数ターンは原文のまま残す。境界を最新の発話まで進めてしまうと、
+        # 要約が走った直後のターンでは窓に原文がそのターン分しか残らず、
+        # 「直近は原文、それ以前は要約」という 2 層の前提が定期的に壊れる。
+        seg = seg[:_keep_boundary(seg, settings.context_window_turns)]
         if not seg:
             # 素材が無い(会話が空、または前回の要約がすでに全部を覆っている)。
             # 何も書かずに戻る。空の要約で上書きすると事実が丸ごと消える

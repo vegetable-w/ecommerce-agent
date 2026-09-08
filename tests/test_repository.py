@@ -6,9 +6,10 @@ _test_engine はセッションスコープのイベントループ上で作成�
 """
 
 import pytest
+from sqlalchemy import select
 
 from app.db import repository as repo
-from app.db.models import Conversation, Faq, Ticket
+from app.db.models import Conversation, ConversationSummary, Faq, Ticket
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
@@ -101,3 +102,65 @@ async def test_repository_uses_module_attribute_not_bound_reference(db_session_f
     async with db_session_factory() as s:
         conv = await s.get(Conversation, cid)
         assert conv is not None and conv.user_id == "u1"
+
+
+# ---------------------------------------------------------------------------
+# 07 会話の要約(スライディングウィンドウの境界)
+# ---------------------------------------------------------------------------
+
+async def test_conversation_summary_roundtrip(db_session_factory, db_clean):
+    cid = await repo.create_conversation("u1")
+    conv = await repo.get_conversation(cid)
+    assert conv.summary is None and conv.summary_upto_msg_id is None
+
+    await repo.update_conversation_summary(cid, "ユーザーは注文1001の配送状況を問い合わせた", 5)
+    conv = await repo.get_conversation(cid)
+    assert conv.summary == "ユーザーは注文1001の配送状況を問い合わせた"
+    assert conv.summary_upto_msg_id == 5
+
+
+async def test_count_messages_after(db_session_factory, db_clean):
+    """要約を起動するかどうかの判定材料。境界が空なら「まだ一度も要約していない」。"""
+    cid = await repo.create_conversation("u1")
+    ids = [await repo.append_message(cid, "user", content=f"q{i}") for i in range(4)]
+    assert await repo.count_messages_after(cid, None) == 4
+    assert await repo.count_messages_after(cid, ids[1]) == 2
+    assert await repo.count_messages_after(cid, ids[3]) == 0
+
+
+async def test_list_dialog_messages_filters_tool_rows(db_session_factory, db_clean):
+    """要約に渡すのは人とサポートの発話だけ。tool の生の JSON を要約させない。"""
+    cid = await repo.create_conversation("u1")
+    await repo.append_message(cid, "user", content="注文1001は今どこですか")
+    await repo.append_message(cid, "tool", content='{"s":1}', tool_call_id="c1")
+    await repo.append_message(cid, "assistant", content="配送中です")
+    msgs = await repo.list_dialog_messages(cid)
+    assert [m.role for m in msgs] == ["user", "assistant"]
+    assert [m.content for m in msgs] == ["注文1001は今どこですか", "配送中です"]
+
+
+async def test_summary_of_a_missing_conversation_is_a_no_op(db_session_factory, db_clean):
+    """存在しない会話への書き込みで落ちないこと(要約は非同期なので、書き戻す頃には
+    会話が消えていることがありうる)。"""
+    await repo.update_conversation_summary(999999, "x", 1)
+
+
+async def test_append_summary_fragment_numbers_segments_per_conversation(
+    db_session_factory, db_clean
+):
+    """断片は追記のみ。seq は会話ごとに 1 から始まり、追記のたびに 1 つ進む。"""
+    cid = await repo.create_conversation("u1")
+    assert await repo.append_summary_fragment(cid, 1, 10, "注文1001の配送を問い合わせた") == 1
+    assert await repo.append_summary_fragment(cid, 11, 20, "電話番号を伝えた") == 2
+
+    other = await repo.create_conversation("u2")
+    assert await repo.append_summary_fragment(other, 1, 4, "別の会話") == 1
+
+    async with db_session_factory() as s:
+        rows = list((await s.execute(
+            select(ConversationSummary)
+            .where(ConversationSummary.conversation_id == cid)
+            .order_by(ConversationSummary.seq)
+        )).scalars())
+    assert [(r.seq, r.from_msg_id, r.upto_msg_id) for r in rows] == [(1, 1, 10), (2, 11, 20)]
+    assert rows[0].content == "注文1001の配送を問い合わせた"   # 先の断片は書き換えられない

@@ -17,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 import app.db.base as db
 from app.db.models import (
     Conversation,
+    ConversationSummary,
     FaithCase,
     Faq,
     KnowledgeChunk,
@@ -657,3 +658,81 @@ async def set_faith_case_status(
             row.resolved_at = None
         await s.commit()
         return row
+
+
+# ---------------------------------------------------------------------------
+# 07 会話の要約(スライディングウィンドウの境界)
+# ---------------------------------------------------------------------------
+
+
+async def count_messages_after(conversation_id: int, after_id: int | None) -> int:
+    """前回の要約以降に増えた message の件数。要約を起動するかの判定材料。
+
+    after_id が空なら「まだ一度も要約していない」なので全件を数える。
+    """
+    async with db.async_session() as s:
+        q = (select(func.count()).select_from(Message)
+             .where(Message.conversation_id == conversation_id))
+        if after_id:
+            q = q.where(Message.id > after_id)
+        return int((await s.execute(q)).scalar_one())
+
+
+async def list_dialog_messages(conversation_id: int) -> list[Message]:
+    """人とサポートの発話だけを id 昇順で返す。要約に渡す素材。
+
+    tool の行を外すのは、生の JSON を要約させても事実が増えず、
+    かえって注文番号のような数字が紛れ込んで誤要約の元になるため。
+    """
+    async with db.async_session() as s:
+        result = await s.execute(
+            select(Message)
+            .where(Message.conversation_id == conversation_id,
+                   Message.role.in_(("user", "assistant")))
+            .order_by(Message.id)
+        )
+        return list(result.scalars())
+
+
+async def append_summary_fragment(conversation_id: int, from_msg_id: int,
+                                  upto_msg_id: int, content: str) -> int:
+    """要約の断片を 1 行**追記**し、振った seq を返す。既存の行は書き換えない。
+
+    seq は会話ごとの通し番号(1 始まり)で、既存の最大 + 1 を採る。同じ会話の要約は
+    同時に走らせない(app/core/summarizer.py が走行中の会話を弾く)ので、
+    読んで書くまでの間に別の断片が割り込むことはない。
+
+    conversations.summary の方は上書きされていくが、こちらは各区間を圧縮した時点の
+    姿がそのまま残る。ある事実がどの区間で落ちたかは、この並びを追って初めて分かる。
+    """
+    async with db.async_session() as s:
+        current = (await s.execute(
+            select(func.max(ConversationSummary.seq))
+            .where(ConversationSummary.conversation_id == conversation_id)
+        )).scalar()
+        seq = int(current or 0) + 1
+        s.add(ConversationSummary(
+            conversation_id=conversation_id, seq=seq,
+            from_msg_id=from_msg_id, upto_msg_id=upto_msg_id, content=content,
+        ))
+        await s.commit()
+        return seq
+
+
+async def update_conversation_summary(conversation_id: int, summary: str,
+                                      upto_msg_id: int) -> None:
+    """要約と、その要約が覆う範囲を**一緒に**書く。
+
+    別々に書くと、要約は新しいのに境界が古い(同じ内容が窓にも要約にも出る)、
+    あるいは境界だけ進んで要約が古い(その間の発話がどこにも残らない)という
+    ずれ方をする。後者は取り返しがつかない。
+
+    会話が消えていても落とさない。要約は非同期で走るので、書き戻す頃には
+    会話が消えていることがありうる。
+    """
+    async with db.async_session() as s:
+        conv = await s.get(Conversation, conversation_id)
+        if conv is not None:
+            conv.summary = summary
+            conv.summary_upto_msg_id = upto_msg_id
+            await s.commit()

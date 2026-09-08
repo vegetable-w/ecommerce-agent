@@ -81,9 +81,16 @@ class Settings(BaseSettings):
     # 前回の要約以降にこの件数が増えたら要約を起動する。小さくすると要約の呼び出しが
     # 増えるだけで、窓に載る原文はほとんど変わらない。
     summary_trigger_messages: int = Field(default=30, gt=0)
+    # 要約したあとも原文のまま残す直近のターン数。
+    # **これが無いと 2 層構成が崩れる。** 境界を最新の発話まで進めてしまうと、
+    # 要約が走った直後のターンでは窓に原文がそのターン分しか残らず、
+    # 「直近は原文、それ以前は要約」という前提が 15 ターンごとに壊れる。
+    context_window_turns: int = Field(default=8, gt=0)
     # スライディングウィンドウの token 上限。token_budget(02 章)とは別に持つ。
     # あちらは「履歴を丸ごと刈る」ための予算で、こちらは要約より後ろの区間にだけ効く
-    window_max_tokens: int = Field(default=3000, gt=0)
+    context_window_max_tokens: int = Field(default=3000, gt=0)
+    # 要約に使う model。空なら chat_model を使う
+    summary_model: str = ""
     # 要約の目安の長さ。プロンプトへ埋めるだけで、機械的な切り詰めはしない
     # (途中で切ると注文番号が半分になる)
     summary_max_chars: int = Field(default=200, gt=0)

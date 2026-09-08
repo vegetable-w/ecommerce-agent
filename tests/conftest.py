@@ -25,12 +25,18 @@ _DDL_FILES = [
     # 置くこと。ここに入れ忘れると support_test の ENUM だけ古いままになり、
     # ORM と実スキーマを突き合わせる tests/test_models.py が落ちる。
     pathlib.Path(__file__).resolve().parent.parent / "sql" / "06-ticket-type.sql",
+    # 07 は 2 本。conversations へ列を足す方が先で、分段要約の表はその後。
+    # 順序は file の並びで保証している(CREATE より前に ALTER が来ないこと)。
+    pathlib.Path(__file__).resolve().parent.parent / "sql" / "07-ddl.sql",
+    pathlib.Path(__file__).resolve().parent.parent / "sql" / "07-layers.sql",
 ]
 # 削除順: 子 → 親。knowledge_chunks の自己参照 FK は FOREIGN_KEY_CHECKS=0 で吸収する。
 # low_confidence_questions は conversations への FK を持つので conversations より先に置く。
 # faith_cases は FK を持たないため末尾でよい。
-_TABLES = ["low_confidence_questions", "messages", "tickets", "conversations", "faq",
-           "qa_extraction_staging", "knowledge_chunks", "faith_cases"]
+# conversation_summaries は conversations への FK を持たないが、会話より先に消す
+# (会話が消えたのに要約の断片だけ残ると、次のテストが前のテストの断片を読む)。
+_TABLES = ["low_confidence_questions", "conversation_summaries", "messages", "tickets",
+           "conversations", "faq", "qa_extraction_staging", "knowledge_chunks", "faith_cases"]
 
 
 def _split_sql_statements(sql: str) -> list[str]:

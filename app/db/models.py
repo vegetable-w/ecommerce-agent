@@ -42,10 +42,44 @@ class Conversation(Base):
     status: Mapped[str] = mapped_column(
         Enum("in_progress", "escalated", "closed"), server_default="in_progress"
     )
+    # 会話の要約と、その要約がどの message まで含んでいるか。
+    # スライディングウィンドウはこの次の message から原文を並べる。
+    # summary は「最近の要約断片から投影した本文」で、断片そのものは
+    # conversation_summaries に追記だけしていく(同じ事実を何度も圧縮し直さないため)。
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summary_upto_msg_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # 三層構成にするときの「原文のまま残す層」の開始位置。本章では 2 層
+    # (要約 + 窓)しか作らないので誰も読まないが、DDL(sql/07-layers.sql)が
+    # 列を作るので ORM 側にも持たせておく。持たせないと
+    # tests/test_models.py の「ORM と実スキーマが一致すること」が落ちる。
+    layer1_from_msg_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
+
+
+class ConversationSummary(Base):
+    """会話の要約の断片。**追記のみで、書き換えない。**
+
+    1 本の要約を毎回書き直す作り方だと、5 回目の版には最初期の発話が 5 回
+    圧縮された残骸として入る。どこかの回で注文番号が「重要でない」と判断されて
+    落ちた場合、あとから「いつ、なぜ消えたのか」を辿れない。断片を残しておけば、
+    ある事実がどの区間の圧縮で失われたかを後から特定できる。
+
+    conversations.summary はここから最近の断片を並べて作った**投影**で、
+    prompt に載せるのはそちら。こちらが原本。
+    """
+
+    __tablename__ = "conversation_summaries"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    conversation_id: Mapped[int] = mapped_column(BigInteger)
+    seq: Mapped[int] = mapped_column(Integer)          # 1 から始まる断片の通し番号
+    from_msg_id: Mapped[int] = mapped_column(BigInteger)   # この断片が覆う最初の message
+    upto_msg_id: Mapped[int] = mapped_column(BigInteger)   # 最後の message(両端を含む)
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
 class Message(Base):

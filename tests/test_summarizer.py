@@ -201,6 +201,9 @@ async def test_missing_conversation_is_a_no_op(monkeypatch):
 async def test_body_appends_a_fragment_and_writes_back_the_projection(monkeypatch):
     repo = _FakeRepo(conv=_conv(), msgs=_dialog_rows(3))    # id 1..6
     monkeypatch.setattr(summarizer, "repository", repo)
+    # 直近 1 ターンだけ原文で残す。ここで明示しないと、既定の 8 ターンに全部
+    # 吸われて「今回は要約しない」になり、書き戻しの機構を確かめられない
+    monkeypatch.setattr(summarizer.settings, "context_window_turns", 1)
     seen = []
 
     async def fake_dialog(old_summary, dialog):
@@ -213,16 +216,18 @@ async def test_body_appends_a_fragment_and_writes_back_the_projection(monkeypatc
 
     assert len(repo.fragments) == 1
     frag = repo.fragments[0]
-    assert (frag.from_msg_id, frag.upto_msg_id) == (1, 6)
+    # 直近 1 ターン(id 5,6)は原文で残すので、要約が覆うのは id 1..4
+    assert (frag.from_msg_id, frag.upto_msg_id) == (1, 4)
     assert frag.content == "ユーザーは注文1001の配送を問い合わせた"
-    assert repo.updates == [("ユーザーは注文1001の配送を問い合わせた", 6)]
-    assert "質問0" in seen[0][1] and "回答2" in seen[0][1]
+    assert repo.updates == [("ユーザーは注文1001の配送を問い合わせた", 4)]
+    assert "質問0" in seen[0][1] and "質問2" not in seen[0][1]
 
 
 async def test_body_only_summarizes_messages_after_the_previous_boundary(monkeypatch):
     """同じ発話を何度も圧縮し直さない。圧縮のたびに事実が削れていく。"""
     repo = _FakeRepo(conv=_conv(summary="前回の要約", upto=4), msgs=_dialog_rows(4))
     monkeypatch.setattr(summarizer, "repository", repo)
+    monkeypatch.setattr(summarizer.settings, "context_window_turns", 1)
     seen = []
 
     async def fake_dialog(old_summary, dialog):
@@ -235,8 +240,8 @@ async def test_body_only_summarizes_messages_after_the_previous_boundary(monkeyp
 
     dialog = seen[0][1]
     assert "質問0" not in dialog and "質問1" not in dialog   # id 1..4 は前回の要約が覆っている
-    assert "質問2" in dialog and "質問3" in dialog
-    assert (repo.fragments[0].from_msg_id, repo.fragments[0].upto_msg_id) == (5, 8)
+    assert "質問2" in dialog and "質問3" not in dialog   # 直近 1 ターンは原文で残す
+    assert (repo.fragments[0].from_msg_id, repo.fragments[0].upto_msg_id) == (5, 6)
 
 
 async def test_body_carries_the_previous_summary_into_the_model(monkeypatch):
@@ -245,6 +250,7 @@ async def test_body_carries_the_previous_summary_into_the_model(monkeypatch):
     repo = _FakeRepo(conv=_conv(summary="ユーザーは注文1001について問い合わせた", upto=4),
                      msgs=_dialog_rows(4))
     monkeypatch.setattr(summarizer, "repository", repo)
+    monkeypatch.setattr(summarizer.settings, "context_window_turns", 1)
     seen = []
 
     async def fake_dialog(old_summary, dialog):
@@ -344,3 +350,41 @@ async def test_summarize_dialog_without_a_previous_summary(monkeypatch):
     model = _FakeModel(summarizer._Summary(summary=" 注文1001の配送 "))
     out = await summarizer.summarize_dialog("", "ユーザー:注文1001はまだ届きません", model=model)
     assert out == "注文1001の配送"          # 前後の空白は落とす
+
+
+# ---------------------------------------------------------------------------
+# 直近のターンは原文のまま残す
+#
+# **これが無いと 2 層構成が崩れる。** 境界を最新の発話まで進めてしまうと、要約が
+# 走った直後のターンでは窓に原文がそのターン分しか残らない。トリガが 30 件なので
+# 15 ターンごとに「直近は原文」という前提が壊れる。
+# ---------------------------------------------------------------------------
+
+def test_keep_boundary_leaves_the_recent_turns():
+    from app.core import summarizer as sm
+
+    class M:
+        def __init__(self, i, role):
+            self.id, self.role = i, role
+
+    # 10 ターン分(user/assistant 交互)
+    seg = [M(i, "user" if i % 2 else "assistant") for i in range(1, 21)]
+    users = [i for i, m in enumerate(seg) if m.role == "user"]
+    assert len(users) == 10
+
+    cut = sm._keep_boundary(seg, 8)
+    assert cut == users[-8]              # 後ろから 8 番目の user 発話の手前で切る
+    kept = seg[cut:]
+    assert sum(1 for m in kept if m.role == "user") == 8
+
+
+def test_keep_boundary_summarizes_nothing_when_the_conversation_is_short():
+    """残すべきターンしか無いなら、今回は要約しない。"""
+    from app.core import summarizer as sm
+
+    class M:
+        def __init__(self, i, role):
+            self.id, self.role = i, role
+
+    seg = [M(i, "user" if i % 2 else "assistant") for i in range(1, 11)]   # 5 ターン
+    assert sm._keep_boundary(seg, 8) == 0

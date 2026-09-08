@@ -34,3 +34,6 @@ dev-notes/
 # data/ 配下は data/kb と data/04/reports を追跡しているので、拡張子で絞る。
 data/*.sqlite
 data/*.sqlite-*
+
+# 08 章の MCP Server の pid file(mcp-up が port から引いて書く)。ローカルの実行状態なので追跡しない。
+data/*.pid

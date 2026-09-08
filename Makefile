@@ -1,10 +1,11 @@
-.PHONY: dev test eval seed seed-conv kb-preview kb-build kb-repatch kb-vectorize kb-mine kb-reset eval-retrieval eval-mining eval-rag eval-check judge-check eval-05 eval-06 smoke-interrupt eval-07
+.PHONY: dev test eval seed seed-conv kb-preview kb-build kb-repatch kb-vectorize kb-mine kb-reset eval-retrieval eval-mining eval-rag eval-check judge-check eval-05 eval-06 smoke-interrupt eval-07 mcp-up mcp-down
 
 # --reload は付けない。この環境では watchfiles が入っていても変更を検知せず
 # (実測: 起動後の app/tools/business.py の更新で reload されなかった)、
 # 「直したのに反映されない」まま気づかない事故になる。さらに reloader の親を
 # 止めても子プロセスがポートを掴んだまま残る。コードを変えたら手で起動し直す。
 dev:
+	$(MAKE) mcp-up
 	uv run --env-file .env uvicorn app.main:app --port 8000
 
 test:
@@ -88,3 +89,27 @@ judge-check:
 # 07 章の要約プロンプトを正解付きの 3 件で測る。上流のチャットモデルを呼ぶ。
 eval-07:
 	uv run --env-file .env python scripts/eval_07.py
+
+# 08:2 台の business MCP Server の起動/停止(independent process、Streamable HTTP :8101/:8102)。
+#
+# 停止に pid file を使わないのは実測の結果:
+#  - `nohup uv run python ... &` の $! は uv の wrapper を指す。それを kill しても
+#    子の python は生き残り、:8101 を LISTENING のまま掴み続けた。
+#  - uv を外して .venv の python を直接叩いても同じ。Windows の venv python は
+#    trampoline → 本体 の 2 段で、bash の job PID を kill しても本体が残る。
+# どちらも「古い Server が残ったまま新しいコードが反映されない」事故になるので、
+# 停止は port から LISTENING しているプロセスの Windows PID を引いて木ごと落とす。
+# 前回の起動が残した孤児もこれで一緒に片付く。
+# recipe を 1 物理行に畳んであるのは milvus-up と同じ理由(継続行を使わない)。
+MCP_LISTENER = netstat -ano | awk -v pat=":$$p$$" '$$1=="TCP" && $$4=="LISTENING" && $$2 ~ pat {print $$5}'
+
+mcp-up:
+	@mkdir -p log data
+	@nohup uv run python mcp_servers/logistics_server.py  > log/mcp-logistics.log 2>&1 &
+	@nohup uv run python mcp_servers/aftersales_server.py > log/mcp-aftersales.log 2>&1 &
+	@for i in $$(seq 1 60); do ok=1; for np in logistics:8101 aftersales:8102; do n=$${np%%:*}; p=$${np##*:}; pid=$$($(MCP_LISTENER) | head -1); if [ -z "$$pid" ]; then ok=0; else echo $$pid > data/mcp-$$n.pid; fi; done; if [ $$ok = 1 ]; then echo "MCP Servers started: logistics=:8101 aftersales=:8102(pid: data/mcp-*.pid)"; exit 0; fi; sleep 1; done; echo "MCP Server が起動しません。log/mcp-*.log を確認してください" && exit 1
+
+mcp-down:
+	@for p in 8101 8102; do for pid in $$($(MCP_LISTENER) | sort -u); do taskkill //F //T //PID $$pid >/dev/null 2>&1 || kill -9 $$pid 2>/dev/null || true; done; done
+	@rm -f data/mcp-logistics.pid data/mcp-aftersales.pid
+	@echo "MCP Servers stopped"

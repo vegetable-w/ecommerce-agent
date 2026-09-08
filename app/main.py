@@ -14,6 +14,7 @@ from app.api.extract import router as extract_router
 from app.api.jobs import router as jobs_router
 from app.api.kb import router as kb_router
 from app.api.rageval import router as rageval_router
+from app.core import logging_setup
 from app.graph import runtime
 
 # 画面のパス → static 配下のファイル名。middleware がこれを見るので、
@@ -39,7 +40,13 @@ async def lifespan(app: FastAPI):
     閉じる側を finally に置くのは、起動後にアプリ本体で例外が起きた場合でも
     sqlite のハンドルを手放すため。ここを抜けずに落ちると、ファイルロックが
     残ったままプロセスだけ消える。
+
+    ログの設定をここで行うのは、**プロセスとして立ち上がるときにだけ**設定したいため。
+    import 時に行うと、router を 1 つ読み込んだだけのテストまでログファイルを開く。
     """
+    # graph より先に呼ぶ。ここから後ろで起きることを記録できるようにする。
+    # これを呼ばないとアプリ自身のログは 1 行も出ない(logging_setup の冒頭)。
+    logging_setup.configure()
     await runtime.init_graph()
     try:
         yield

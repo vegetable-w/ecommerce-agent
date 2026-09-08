@@ -95,6 +95,12 @@ class Settings(BaseSettings):
     # (途中で切ると注文番号が半分になる)
     summary_max_chars: int = Field(default=200, gt=0)
 
+    # ログ。app.* の logger をどこへどの水準で出すか(app/core/logging_setup.py)。
+    # 既定を INFO にするのは、model_ctx と要約の進行が受け入れ検証の見どころで、
+    # WARNING だと 1 行も出ないため。
+    log_level: str = "INFO"
+    log_file: str = "log/app.log"
+
     @property
     def rerank_key(self) -> SecretStr:
         return self.rerank_api_key or self.embed_api_key

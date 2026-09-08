@@ -9,8 +9,10 @@ graph そのものは app/graph/build.py で組み上がっている。ここが
 - **graph の出力を frontend が読める event に写像すること**。/api/agent(非ストリーミング)は
   最終 State を、/api/chat(SSE)は event の列を使う。
 - **中断した turn を再開できるようにすること**(06 章)。fetch_order は注文が特定
-  できないと interrupt で止まる。止まったことを表に出す(run_turn / stream_turn)のと、
-  ユーザーが選んだ値で続きから走らせる(resume_turn / stream_resume)のがここの仕事。
+  できないと interrupt で止まり、08 章の agent_tools はチケットを作る前に確認で止まる。
+  止まったことを表に出す(run_turn / stream_turn)のと、ユーザーが選んだ / 押した値で
+  続きから走らせる(resume_turn / stream_resume)のがここの仕事。中断の種類は
+  payload の "type" だけが決めるので、この層は種類ごとの分岐を持たない。
 
 写像の要点は「**何を流さないか**」にある。stream_mode="messages" は graph の中で
 起きた model 呼び出しの token を**すべて**運んでくるので、素通しすると
@@ -220,12 +222,22 @@ def _interrupt_event(raw, cid: int) -> dict:
         payload = {}
     kind = payload.get("type")
     orders = payload.get("orders")
-    return {
+    ev = {
         "type": "interrupt",
         "kind": kind if isinstance(kind, str) else "",
+        # 06 章の互換。select_order の画面はこの key を必ず読むので、payload に
+        # 無くても空の list を置く(画面側に「key があるか」の分岐を持たせない)。
         "orders": orders if isinstance(orders, list) else [],
         "conversation_id": cid,
     }
+    # 08 章: 中断の種類ごとの追加 payload。confirm_ticket はチケットの下書きを
+    # preview に載せる。**種類が増えても event の組み立てを枝分かれさせない**ため、
+    # 読める形のものだけをそのまま通す(kind で分岐すると、新しい中断を足すたびに
+    # ここへ if を書き足すことになり、書き忘れた種類だけ中身が届かない)。
+    preview = payload.get("preview")
+    if isinstance(preview, dict):
+        ev["preview"] = preview
+    return ev
 
 
 async def run_turn(user_id: str, message: str, conversation_id: int | None) -> dict:
@@ -343,9 +355,7 @@ async def _stream_events(graph_input, cid: int) -> AsyncIterator[dict]:
                 if node == "agent_tools":
                     for m in upd.get("messages", []):
                         name = getattr(m, "name", None)
-                        # create_ticket は実行していない(選択肢へ変換しただけ)。
-                        # tool として出すと「チケットを作成しました」と画面に嘘が出る
-                        if name and name != "create_ticket":
+                        if name:
                             yield {"type": "tool", "name": name}
                 if upd.get("suggested_actions"):
                     actions = upd["suggested_actions"]

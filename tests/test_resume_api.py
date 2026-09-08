@@ -1,8 +1,9 @@
-"""POST /api/actions/resume(注文を選んだ後の再開)のテスト。
+"""POST /api/actions/resume(中断した turn の再開)のテスト。
 
 06 章で fetch_order は、注文が特定できないと interrupt で止まって画面に一覧を出す
 (spec §6)。ユーザーがそこで 1 件選ぶと、画面はこのエンドポイントを叩いて **中断した
-turn の続き**を走らせる。
+turn の続き**を走らせる。08 章でもう 1 種類の中断が増えた(チケットの確認カード)。
+入口は同じで、body の field だけが違う: 注文の選択は order_id、確認は confirmed。
 
 /api/chat と同じ SSE で返すのが要点。再開の後には Agent の回答がそのまま続くので、
 画面は選択の前後で描画を分けずに済む。したがって確かめるのは 2 つ。
@@ -113,7 +114,7 @@ def test_resume_streams_the_same_frames_as_chat(monkeypatch):
         {"type": "actions", "items": actions},
         {"type": "done", "conversation_id": 42},
     ])
-    body = _body({"conversation_id": 42, "value": "1001"})
+    body = _body({"conversation_id": 42, "order_id": "1001"})
 
     assert _payloads(body) == [
         {"event": "tool", "name": "query_order"},
@@ -126,23 +127,70 @@ def test_resume_streams_the_same_frames_as_chat(monkeypatch):
     assert body.endswith("data: [DONE]\n\n")
 
 
-@pytest.mark.parametrize(
-    "value",
-    [
-        pytest.param("1001", id="str"),
-        pytest.param(1001, id="int"),
-        pytest.param({"order_id": "1001", "product": "自動猫トイレ"}, id="order-object"),
-    ],
-)
-def test_resume_forwards_the_selected_value_unchanged(monkeypatch, value):
-    """画面が一覧の要素をそのまま返しても、番号だけを返しても通す。
+def test_resume_forwards_the_selected_order_unchanged(monkeypatch):
+    """06: 選ばれた注文番号はそのまま graph へ渡る。
 
-    どの形で来ても同じ注文に落とすのは fetch_order の _normalize_order_id の仕事なので、
-    ここで形を決め打ちにすると、画面の実装を 1 通りに縛ることになる。
+    値を解釈するのは fetch_order の _normalize_order_id の仕事で、ここではない。
     """
     seen = _use_events(monkeypatch, [{"type": "done", "conversation_id": 42}])
-    _body({"conversation_id": 42, "value": value})
-    assert seen == [(42, value)]
+    _body({"conversation_id": 42, "order_id": "1001"})
+    assert seen == [(42, "1001")]
+
+
+@pytest.mark.parametrize("confirmed", [True, False])
+def test_resume_wraps_the_ticket_decision_in_a_dict(monkeypatch, confirmed):
+    """08: チケットの確認は {"confirmed": bool} に包んで渡す。
+
+    包むのは、確認を要する操作が今後増えても agent_tools 側が 1 つの形だけを
+    読めばよいようにするため。**False も必ず渡す**(取り消しは「何も答えなかった」
+    ではなく「作らないと答えた」で、engine の監査に権限拒否として残る)。
+    """
+    seen = _use_events(monkeypatch, [{"type": "done", "conversation_id": 42}])
+    _body({"conversation_id": 42, "confirmed": confirmed})
+    assert seen == [(42, {"confirmed": confirmed})]
+
+
+def test_resume_prefers_the_order_when_both_are_sent(monkeypatch):
+    """両方来たら注文の選択として扱う。中断は 1 会話に 1 つしか待っていないので、
+    どちらか一方に決め打つ必要がある。"""
+    seen = _use_events(monkeypatch, [{"type": "done", "conversation_id": 42}])
+    _body({"conversation_id": 42, "order_id": "1001", "confirmed": False})
+    assert seen == [(42, "1001")]
+
+
+def test_resume_rejects_a_request_that_answers_nothing(monkeypatch):
+    """order_id も confirmed も無い要求は 400。
+
+    素通しすると None が resume の値として graph へ届き、fetch_order は「読めない選択」
+    として、agent_tools は「未確認」として中断を黙って解いてしまう。ユーザーは
+    何も押していないのに、選択カードが消えた画面を見ることになる。
+    """
+
+    async def must_not_run(*a, **k):
+        raise AssertionError("何も答えていない要求が本体まで到達した")
+        yield  # noqa: unreachable - 非同期ジェネレータにするためだけの行
+
+    monkeypatch.setattr(runtime, "stream_resume", must_not_run)
+    resp = TestClient(app).post(_URL, json={"conversation_id": 42})
+    assert resp.status_code == 400
+    assert "order_id" in resp.json()["detail"]
+    assert "confirmed" in resp.json()["detail"]
+
+
+def test_resume_can_interrupt_again_with_a_ticket_preview(monkeypatch):
+    """08 の確認カードで止まった場合も、/api/chat と同じ interrupt フレーム。"""
+    preview = {"ticket_type": "after_sales", "ticket_type_label": "アフターサービス",
+               "description": "充電器が発熱します"}
+    _use_events(monkeypatch, [
+        {"type": "interrupt", "kind": "confirm_ticket", "orders": [], "preview": preview,
+         "conversation_id": 42},
+    ])
+    body = _body({"conversation_id": 42, "order_id": "1001"})
+
+    assert _payloads(body) == [
+        {"event": "interrupt", "kind": "confirm_ticket", "orders": [], "preview": preview,
+         "conversation_id": 42},
+    ]
 
 
 def test_resume_can_interrupt_again(monkeypatch):
@@ -151,7 +199,7 @@ def test_resume_can_interrupt_again(monkeypatch):
         {"type": "interrupt", "kind": "select_order", "orders": _ORDERS,
          "conversation_id": 42},
     ])
-    body = _body({"conversation_id": 42, "value": "???"})
+    body = _body({"conversation_id": 42, "order_id": "???"})
 
     assert _payloads(body) == [
         {"event": "interrupt", "kind": "select_order", "orders": _ORDERS,
@@ -171,7 +219,7 @@ def test_resume_frames_survive_japanese_and_newlines(monkeypatch):
         {"type": "actions", "items": actions},
         {"type": "done", "conversation_id": 42},
     ])
-    body = _body({"conversation_id": 42, "value": "1001"})
+    body = _body({"conversation_id": 42, "order_id": "1001"})
 
     assert "品質不良\n\n動作しません" not in body
     for f in _frames(body):
@@ -188,7 +236,7 @@ def test_resume_ignores_unknown_event_types(monkeypatch):
         {"type": "delta", "text": "はい。"},
         {"type": "done", "conversation_id": 42},
     ])
-    body = _body({"conversation_id": 42, "value": "1001"})
+    body = _body({"conversation_id": 42, "order_id": "1001"})
     assert "fetch_order" not in body
     assert [p for p in _payloads(body) if "delta" in p] == [{"delta": "はい。"}]
 
@@ -202,7 +250,7 @@ def test_resume_error_frame_on_unknown_conversation(monkeypatch):
         yield  # noqa: unreachable - 非同期ジェネレータにするためだけの行
 
     monkeypatch.setattr(runtime, "stream_resume", fake_stream)
-    body = _body({"conversation_id": 999999, "value": "1001"})
+    body = _body({"conversation_id": 999999, "order_id": "1001"})
 
     expected = "event: error\ndata: {}\n\n".format(
         json.dumps({"message": _NOT_FOUND_MSG}, ensure_ascii=False)
@@ -214,7 +262,7 @@ def test_resume_error_frame_on_unknown_conversation(monkeypatch):
 def test_resume_error_frame_when_database_is_down():
     """偽の stream_resume を入れない。_no_real_upstream が向けた到達不能な DB へ
     本物の stream_resume が会話の存在確認で当たり、graph へ着く前に落ちる。"""
-    body = _body({"conversation_id": 42, "value": "1001"})
+    body = _body({"conversation_id": 42, "order_id": "1001"})
     expected = "event: error\ndata: {}\n\n".format(
         json.dumps({"message": _DB_DOWN_MSG}, ensure_ascii=False)
     )
@@ -228,7 +276,7 @@ def test_resume_error_frame_on_upstream_failure(monkeypatch):
         yield  # noqa: unreachable - 非同期ジェネレータにするためだけの行
 
     monkeypatch.setattr(runtime, "stream_resume", fake_stream)
-    body = _body({"conversation_id": 42, "value": "1001"})
+    body = _body({"conversation_id": 42, "order_id": "1001"})
 
     expected = "event: error\ndata: {}\n\n".format(
         json.dumps({"message": _UPSTREAM_MSG}, ensure_ascii=False)
@@ -245,7 +293,7 @@ def test_resume_mid_stream_failure_keeps_the_delivered_deltas(monkeypatch):
         raise RuntimeError("上流モデル呼び出し失敗(部分応答後・テスト用)")
 
     monkeypatch.setattr(runtime, "stream_resume", fake_stream)
-    body = _body({"conversation_id": 42, "value": "1001"})
+    body = _body({"conversation_id": 42, "order_id": "1001"})
 
     assert [p["delta"] for p in _payloads(body) if "delta" in p] == ["注文 1001 は"]
     assert "event: error" in body
@@ -255,9 +303,10 @@ def test_resume_mid_stream_failure_keeps_the_delivered_deltas(monkeypatch):
 @pytest.mark.parametrize(
     "payload",
     [
-        pytest.param({"value": "1001"}, id="missing-conversation-id"),
-        pytest.param({"conversation_id": 42}, id="missing-value"),
-        pytest.param({"conversation_id": "abc", "value": "1001"}, id="non-numeric-id"),
+        pytest.param({"order_id": "1001"}, id="missing-conversation-id"),
+        pytest.param({"conversation_id": "abc", "order_id": "1001"}, id="non-numeric-id"),
+        pytest.param({"conversation_id": 42, "order_id": ""}, id="empty-order-id"),
+        pytest.param({"conversation_id": 42, "confirmed": "たぶん"}, id="non-boolean-confirmed"),
     ],
 )
 def test_resume_rejects_malformed_requests(monkeypatch, payload):

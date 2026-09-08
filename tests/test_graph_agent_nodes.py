@@ -266,47 +266,95 @@ async def test_agent_tools_defaults_conversation_id_when_the_state_lacks_one(mon
     assert called[0][1] == 0
 
 
-async def test_create_ticket_is_never_executed(monkeypatch):
-    """create_ticket は**実行しない**。実行されたらテストが落ちること。
+# 08: create_ticket は「実行しない」から「確認を経てから実行する」へ変わった。
+# 確認フロー(interrupt → resume)そのものは compiled graph が要るので
+# tests/test_graph_08_confirm_ticket.py が見る。ここで見るのは、node を直に
+# 呼べる範囲、つまり **確認を出さない側の分岐**と preview の組み立て。
 
-    苦情や要望の言葉が出るたびにチケットを立てると、ユーザーが望んでいないものが
-    運用側の待ち行列に積み上がる。作るかどうかを決めるのはユーザーであり、
-    ここは選択肢の提示までしかしない(complaint_reply と同じ方針)。
-    execute_tool_call は autouse fixture で「呼ばれたら落ちる」に差し替えてある。
+
+async def test_an_incomplete_create_ticket_is_not_confirmed_but_sent_to_the_engine(monkeypatch):
+    """引数が足りない create_ticket は確認カードを出さず、engine の検証ブロックへ回す。
+
+    ここで確認カードを出してしまうと、ユーザーが「作成する」を押した後に engine が
+    引数不足で弾き、押したのに何も起きない画面になる。足りないことはモデルに返して
+    ユーザーへ聞き直させるのが正しい(推測で埋めさせない)。
+
+    node を直に呼んでいるので、もし interrupt を発火すれば例外になる
+    (interrupt() は compiled graph の中でしか動かない)。「確認を出していない」ことが
+    テストの書き方ではなく仕組みで確かめられる。
     """
-    tc = {"name": "create_ticket",
-          "args": {"description": "商品が壊れていた", "ticket_type": "after_sales"},
-          "id": "c1"}
+    called = _use_tools(monkeypatch)
+    tc = {"name": "create_ticket", "args": {"ticket_type": "after_sales"}, "id": "c1"}
     out = await nodes.agent_tools({"messages": [_ai_with(tc)], "conversation_id": 42})
 
-    assert out["suggested_actions"] == [
-        {"type": "create_ticket",
-         "draft": {"description": "商品が壊れていた", "ticket_type": "after_sales"}}
-    ]
+    assert [c[0]["name"] for c in called] == ["create_ticket"]
+    assert [m.tool_call_id for m in out["messages"]] == ["c1"]
+    # 08 でチケットは選択肢ではなくなった。確認カードは interrupt で出す
+    assert "suggested_actions" not in out
 
 
-async def test_intercepted_ticket_answers_the_original_tool_call_id(monkeypatch):
-    """合成 ToolMessage の tool_call_id が元の tool_call と一致すること。
+async def test_a_normal_tool_still_runs_alongside_an_incomplete_create_ticket(monkeypatch):
+    """1 step に通常ツールと create_ticket が並んでも、両方に ToolMessage が返ること。
 
-    上流は tool_calls と ToolMessage の対応を検査する。欠けても食い違っても
-    次の呼び出しが 400 になり、loop がその場で止まる。
+    片方だけを処理して step を打ち切ると、tool_calls と ToolMessage の対応が揃わず、
+    上流が次の呼び出しを 400 で弾いて loop がその場で止まる。
     """
-    tc = {"name": "create_ticket", "args": {"description": "d", "ticket_type": "complaint"},
-          "id": "call_abc123"}
-    out = await nodes.agent_tools({"messages": [_ai_with(tc)]})
+    called = _use_tools(monkeypatch)
+    order = {"name": "query_order", "args": {"order_id": "1001"}, "id": "c1"}
+    ticket = {"name": "create_ticket", "args": {"description": "壊れていた"}, "id": "c2"}
+    out = await nodes.agent_tools({"messages": [_ai_with(order, ticket)],
+                                   "conversation_id": 3})
 
-    assert len(out["messages"]) == 1
-    tm = out["messages"][0]
-    assert tm.tool_call_id == "call_abc123"
-    assert tm.name == "create_ticket"
-    assert "選択肢" in tm.content
+    assert [c[0]["name"] for c in called] == ["query_order", "create_ticket"]
+    assert [m.tool_call_id for m in out["messages"]] == ["c1", "c2"]
 
 
-async def test_ticket_type_defaults_to_the_english_enum_identifier(monkeypatch):
-    """ticket_type が無い場合の既定は DB の ENUM と同じ inquiry(日本語ではない)。"""
-    tc = {"name": "create_ticket", "args": {}, "id": "c1"}
-    out = await nodes.agent_tools({"messages": [_ai_with(tc)]})
-    assert out["suggested_actions"][0]["draft"] == {"description": "", "ticket_type": "inquiry"}
+def test_the_ticket_preview_carries_both_the_identifier_and_the_japanese_label():
+    """preview は英語の識別子と日本語のラベルの両方を持つ。
+
+    ticket_type は DB の ENUM と同じ英語の識別子(spec §6.1)で、画面に出すのは日本語。
+    対応表を画面側へ置くと labels.py と 2 か所で同じ表を保つことになり、ENUM に値が
+    増えたときに片方だけ古くなる。create_ticket tool が status / status_label を
+    両方返すのと同じ形にする。
+    """
+    from app.core import labels
+
+    preview = nodes._ticket_preview({"ticket_type": "after_sales", "description": "壊れていた"})
+    assert preview == {"ticket_type": "after_sales",
+                       "ticket_type_label": "アフターサービス",
+                       "description": "壊れていた"}
+    assert preview["ticket_type_label"] == labels.label(labels.TICKET_TYPE, "after_sales")
+
+
+def test_the_ticket_preview_defaults_to_the_english_enum_identifier():
+    """種別が無い場合の既定は DB の ENUM と同じ inquiry(日本語ではない)。
+
+    日本語を入れると、engine の JSON Schema 検証(enum は英語の 3 語)で弾かれ、
+    確認カードまで到達しない。
+    """
+    preview = nodes._ticket_preview({})
+    assert preview["ticket_type"] == "inquiry"
+    assert preview["ticket_type_label"] == "問い合わせ"
+    assert preview["description"] == ""
+
+
+@pytest.mark.parametrize(("decision", "expect"), [
+    ({"confirmed": True}, True),
+    ({"confirmed": False}, False),
+    ({}, False),
+    (None, False),
+    ("はい", False),
+    ({"confirmed": "true"}, False),
+    (True, True),
+])
+def test_only_an_explicit_yes_counts_as_confirmation(decision, expect):
+    """読めない戻り値は「作らない」側へ倒す。
+
+    _normalize_order_id と同じく画面の戻り値は形を保証できないが、こちらは書き込みなので
+    倒し先が逆になる。読めない値を確認済みと解釈すると、ユーザーが押していない
+    チケットが実際に作られる。
+    """
+    assert nodes._is_confirmed(decision) is expect
 
 
 async def test_existing_suggested_actions_are_kept(monkeypatch):
@@ -315,28 +363,10 @@ async def test_existing_suggested_actions_are_kept(monkeypatch):
     suggested_actions には reducer が無く後勝ちの上書きになるので、
     積み直しはこの node の責任になる。
     """
-    tc = {"name": "create_ticket", "args": {"description": "d"}, "id": "c1"}
+    tc = {"name": "submit_refund", "args": {"order_id": "1001"}, "id": "r1"}
     out = await nodes.agent_tools({"messages": [_ai_with(tc)],
                                    "suggested_actions": [{"type": "transfer_human"}]})
-    assert [a["type"] for a in out["suggested_actions"]] == ["transfer_human", "create_ticket"]
-
-
-async def test_normal_tool_still_runs_when_mixed_with_create_ticket(monkeypatch):
-    """1 step に通常ツールと create_ticket が並んでも、通常ツールは実行される。
-
-    create_ticket を見つけた時点で step ごと打ち切ると、同時に要求された注文照会が
-    実行されないまま ToolMessage も返らず、上流が対応の欠けを 400 で弾く。
-    """
-    called = _use_tools(monkeypatch)
-    order = {"name": "query_order", "args": {"order_id": "1001"}, "id": "c1"}
-    ticket = {"name": "create_ticket", "args": {"description": "壊れていた"}, "id": "c2"}
-    out = await nodes.agent_tools({"messages": [_ai_with(order, ticket)],
-                                   "conversation_id": 3})
-
-    assert [c[0]["name"] for c in called] == ["query_order"]  # ticket は実行されない
-    # tool_calls と同じ順・同じ id で ToolMessage が揃うこと
-    assert [m.tool_call_id for m in out["messages"]] == ["c1", "c2"]
-    assert [a["type"] for a in out["suggested_actions"]] == ["create_ticket"]
+    assert [a["type"] for a in out["suggested_actions"]] == ["transfer_human", "refund_form"]
 
 
 # ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@
 チケット作成だけ(有人対応は本章では画面上の見た目のみ。spec §6.2)。
 """
 
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -91,18 +91,40 @@ class CreateRefundResponse(BaseModel):
 
 
 class ResumeRequest(BaseModel):
-    """中断した turn の再開(06 章)。画面が注文を 1 件選んだときに送る。
+    """中断した turn の再開。画面が注文を選んだとき(06)と、チケットの確認カードで
+    作成 / 取り消しを押したとき(08)の 2 つが同じ入口を使う。
 
     conversation_id は checkpointer の thread_id そのもので、どの中断を再開するかは
-    これだけで決まる(中断は 1 会話につき 1 つしか待たない)。
+    これだけで決まる(中断は 1 会話につき 1 つしか待たない)。したがって残りの field は
+    「どの中断に対する答えか」ではなく「何を答えたか」だけを運ぶ。
+
+    **どちらか一方だけを送る。** 両方欠けている要求は何も答えていないので
+    app/api/actions.py が 400 で弾く(ここで縛らないのは、pydantic の 422 だと
+    「片方は必須」という条件が本文から読み取りにくくなるため)。
     """
 
     conversation_id: int = Field(description="再開する会話。checkpointer の thread_id になる")
-    # **型で縛らない。** 画面が一覧の要素をそのまま返して {"order_id": "1001"} で来ることも、
-    # 番号だけを "1001" や 1001 で返すこともある。どれで来ても同じ注文に落とすのは
-    # fetch_order の _normalize_order_id の仕事で、ここで形を決め打ちにすると
-    # 画面の実装を 1 通りに縛った上、解釈できない値を 422 として弾いてしまう
-    # (fetch_order は読めない値でも会話を止めずに聞き直す設計になっている)。
-    #
-    # 既定値を置かないので、key 自体の欠落は 422 になる(None は明示すれば通る)。
-    value: Any = Field(description="ユーザーが選んだ値。注文番号または一覧の要素そのもの")
+    # 06: 注文の選択。**中身の形は縛らない。** 全角の番号でも「注文1001」のような
+    # 文でも、同じ注文に落とすのは fetch_order の _normalize_order_id の仕事で、
+    # ここで書式を決め打ちにすると画面の実装を 1 通りに縛ることになる。
+    # 空だけを弾くのは、空の選択を通すと「読めない値」として中断が黙って解け、
+    # ユーザーが何も選んでいないのにカードが消えた画面になるため。
+    order_id: str | None = Field(default=None, min_length=1,
+                                 description="06: ユーザーが選んだ注文番号")
+    # 08: チケットの確認カード。True が「作成する」、False が「取り消す」。
+    # **None と False を区別する**必要があるので既定値は None にする。False を既定に
+    # すると、注文を選んだだけの要求まで「チケットを取り消した」という答えを運ぶ。
+    confirmed: bool | None = Field(default=None,
+                                   description="08: チケット確認カードの可否")
+
+    # min_length は OpenAPI の minLength として表出させるために残し、空白のみの値
+    # (min_length を通過してしまう)はここで拒否する。bare な .strip() であることが
+    # 要点で、.strip(" ") へ「明示化」すると U+3000(全角スペース)が抜ける。
+    # 日本語 IME がそのまま出す空入力なので、実際に届く
+    # (CreateTicketRequest / CreateRefundRequest と同じ規約)。
+    @field_validator("order_id")
+    @classmethod
+    def _reject_blank(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
+            raise ValueError("空白のみの値は許可されない")
+        return v

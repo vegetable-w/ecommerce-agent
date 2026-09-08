@@ -1,9 +1,13 @@
 """画面のボタンから叩く action エンドポイント。
 
-**tickets テーブルへ書き込む経路をここ 1 か所に閉じ込める**のがこのモジュールの役目。
-Agent は create_ticket tool を「チケットを作るべきだ」という意思表示に使うが、
-agent_tools がそれを横取りして選択肢へ変換するので DB には届かない(spec §6)。
-書き込みが起きるのは、ユーザーが画面のボタンを押してここへ POST したときだけ。
+**tickets へ書き込むのはユーザーが押したときだけ**、という規律を守る場所。
+05 章の苦情の 2 択と 06 章の返金申請フォームは、ユーザーが画面のボタンを押して
+ここへ POST したときにだけ書き込む。
+
+08 章で経路が 1 つ増えた。Agent の create_ticket tool は統一実行エンジン経由で
+実際に tickets へ書くようになったが、engine の権限ゲートが「confirmed でなければ
+実行しない」と決めており、その印を渡せるのは確認カードの interrupt を通った
+agent_tools だけ(spec §6)。**押したときだけ書く、という規律は変わっていない。**
 
 有人対応は本章では画面上の見た目のみで、backend の処理は無い(spec §6.2)。
 
@@ -118,7 +122,8 @@ async def create_refund_action(req: CreateRefundRequest) -> CreateRefundResponse
 
 @router.post("/api/actions/resume")
 async def resume_action(req: ResumeRequest):
-    """注文を選んだ後の再開ボタン。中断していた turn の続きを走らせる。
+    """中断していた turn の続きを走らせる。注文を選んだとき(06)と、チケットの
+    確認カードを押したとき(08)の両方がここへ来る。
 
     **SSE で返す。** 再開の直後には Agent の回答がそのまま続くので、/api/chat と
     同じイベントの列になる必要がある。JSON で返すと、選択の後だけ回答が
@@ -127,9 +132,25 @@ async def resume_action(req: ResumeRequest):
     フレームの変換もエラーの対応付けも app/api/sse.py に任せる。ここで書き起こすと
     /api/chat と 2 か所に同じ写像が並び、片方だけ直す事故が起きる。
 
+    **中断がどちらだったかはこちらでは判定しない。** 待っている中断は 1 会話につき
+    1 つで、それが何かを知っているのは checkpointer に State を預けた node の側。
+    ここは送られてきた答えを graph が読める形へ包んで渡すだけにする。両方欠けた
+    要求だけは、何も答えていないので graph へ届く前に弾く(そのまま渡すと
+    「読めない値」として中断が黙って解けてしまう)。
+
     runtime.stream_resume は属性経由で呼ぶこと(from ... import しない)。テストの
     monkeypatch.setattr(runtime, "stream_resume", ...) が効かなくなり、本物の上流 LLM と
     本番相当の DB へ流れ落ちる。
     """
-    events = runtime.stream_resume(req.conversation_id, req.value)
+    if req.order_id is None and req.confirmed is None:
+        raise HTTPException(
+            status_code=400,
+            detail="order_id または confirmed のいずれか一方は必須です",
+        )
+    # 注文の選択は文字列のまま渡す(06 の _normalize_order_id がそれを解く)。
+    # チケットの確認は dict に包む。将来 confirm 系の中断が増えても、
+    # agent_tools 側は {"confirmed": bool} という 1 つの形だけを読めばよい。
+    resume_value = (req.order_id if req.order_id is not None
+                    else {"confirmed": bool(req.confirmed)})
+    events = runtime.stream_resume(req.conversation_id, resume_value)
     return sse.stream_response(events, context=f"conv={req.conversation_id}")

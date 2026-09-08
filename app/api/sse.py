@@ -58,11 +58,16 @@ def frame(ev: dict) -> str | None:
     if kind == "actions":
         return sse({"event": "actions", "items": ev["items"]})
     if kind == "interrupt":
-        # 選択待ちで止まった。この後 done は来ないので、画面が会話 ID を知る手立ては
-        # このフレームしかない(初回ターンで中断されると /api/actions/resume を
-        # 叩けなくなる)。kind は中断の種類で、画面はこれで描き分ける。
-        return sse({"event": "interrupt", "kind": ev["kind"], "orders": ev["orders"],
-                    "conversation_id": ev["conversation_id"]})
+        # 選択待ち / 確認待ちで止まった。この後 done は来ないので、画面が会話 ID を
+        # 知る手立てはこのフレームしかない(初回ターンで中断されると
+        # /api/actions/resume を叩けなくなる)。kind は中断の種類で、画面はこれで描き分ける。
+        #
+        # **field を並べずにそのまま通す。** 中断の種類ごとに載る payload が違う
+        # (select_order は orders、confirm_ticket は preview)ので、ここで key を
+        # 数え上げると、新しい種類を足すたびにこの 1 行を直すことになり、
+        # 直し忘れた種類だけ中身が画面へ届かない。何を載せるかは runtime が決める。
+        return sse({"event": "interrupt",
+                    **{k: v for k, v in ev.items() if k != "type"}})
     if kind == "done":
         return sse({"event": "done", "conversation_id": ev["conversation_id"]})
     return None

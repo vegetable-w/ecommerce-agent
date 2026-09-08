@@ -389,6 +389,29 @@ def test_chat_interrupt_frame_carries_the_orders(monkeypatch):
     assert frames[0].count("\n") == 0  # 日本語の商品名が入っても 1 フレーム 1 行
 
 
+def test_chat_interrupt_frame_carries_the_ticket_preview(monkeypatch):
+    """08 のチケット確認カードも同じ 1 フレームで届く。
+
+    フレームの組み立てが中断の種類ごとに分岐していると、新しい種類を足したときに
+    payload だけが黙って落ち、画面は中身の無い確認ボタンを描くことになる。
+    """
+    preview = {"ticket_type": "after_sales", "ticket_type_label": "アフターサービス",
+               "description": "充電器が発熱します"}
+    _use_events(monkeypatch, [
+        {"type": "interrupt", "kind": "confirm_ticket", "orders": [], "preview": preview,
+         "conversation_id": 42},
+    ])
+    body = _body({"user_id": "u1", "message": "チケットを作ってください"})
+
+    assert _payloads(body) == [
+        {"event": "interrupt", "kind": "confirm_ticket", "orders": [], "preview": preview,
+         "conversation_id": 42},
+    ]
+    frames = [f for f in _frames(body) if '"interrupt"' in f]
+    assert len(frames) == 1
+    assert frames[0].count("\n") == 0   # 日本語の説明が入っても 1 フレーム 1 行
+
+
 def test_chat_interrupt_ends_the_response_without_a_done_event(monkeypatch):
     """done は「turn が完結した」印なので中断では出さない。それでも HTTP ストリームは
     閉じる必要があり、終端は [DONE] が受け持つ。画面が待ちっぱなしにならないこと。"""

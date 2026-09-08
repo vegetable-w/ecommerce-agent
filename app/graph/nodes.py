@@ -30,6 +30,7 @@ from langgraph.types import interrupt
 from app.config import settings
 from app.core import coref as coref_mod
 from app.core import intent as intent_mod
+from app.core import labels
 from app.core import memory
 from app.core import query_understanding, retrieval, selfcheck
 from app.core.llm import get_chat_model
@@ -190,7 +191,7 @@ async def coref(state) -> dict:
 
 
 async def classify_intent(state) -> dict:
-    """発話を 8 分類のいずれか 1 語 + confidence に落とす。routing 表を引くのは後続の route_by_intent。
+    """発話を 9 分類のいずれか 1 語 + confidence に落とす。routing 表を引くのは後続の route_by_intent。
 
     分類するのは resolved_query(coref が指示対象を解決して書き下した完全な質問)。
     無ければ元の発話へ倒す。「それいくらだった?」のような発話は、書き下す前に分類すると
@@ -381,7 +382,7 @@ def _needs_an_order(text: str) -> bool:
     """このターンが特定の注文を必要としているか。
 
     返金返品の intent には「自分の注文を返品したい」と「返品の規約を知りたい」の
-    **両方**が入る(8 分類はここを分けていない)。後者に対して注文の一覧を出すと、
+    **両方**が入る(intent の分類はここを分けていない)。後者に対して注文の一覧を出すと、
     規約を聞いただけのユーザーが本文なしのカードの山を見ることになる。
     実測: 「返品交換ポリシー 教えて」で select_order の中断が起き、回答が空になった。
 
@@ -773,35 +774,100 @@ async def _record_faq_refusal(state, run) -> None:
     )
 
 
-async def agent_tools(state) -> dict:
-    """ReAct の action step。**create_ticket と submit_refund は実行せず選択肢へ変換する。**
+# create_ticket の preview に出す種別の既定。DB の ENUM と同じ英語の識別子(spec §6.1)。
+# 既定を inquiry にするのは、種別を外すなら一般問い合わせが最も無害なため。
+_DEFAULT_TICKET_TYPE = "inquiry"
 
-    complaint_reply と同じ理由で、チケットも返金申請も勝手には作らない(モデルが呼ぶと
-    決めた時点で作ってしまうと、ユーザーが望まないものが運用側の待ち行列へ積み上がる)。
-    代わりにそのまま渡せる draft を suggested_actions へ積み、モデルには
-    「選択肢を提示した」と伝える合成 ToolMessage を返す。
+# ユーザーが確認カードで取り消したときに engine の権限ゲートへ渡す文面。
+# **「再実行しないでください」まで書く**のが要点で、単に拒否だけを返すと、モデルは
+# 引数を直せば通ると解釈して同じ step で create_ticket を呼び直し、確認カードが
+# もう一度出る(ユーザーから見ると取り消しが効かない)。
+_TICKET_CANCELLED_NOTE = (
+    "ユーザーがチケットの確認カードでキャンセルしました。今回はチケットを作成しません。"
+    "ユーザーが再度明示的に要求しない限り、再実行しないでください。"
+)
+
+# 1 step に create_ticket が 2 件以上並んだときに、2 件目以降へ返す文面。
+# 確認は 1 件ぶんしか出していないので、残りを「確認済み」として実行してはいけない。
+_TICKET_DUPLICATE_NOTE = (
+    "一度に処理できるチケット作成の要求は 1 件だけです。この呼び出しは無視されました。"
+)
+
+
+def _ticket_preview(args: dict) -> dict:
+    """確認カードに出すチケットの下書き。英語の識別子と日本語のラベルを両方載せる。
+
+    ticket_type は DB の ENUM と同じ英語の識別子(spec §6.1)だが、画面に出すのは日本語。
+    対応表を画面側へ持たせると app/core/labels.py と 2 か所で同じ表を保つことになり、
+    ENUM に値が増えたときに片方だけ古くなる。ここで引いて両方渡す
+    (create_ticket tool が status と status_label を両方返すのと同じ形)。
+    """
+    ticket_type = args.get("ticket_type") or _DEFAULT_TICKET_TYPE
+    return {
+        "ticket_type": ticket_type,
+        "ticket_type_label": labels.label(labels.TICKET_TYPE, ticket_type),
+        "description": args.get("description", ""),
+    }
+
+
+def _is_confirmed(decision) -> bool:
+    """確認カードの戻り値を「作ってよいか」に落とす。読めない値は作らない側へ倒す。
+
+    画面が何を返すかはこちら側では決めきれない(_normalize_order_id と同じ事情)。
+    ただしこちらは**書き込み**なので、迷ったときの倒し先が逆になる。読めない値を
+    「確認された」と解釈すると、ユーザーが押していないチケットが実際に作られる。
+    """
+    if isinstance(decision, dict):
+        return decision.get("confirmed") is True
+    return decision is True
+
+
+async def agent_tools(state) -> dict:
+    """ReAct の action step。**すべての tool を統一実行エンジン(08 章)へ通す。**
+
+    create_ticket は唯一の write 操作で、engine の権限ゲートが「confirmed でなければ
+    実行しない」と決めている。その confirmed を渡せるのはここだけなので、モデルの側から
+    ゲートを迂回する経路が無い。渡す条件は「ユーザーが確認カードで実際に押したこと」。
+
+    - 引数が揃っていれば **node の先頭で** interrupt を発火し、チケットの preview を
+      画面へ出す。**interrupt() より前に副作用を置かないこと。** Command(resume=v) で
+      再開すると node は先頭から実行し直され(06 章の実測。fetch_order の docstring 参照)、
+      手前に置いた書き込みや tool 実行はユーザーが 1 回押しただけで 2 回起きる。
+      手前にあるのは registry の取得(HTTP は飛ぶが副作用ではない)と引数の検証だけ。
+    - 引数が足りなければ interrupt を出さず、engine の検証ブロックをそのまま
+      モデルへ返す。モデルは足りない情報をユーザーへ聞き直せる(推測で埋めさせない)。
+
+    submit_refund は 06 章のまま横取りして画面の申請フォームへ変換する。あちらは
+    ユーザーが理由を選んで送信する専用の入口(POST /api/actions/create-refund)を
+    持っており、confirmation flow とは別の経路で「押したときだけ書く」を満たしている。
 
     合成 ToolMessage の tool_call_id は元の tool_call と必ず一致させること。上流は
     tool_calls と ToolMessage の対応を検査しており、欠けても食い違っても 400 になる。
     """
     last = state["messages"][-1]
-    tool_msgs = []
-    actions = list(state.get("suggested_actions", []))
+    cid = state.get("conversation_id", 0)
     # agent_llm が bind した一覧とは別に取り直す(cache しないため)。その間に MCP Server が
     # 落ちていると、bind 済みのツールがここには無く engine が「未知のツール」として返す。
     specs = {s.name: s for s in await registry.get_all_specs()}
+
+    ticket_calls = [tc for tc in last.tool_calls if tc["name"] == "create_ticket"]
+    tspec = specs.get("create_ticket")
+    asked = False
+    confirmed = False
+    if (ticket_calls and tspec is not None
+            and engine.validate_args(tspec, dict(ticket_calls[0].get("args") or {})) is None):
+        # 検証を engine と同じ関数で行うのが要点。別の条件で「揃っている」を判定すると、
+        # 確認カードを出した後で engine に弾かれ、ユーザーが押したのに何も起きない。
+        asked = True
+        confirmed = _is_confirmed(interrupt({
+            "type": "confirm_ticket",
+            "preview": _ticket_preview(ticket_calls[0].get("args") or {}),
+        }))
+
+    tool_msgs = []
+    actions = list(state.get("suggested_actions", []))
     for tc in last.tool_calls:
-        if tc["name"] == "create_ticket":
-            # ticket_type は DB の ENUM と同じ英語の識別子(spec §6.1)。
-            # 既定を inquiry にするのは、種別を外すなら一般問い合わせが最も無害なため。
-            draft = {"description": tc["args"].get("description", ""),
-                     "ticket_type": tc["args"].get("ticket_type", "inquiry")}
-            actions.append({"type": "create_ticket", "draft": draft})
-            tool_msgs.append(ToolMessage(
-                content="「チケット作成」の選択肢をユーザーへ提示しました。"
-                        "1 文で簡潔に説明して終了し、これ以上 tool を呼ばないでください。",
-                tool_call_id=tc["id"], name="create_ticket"))
-        elif tc["name"] == "submit_refund":
+        if tc["name"] == "submit_refund":
             # 注文番号は State の値で補う。モデルは文脈から番号を落とすことがあり、
             # 空の draft を画面へ出すと、ユーザーには何の申請フォームか分からない。
             order_id = tc["args"].get("order_id") or state.get("order_id") or ""
@@ -830,10 +896,26 @@ async def agent_tools(state) -> dict:
             )
             tool_msgs.append(ToolMessage(content=content,
                                          tool_call_id=tc["id"], name="submit_refund"))
+
+        elif tc["name"] == "create_ticket" and asked:
+            if tc is ticket_calls[0]:
+                # confirmed=False も engine へ通す。ここで合成の ToolMessage を返すと、
+                # 拒否が監査ログ(tool_audit_logs)に 1 行も残らない。「作らなかった」ことも
+                # 記録に残す必要がある(08 章の監査は成功だけの記録ではない)。
+                run = await engine.execute_tool_call(
+                    tc, cid, specs, confirmed=confirmed,
+                    deny_note=None if confirmed else _TICKET_CANCELLED_NOTE)
+                tool_msgs.append(run.tool_message)
+            else:
+                tool_msgs.append(ToolMessage(
+                    content=_TICKET_DUPLICATE_NOTE,
+                    tool_call_id=tc["id"], name="create_ticket", status="error"))
+
         else:
-            run = await engine.execute_tool_call(tc, state.get("conversation_id", 0), specs)
+            run = await engine.execute_tool_call(tc, cid, specs)
             tool_msgs.append(run.tool_message)
             await _record_faq_refusal(state, run)
+
     out = {"messages": tool_msgs}
     # 1 件も無いときに書かないのは、suggested_actions に reducer が無く後勝ちの
     # 上書きになるため。空リストを返すと、前の step で積んだ選択肢が消える。

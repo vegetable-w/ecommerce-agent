@@ -384,25 +384,30 @@ async def test_citationsが空ならcitationsイベントを出さない(monkeyp
     assert [e["type"] for e in events] == ["done"]
 
 
-async def test_toolイベントにcreate_ticketを出さない(monkeypatch):
-    """agent_tools は create_ticket を実行せず選択肢へ変換する(app/graph/nodes.py)。
-    実行していないものを「実行しました」と画面に出すのは嘘になる。"""
+async def test_実行したtoolはcreate_ticketも含めてイベントにする(monkeypatch):
+    """08 で create_ticket は確認カードを経て**実際に実行される**ようになった。
+
+    05〜07 ではここで create_ticket だけを除いていた。理由は「実行していないものを
+    実行しましたと画面に出すのは嘘になる」だったが、その前提が変わっている。
+    engine を通った tool だけが ToolMessage を返すので、名前があるものは素直に出す。
+    """
     _fake_repo(monkeypatch, new_id=55)
-    draft = {"description": "届かない", "ticket_type": "complaint"}
     _use(monkeypatch, _ScriptedGraph([
         _update("agent_tools", {
             "messages": [
                 ToolMessage(content="{}", tool_call_id="c1", name="query_order"),
-                ToolMessage(content="提示しました", tool_call_id="c2", name="create_ticket"),
+                ToolMessage(content='{"ticket_no": "TK-1"}', tool_call_id="c2",
+                            name="create_ticket"),
             ],
-            "suggested_actions": [{"type": "create_ticket", "draft": draft}],
         }),
     ]))
 
     events = await _events(user_id="u1", message="注文1001が届かない", conversation_id=None)
 
-    assert [e for e in events if e["type"] == "tool"] == [{"type": "tool", "name": "query_order"}]
-    assert {"type": "actions", "items": [{"type": "create_ticket", "draft": draft}]} in events
+    assert [e for e in events if e["type"] == "tool"] == [
+        {"type": "tool", "name": "query_order"},
+        {"type": "tool", "name": "create_ticket"},
+    ]
 
 
 async def test_名前の無いmessageはtoolイベントにしない(monkeypatch):
@@ -776,6 +781,42 @@ async def test_interruptのkindはpayloadのtypeから取る(monkeypatch):
     assert events[0]["kind"] == "confirm_refund"
 
 
+_CONFIRM_TICKET = {
+    "type": "confirm_ticket",
+    "preview": {"ticket_type": "after_sales", "ticket_type_label": "アフターサービス",
+                "description": "充電器が発熱します"},
+}
+
+
+async def test_confirm_ticketのinterruptはpreviewを運ぶ(monkeypatch):
+    """08 の中断は注文の一覧ではなくチケットの下書きを運ぶ。
+
+    ここで payload を落とすと、画面は「何のチケットを作るのか」を出せないまま
+    確認ボタンだけを描くことになる。
+    """
+    _fake_repo(monkeypatch, new_id=55)
+    _use(monkeypatch, _ScriptedGraph([_interrupt_update(_CONFIRM_TICKET)]))
+
+    events = await _events(user_id="u1", message="チケットを作って", conversation_id=None)
+
+    assert events[0]["kind"] == "confirm_ticket"
+    assert events[0]["preview"] == _CONFIRM_TICKET["preview"]
+    # 06 の互換。画面は kind で描き分けるが、orders の key 自体は必ずある
+    assert events[0]["orders"] == []
+    assert events[0]["conversation_id"] == 55
+    assert not any(ev["type"] == "done" for ev in events)
+
+
+async def test_select_orderのinterruptにpreviewを足さない(monkeypatch):
+    """payload に無い key を勝手に作らない。空の preview は「中身の無い確認カード」に
+    なり、画面が注文の一覧ではなく確認ボタンを描く分岐へ倒れうる。"""
+    _fake_repo(monkeypatch, new_id=55)
+    _use(monkeypatch, _ScriptedGraph([_interrupt_update(_SELECT_ORDER)]))
+
+    events = await _events(user_id="u1", message="返金したい", conversation_id=None)
+    assert "preview" not in events[0]
+
+
 _BROKEN_PAYLOADS = [
     pytest.param(("updates", {"__interrupt__": ()}), id="empty-tuple"),
     pytest.param(("updates", {"__interrupt__": None}), id="none"),
@@ -785,6 +826,9 @@ _BROKEN_PAYLOADS = [
     pytest.param(("updates", {"__interrupt__": _interrupts({"orders": []})}), id="no-type"),
     pytest.param(("updates", {"__interrupt__": _interrupts({"type": 7, "orders": {}})}),
                  id="wrong-types"),
+    pytest.param(("updates", {"__interrupt__": _interrupts({"type": "confirm_ticket",
+                                                            "preview": "作りますか"})}),
+                 id="preview-not-a-dict"),
     pytest.param(("updates", {"__interrupt__": ["これは Interrupt ではない"]}), id="not-interrupt"),
 ]
 

@@ -25,7 +25,12 @@ ainvoke する。interrupt() は compiled graph の中でしか動かず、node 
 import logging
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import (
+    AIMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langchain_core.runnables import RunnableLambda
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
@@ -40,6 +45,7 @@ from app.core.prompts import AGENT_SYSTEM, COREF_REWRITE_PROMPT, EXPAND_QUERIES_
 from app.graph import nodes
 from app.graph.state import ConversationState
 from app.tools import business
+from app.tools.engine import ToolRun
 
 
 class _FakeModel:
@@ -926,21 +932,30 @@ async def test_refund_draft_keeps_reason_none_when_the_agent_gives_none(monkeypa
     assert out["suggested_actions"][0]["draft"] == {"order_id": "1001", "reason": None}
 
 
-async def test_a_ticket_and_a_refund_in_the_same_step_are_both_intercepted(monkeypatch):
-    """1 step に create_ticket と submit_refund が並んでも、両方とも横取りされること。
+async def test_a_refund_beside_another_tool_keeps_every_tool_message(monkeypatch):
+    """1 step に submit_refund と別のツールが並んでも、submit_refund は横取りされ、
+    tool_calls と同じ順・同じ id で ToolMessage が揃うこと。
 
-    片方だけ横取りして片方を実行すると、実行された方が DB に書き込まれるうえ、
-    ToolMessage の対応が揃わずに上流が 400 を返す。
+    片方だけ処理して step を打ち切ると、ToolMessage の対応が揃わずに上流が 400 を返す。
+
+    08 で create_ticket は横取りではなく確認フロー(interrupt)になったので、
+    ここでは横取りが残っている submit_refund と通常ツールの組み合わせで見る
+    (確認フローは tests/test_graph_08_confirm_ticket.py)。
     """
-    _forbid_tool_execution(monkeypatch)
-    ticket = {"name": "create_ticket", "args": {"description": "壊れていた",
-                                                "ticket_type": "after_sales"}, "id": "c1"}
+    async def _exec(tc, cid, specs):
+        assert tc["name"] == "query_order"      # 横取りすべき submit_refund は来ない
+        return ToolRun(tool_call_id=tc["id"], name=tc["name"], ok=True, status="success",
+                       tool_message=ToolMessage(content="{}", tool_call_id=tc["id"],
+                                                name=tc["name"]))
+
+    monkeypatch.setattr(nodes.engine, "execute_tool_call", _exec)
+    order = {"name": "query_order", "args": {"order_id": "1001"}, "id": "c1"}
     refund = {"name": "submit_refund", "args": {"order_id": "1001"}, "id": "r1"}
-    out = await nodes.agent_tools({"messages": [_ai_calling(ticket, refund)],
+    out = await nodes.agent_tools({"messages": [_ai_calling(order, refund)],
                                    "conversation_id": 7})
 
     assert [m.tool_call_id for m in out["messages"]] == ["c1", "r1"]
-    assert [a["type"] for a in out["suggested_actions"]] == ["create_ticket", "refund_form"]
+    assert [a["type"] for a in out["suggested_actions"]] == ["refund_form"]
 
 
 # 07 章で置き場所が変わった: 注文と規約と判断の指示は system への連結をやめ、

@@ -49,6 +49,16 @@ _TRANSIENT = (TimeoutError, ConnectionError, httpx.TransportError)
 # 「timeout だったのか、それ以外の通信断だったのか」を監査で区別するために別途見る。
 _TIMEOUTS = (TimeoutError, httpx.TimeoutException)
 _SUMMARY_LIMIT = 500
+# sql/08-ddl.sql の列幅。超えると MySQL は strict モードで行ごと拒否する。
+_TOOL_NAME_LIMIT = 128       # tool_audit_logs.tool_name  VARCHAR(128)
+_ERROR_MESSAGE_LIMIT = 512   # tool_audit_logs.error_message VARCHAR(512)
+
+
+def _clip(text: str | None, limit: int) -> str | None:
+    """列幅に収める。切ったことが後から分かるように印を残す。"""
+    if text is None or len(text) <= limit:
+        return text
+    return text[:limit - 1] + "…"
 
 
 @dataclass
@@ -138,13 +148,17 @@ async def _audit(
         await repository.insert_tool_audit(
             conversation_id=conversation_id or None,
             tool_call_id=tool_call_id or None,
-            tool_name=name,
+            # 列幅で必ず切る。ここを呼び出し側の礼儀に任せると、1 か所書き忘れた
+            # 瞬間にその status の行だけが DB から消える(下の except が握るため、
+            # 消えたことにも気づけない)。名前もエラー本文もモデル由来なので、
+            # 長さはこちらで決める。
+            tool_name=name[:_TOOL_NAME_LIMIT],
             tool_source=(spec.source if spec else "builtin"),   # 未知のツールは出所が分からないので builtin 扱い
             mcp_server=(spec.mcp_server if spec else None),
             arguments=args or None,
             result_summary=result_summary,
             status=status,
-            error_message=error_message,
+            error_message=_clip(error_message, _ERROR_MESSAGE_LIMIT),
             retry_count=retry_count,
             duration_ms=duration_ms,
         )
@@ -220,7 +234,7 @@ async def execute_tool_call(
             "この書き込み操作にはユーザー確認が必要です。"
             "未確認のため実行を拒否しました。ユーザーが再度明示的に要求しない限り、再実行しないでください。"
         )
-        run = _run(False, f"チケット作成は実行されませんでした：{note}", STATUS_PERMISSION_DENIED)
+        run = _run(False, f"{name} は実行されませんでした：{note}", STATUS_PERMISSION_DENIED)
         await _audit(
             conversation_id, tc_id, name, spec, args, None,
             STATUS_PERMISSION_DENIED, note, 0, run.duration_ms,

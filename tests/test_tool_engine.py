@@ -12,6 +12,7 @@ app/core/labels.py の TOOL_AUDIT_STATUS だけが持つ。
 """
 
 import asyncio
+import logging
 import json
 
 import httpx
@@ -301,7 +302,12 @@ async def test_a_plain_list_result_is_not_mistaken_for_content_blocks(audits):
     assert json.loads(run.tool_message.content) == [{"order_id": "1"}, {"order_id": "2"}]
 
 
-async def test_audit_failure_never_blocks_execution(monkeypatch):
+async def test_audit_failure_never_blocks_execution(monkeypatch, caplog):
+    """監査が落ちてもターンは続ける。ただし**黙って消さない**。
+
+    「止めない」を握り潰しで実現すると、監査が全滅していても誰も気づけない。
+    実行を続けることと、失敗を記録に残すことは別の要件なので両方 assert する。
+    """
     async def audit_boom(*a, **kw):
         raise RuntimeError("audit DB unavailable")
 
@@ -311,12 +317,47 @@ async def test_audit_failure_never_blocks_execution(monkeypatch):
         return {"order_id": "1"}
 
     spec = _spec(tool=_tool(ok))
-    run = await engine.execute_tool_call(
-        {"name": "query_order", "args": {"order_id": "1"}, "id": "c1"},
-        1,
-        {"query_order": spec},
-    )
+    with caplog.at_level(logging.WARNING, logger="app.tools.engine"):
+        run = await engine.execute_tool_call(
+            {"name": "query_order", "args": {"order_id": "1"}, "id": "c1"},
+            1,
+            {"query_order": spec},
+        )
+
     assert run.ok is True                              # 監査の失敗は実行を止めない
+    assert any(r.levelno >= logging.WARNING for r in caplog.records),         "監査の失敗が記録に残っていない(握り潰しになっている)"
+
+
+async def test_audit_fields_are_clipped_to_the_column_widths(monkeypatch):
+    """列幅を超える値は engine 側で切る。
+
+    error_message は VARCHAR(512)、tool_name は VARCHAR(128)。jsonschema の
+    エラー本文は違反した値をそのまま echo するので、モデルが巨大な引数を
+    渡すと簡単に超える。超えたまま渡すと strict モードの MySQL が行ごと拒否し、
+    その例外は _audit の except が握るため、**いちばん残したい検証ブロックの
+    行だけが黙って消える**。
+    """
+    rows = []
+
+    async def spy(**kw):
+        rows.append(kw)
+
+    monkeypatch.setattr(engine.repository, "insert_tool_audit", spy)
+
+    # required 違反ではなく type 違反にすると、違反した値が本文へ展開される
+    spec = _spec("x" * 300, schema={"type": "object",
+                                    "properties": {"order_id": {"type": "string"}},
+                                    "required": ["order_id"]})
+    await engine.execute_tool_call(
+        {"name": "x" * 300, "args": {"order_id": ["y" * 600]}, "id": "c1"},
+        1,
+        {"x" * 300: spec},
+    )
+
+    assert rows[-1]["status"] == engine.STATUS_VALIDATION_BLOCKED
+    assert len(rows[-1]["error_message"]) <= 512
+    assert len(rows[-1]["tool_name"]) <= 128
+    assert rows[-1]["error_message"].endswith("…")     # 切ったことが分かる
 
 
 async def test_inject_conversation_after_validation(audits):

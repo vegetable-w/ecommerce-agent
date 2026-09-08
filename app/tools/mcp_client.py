@@ -66,9 +66,27 @@ FORMATTERS: dict[str, Callable[[dict], dict]] = {
 _client: MultiServerMCPClient | None = None
 
 
+def _server(url: str) -> dict:
+    """1 台ぶんの接続設定。
+
+    **timeout を必ず入れる。** 既定は HTTP 30 秒・SSE の読み取り 5 分で、
+    「起動しているが応答しない」Server に当たると一覧の取得がそこまで待つ。
+    一覧は 1 ターンに 2 回(bind 用と実行用)、Server 2 台ぶん走るので、
+    既定のままだと 1 ターンが数分固まり、その間 delta も done も画面へ出ない。
+    「1 台落ちていてもその Server だけ飛ばして会話を続ける」が成り立つのは、
+    接続拒否のように即座に失敗する場合だけになってしまう。
+
+    値はツールの実行と同じ mcp_tool_timeout を使う。一覧の取得はツールの実行より
+    軽いので、これで足りなければツール側も先に音を上げる。
+    """
+    return {"transport": "streamable_http", "url": url,
+            "timeout": settings.mcp_tool_timeout,
+            "sse_read_timeout": settings.mcp_tool_timeout}
+
+
 def _connections() -> dict:
-    return {"logistics": {"transport": "streamable_http", "url": settings.mcp_logistics_url},
-            "aftersales": {"transport": "streamable_http", "url": settings.mcp_aftersales_url}}
+    return {"logistics": _server(settings.mcp_logistics_url),
+            "aftersales": _server(settings.mcp_aftersales_url)}
 
 
 def get_client() -> MultiServerMCPClient:

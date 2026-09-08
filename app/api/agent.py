@@ -58,7 +58,7 @@ def _views_from_state(state) -> tuple[list[ToolCallView], list[ToolResultView]]:
                 ToolResultView(
                     tool_call_id=m.tool_call_id,
                     name=m.name or "",
-                    # ToolNode も app/tools/infra.py も、失敗した tool は status="error" の
+                    # ToolNode も app/tools/engine.py も、失敗した tool は status="error" の
                     # ToolMessage にする。ここを常に True にすると、評価は失敗した呼び出しを
                     # 成功として数える。
                     ok=(m.status != "error"),

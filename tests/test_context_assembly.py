@@ -12,6 +12,9 @@
 上流にも DB にも触らない(どちらも呼ばない純粋な関数だけを見る)。
 """
 
+import logging
+import re
+
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from app.core.prompts import AGENT_SYSTEM
@@ -179,3 +182,94 @@ def test_history_text_no_summary_same_as_before():
     text = nodes._history_text(_state(n_turns=2))
     assert "要約" not in text
     assert text == "ユーザー:質問0\nサポート:回答0\nユーザー:質問1"
+
+
+# --- model_ctx のログ ------------------------------------------------------------
+#
+# 受け入れ検証のための覗き窓(spec §「Observability」)。長い会話で文脈が保たれて
+# いることを人が確かめるには、そのターンでモデルへ実際に何を渡したかが見える必要が
+# ある。**観測のためだけの関数なので、ここで落ちてターンを壊してはいけない。**
+
+
+def test_log_model_context_shows_summary_and_window(caplog):
+    state = _state(n_turns=6,
+                   summary="ユーザーは注文1001について問い合わせ、電話番号13800138000を伝えた",
+                   upto=6)
+    msgs = nodes._agent_messages(state)
+    with caplog.at_level(logging.INFO, logger="app.graph.nodes"):
+        nodes._log_model_context(state, msgs)
+
+    assert "model_ctx" in caplog.text and "注文1001" in caplog.text
+    assert "[human] '質問3" in caplog.text     # 窓の各 message が 1 行ずつ見える
+    assert "質問0" not in caplog.text          # 境界より前の原文は context にもログにも出ない
+
+
+def test_log_model_context_reports_the_window_size_and_tokens(caplog):
+    """件数と概算 token。膨らんでいく様子をログだけで追えるようにする。"""
+    state = _state(n_turns=3)
+    with caplog.at_level(logging.INFO, logger="app.graph.nodes"):
+        nodes._log_model_context(state, nodes._agent_messages(state))
+
+    assert "window=6" in caplog.text          # system は窓の件数に数えない
+    assert re.search(r"tokens≈[1-9]\d*", caplog.text)
+
+
+def test_log_model_context_does_not_dump_the_whole_system_prompt(caplog):
+    """各 message は先頭だけ。全文を出すと 1 ターンでログが AGENT_SYSTEM で埋まる。"""
+    state = _state(n_turns=1)
+    with caplog.at_level(logging.INFO, logger="app.graph.nodes"):
+        nodes._log_model_context(state, nodes._agent_messages(state))
+
+    assert len(AGENT_SYSTEM) > 200
+    assert AGENT_SYSTEM not in caplog.text
+    assert AGENT_SYSTEM[:20] in caplog.text   # 何が入っているかは分かる
+
+
+def test_log_model_context_keeps_the_summary_in_full(caplog):
+    """要約だけは全文。ここを切ると「何が失われたか」を後から追えない。"""
+    summary = "ユーザーは注文1001の配送を問い合わせ、" + "電話番号13800138000を伝えた。" * 6
+    state = _state(n_turns=2, summary=summary, upto=0)
+    with caplog.at_level(logging.INFO, logger="app.graph.nodes"):
+        nodes._log_model_context(state, nodes._agent_messages(state))
+    assert summary in caplog.text
+
+
+def test_log_model_context_never_breaks_the_turn(caplog):
+    """観測のための関数なので、壊れた入力でも例外を投げない。
+
+    ここで送出すると、ログの都合でユーザーのターンが落ちる。
+    """
+    class _Broken:
+        @property
+        def content(self):
+            raise RuntimeError("読めない message")
+
+    with caplog.at_level(logging.INFO, logger="app.graph.nodes"):
+        nodes._log_model_context({"messages": None}, [_Broken()])
+        nodes._log_model_context(None, None)
+
+
+async def test_agent_llm_logs_the_context_it_sends(monkeypatch):
+    """agent_llm が呼ぶこと。呼ばれなければ受け入れ検証の覗き窓が塞がる。
+
+    **モデルへ渡した並びそのものを記録する**(組み立て直さない)。別々に作ると、
+    ログには出ていない message がモデルへ届く、という状態を検出できなくなる。
+    """
+    sent, logged = [], []
+
+    class _Model:
+        def bind_tools(self, tools):
+            return self
+
+        async def ainvoke(self, msgs, config=None):
+            sent.append(msgs)
+            return AIMessage("はい")
+
+    monkeypatch.setattr(nodes, "get_chat_model", lambda **kw: _Model())
+    monkeypatch.setattr(nodes, "_log_model_context",
+                        lambda state, msgs: logged.append(msgs))
+
+    await nodes.agent_llm(_state(n_turns=2))
+
+    assert len(logged) == 1
+    assert logged[0] is sent[0]

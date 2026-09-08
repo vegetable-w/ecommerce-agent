@@ -24,6 +24,7 @@ import re
 from datetime import datetime
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages.utils import count_tokens_approximately
 from langgraph.types import interrupt
 
 from app.config import settings
@@ -652,6 +653,55 @@ def _agent_messages(state) -> list:
     return [*head, *window]
 
 
+# ログに出す 1 message あたりの文字数。AGENT_SYSTEM は 1 件で数千字あるので、
+# 全文を出すと 1 ターンぶんのログが persona で埋まる。
+_CTX_LOG_CHARS = 40
+
+
+def _log_model_context(state, msgs) -> None:
+    """このターンでモデルへ実際に渡した並びをログへ残す(受け入れ検証の覗き窓)。
+
+    長い会話で文脈が保たれていることを人が確かめる手立てがこれになる。
+    `grep model_ctx` で全行が拾えるように、**各行の先頭に model_ctx を置く**
+    (1 行目にしか付けないと、続きの行が grep から漏れる)。
+
+    要約だけは全文を出し、message は先頭 40 字に切る。要約は「何が圧縮されて
+    残ったか」そのもので、切ると後から何が失われたか追えない。逆に message の
+    全文はすでに DB にあるので、ここでは並びと件数が読めれば足りる。
+
+    **例外を外へ出さない。** 観測のためだけの関数がターンを落としてはいけない。
+    """
+    try:
+        window = [m for m in msgs if not isinstance(m, SystemMessage)]
+        lines = [
+            f"model_ctx conv={state.get('conversation_id')} "
+            f"window={len(window)} total={len(msgs)} "
+            f"tokens≈{count_tokens_approximately(msgs)}"
+        ]
+        summary = state.get("summary")
+        lines.append(f"model_ctx summary={summary}" if summary
+                     else "model_ctx summary=(なし)")
+        for m in msgs:
+            lines.append(f"model_ctx   [{m.type}] "
+                         f"{_ctx_log_text(m)[:_CTX_LOG_CHARS]!r}")
+        logger.info("\n".join(lines))
+    except Exception:
+        # ここが落ちてもターンは続ける。何が起きたかだけ残す。
+        logger.exception("model_ctx のログに失敗")
+
+
+def _ctx_log_text(m) -> str:
+    """ログ 1 行ぶんの本文。tool を呼ぶだけの AI 発話は本文が空なので名前を出す。"""
+    content = m.content
+    if not isinstance(content, str):
+        content = "" if content is None else str(content)
+    if not content:
+        names = [c.get("name") for c in (getattr(m, "tool_calls", None) or [])]
+        if names:
+            return "tool_calls: " + ", ".join(str(n) for n in names)
+    return content
+
+
 async def agent_llm(state, config=None) -> dict:
     """ReAct の reasoning step。tool を bind した model を呼び、steps と token を加算する。
 
@@ -662,9 +712,14 @@ async def agent_llm(state, config=None) -> dict:
     tokens_used は trace と集計のためだけで、loop の制御には使わない。usage_metadata は
     上流によっては付かない(None)ので、無ければ 0 を足す。ここで落とすと、
     token を報告しない上流に繋いだ瞬間に graph 全体が止まる。
+
+    ログへ渡すのは **ainvoke へ渡すその list そのもの**。組み立て直すと、ログに
+    出ていない message がモデルへ届いている、という食い違いが検出できなくなる。
     """
     model = get_chat_model(streaming=True).bind_tools(get_all_tools())
-    ai: AIMessage = await model.ainvoke(_agent_messages(state), config)
+    msgs = _agent_messages(state)
+    _log_model_context(state, msgs)
+    ai: AIMessage = await model.ainvoke(msgs, config)
     used = (ai.usage_metadata or {}).get("total_tokens", 0)
     return {
         "messages": [ai],

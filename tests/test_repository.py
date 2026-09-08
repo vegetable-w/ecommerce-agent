@@ -6,7 +6,7 @@ _test_engine はセッションスコープのイベントループ上で作成�
 """
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 from app.db import repository as repo
 from app.db.models import Conversation, ConversationSummary, Faq, Ticket
@@ -164,3 +164,131 @@ async def test_append_summary_fragment_numbers_segments_per_conversation(
         )).scalars())
     assert [(r.seq, r.from_msg_id, r.upto_msg_id) for r in rows] == [(1, 1, 10), (2, 11, 20)]
     assert rows[0].content == "注文1001の配送を問い合わせた"   # 先の断片は書き換えられない
+
+
+# ---------------------------------------------------------------------------
+# 07 会話の一覧(受け入れ検証の sidebar)
+# ---------------------------------------------------------------------------
+
+async def test_list_conversations_newest_first_with_preview(db_session_factory, db_clean):
+    """新しい会話が上。preview は**最初の**ユーザーの発話(会話の入口が分かる)。"""
+    first = await repo.create_conversation("u1")
+    await repo.append_message(first, "user", content="返品したいのですが")
+    await repo.append_message(first, "assistant", content="承知しました")
+    await repo.append_message(first, "user", content="いつ届きますか")
+
+    second = await repo.create_conversation("u1")
+    await repo.append_message(second, "user", content="注文1001はどこですか")
+
+    rows = await repo.list_conversations("u1")
+    assert [r["id"] for r in rows] == [second, first]
+    assert rows[0]["preview"] == "注文1001はどこですか"
+    # 2 件目以降ではなく 1 件目。ここが最後の発話になると、一覧が毎ターン
+    # 書き換わって「どの会話だったか」を目で追えなくなる
+    assert rows[1]["preview"] == "返品したいのですが"
+
+
+async def test_list_conversations_ignores_other_users(db_session_factory, db_clean):
+    """他人の会話を混ぜない。混ざると別人の問い合わせ内容が preview に出る。"""
+    mine = await repo.create_conversation("u1")
+    await repo.append_message(mine, "user", content="私の質問")
+    other = await repo.create_conversation("u2")
+    await repo.append_message(other, "user", content="他人の質問")
+
+    rows = await repo.list_conversations("u1")
+    assert [r["id"] for r in rows] == [mine]
+    assert all("他人の質問" not in r["preview"] for r in rows)
+
+
+async def test_list_conversations_preview_skips_non_user_rows(db_session_factory, db_clean):
+    """preview はユーザーの発話。assistant や tool の行を拾わない。"""
+    cid = await repo.create_conversation("u1")
+    await repo.append_message(cid, "assistant", content="いらっしゃいませ")
+    await repo.append_message(cid, "tool", content='{"s":1}', tool_call_id="c1")
+    await repo.append_message(cid, "user", content="注文について聞きたい")
+
+    rows = await repo.list_conversations("u1")
+    assert rows[0]["preview"] == "注文について聞きたい"
+
+
+async def test_list_conversations_includes_empty_conversations(db_session_factory, db_clean):
+    """発話が 1 件も無い会話も一覧に出す(preview は空)。
+
+    落とすと、作った直後の会話が sidebar から消える。画面はその会話を
+    開いたまま操作しているので、いま居る場所が一覧に無いことになる。
+    """
+    cid = await repo.create_conversation("u1")
+    rows = await repo.list_conversations("u1")
+    assert [r["id"] for r in rows] == [cid]
+    assert rows[0]["preview"] == ""
+
+
+async def test_list_conversations_has_summary_flag(db_session_factory, db_clean):
+    """要約済みかどうかを画面へ渡す。要約本文は一覧に載せない(長い)。"""
+    plain = await repo.create_conversation("u1")
+    summarized = await repo.create_conversation("u1")
+    await repo.update_conversation_summary(summarized, "ユーザーは注文1001を問い合わせた", 4)
+
+    rows = {r["id"]: r for r in await repo.list_conversations("u1")}
+    assert rows[summarized]["has_summary"] is True
+    assert rows[plain]["has_summary"] is False
+    assert "summary" not in rows[summarized]
+
+
+async def test_list_conversations_returns_status_and_updated_at(db_session_factory, db_clean):
+    """状態は DB の英語識別子のまま返す。日本語への変換は API 層の仕事。"""
+    cid = await repo.create_conversation("u1")
+    await repo.create_ticket(cid, "返品したい", "after_sales")
+    row = (await repo.list_conversations("u1"))[0]
+    assert row["status"] == "escalated"
+    assert row["updated_at"] is not None
+
+
+async def test_list_conversations_respects_the_limit(db_session_factory, db_clean):
+    ids = [await repo.create_conversation("u1") for _ in range(4)]
+    rows = await repo.list_conversations("u1", limit=2)
+    assert [r["id"] for r in rows] == [ids[3], ids[2]]
+
+
+async def test_list_conversations_truncates_a_long_preview(db_session_factory, db_clean):
+    """一覧の 1 行に収める。全文を送ると sidebar が長文で埋まる。"""
+    cid = await repo.create_conversation("u1")
+    await repo.append_message(cid, "user", content="あ" * 300)
+    preview = (await repo.list_conversations("u1"))[0]["preview"]
+    assert len(preview) <= 60 and preview.startswith("あ")
+
+
+async def test_list_conversations_does_not_query_per_conversation(
+    _test_engine, db_session_factory, db_clean
+):
+    """会話ごとに問い合わせを往復しないこと(50 件で 51 クエリにしない)。
+
+    件数を変えてもクエリ数が増えないことで確かめる。件数に比例する実装なら
+    3 件と 12 件で必ず差が出る。
+    """
+
+    async def _seed(n: int) -> None:
+        for _ in range(n):
+            cid = await repo.create_conversation("u1")
+            await repo.append_message(cid, "user", content=f"質問{cid}")
+
+    async def _count_queries(n: int) -> int:
+        seen = 0
+
+        def _on_execute(*a, **k):
+            nonlocal seen
+            seen += 1
+
+        event.listen(_test_engine.sync_engine, "before_cursor_execute", _on_execute)
+        try:
+            rows = await repo.list_conversations("u1")
+        finally:
+            event.remove(_test_engine.sync_engine, "before_cursor_execute", _on_execute)
+        assert len(rows) == n
+        return seen
+
+    await _seed(3)
+    few = await _count_queries(3)
+    await _seed(9)
+    many = await _count_queries(12)
+    assert few == many

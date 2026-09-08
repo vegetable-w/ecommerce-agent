@@ -32,6 +32,55 @@
     box-shadow:0 24px 60px rgba(160,120,170,.22), 0 2px 0 #fff inset;
   }
 
+  /* 会話の切り替え欄(07 章の受け入れ検証用)。
+     **.app を横 flex にしない。** あちらは header / .log / footer を縦に積んでおり、
+     向きを変えるとチャット画面がそのまま崩れる。外側に .shell を 1 枚足して、
+     一覧と .app を横に並べる。.app 側の指定には一切手を触れていない。 */
+  .shell{display:flex; gap:14px; align-items:stretch; max-width:100%}
+  #sidebar{
+    width:224px; flex:none; display:flex; flex-direction:column;
+    height:min(860px,calc(100vh - 32px));
+    background:rgba(255,255,255,.72); backdrop-filter:blur(10px);
+    border:1px solid #fff; border-radius:26px; overflow:hidden;
+    box-shadow:0 24px 60px rgba(160,120,170,.22), 0 2px 0 #fff inset;
+  }
+  /* 狭い画面では畳む。並べたままだと吹き出しの幅が読めないほど痩せる */
+  @media (max-width:780px){ #sidebar{display:none} }
+  #sidebar .sbhead{
+    display:flex; align-items:center; gap:6px;
+    padding:15px 16px; font-size:13px; font-weight:600;
+    background:rgba(255,255,255,.85); border-bottom:1px solid var(--line);
+  }
+  #sidebar .sbhead span{font-weight:400; font-size:11.5px; color:var(--muted)}
+  .sblist{flex:1; overflow-y:auto; padding:10px; display:flex; flex-direction:column; gap:8px}
+  .sblist::-webkit-scrollbar{width:8px}
+  .sblist::-webkit-scrollbar-thumb{background:#f0dfe8; border-radius:99px}
+  .sbempty{font-size:12px; color:var(--muted); text-align:center; padding:16px 8px; line-height:1.7}
+
+  /* 1 件ぶんのカード。注文カード(.order-card)と同じピンクの語彙で、
+     いま開いている会話だけ薄くせずに残す。 */
+  .conv{
+    display:flex; flex-direction:column; gap:4px; width:100%; text-align:left;
+    font:inherit; line-height:1.5; cursor:pointer; color:var(--ink);
+    background:#fff; border:1px solid var(--line); border-radius:16px;
+    padding:9px 12px; transition:transform .1s, background .15s, border-color .15s;
+  }
+  .conv:hover{background:#fff7fa; border-color:#ffd9e5}
+  .conv:active{transform:translateY(1px)}
+  .conv.on{background:#fff2f6; border-color:#ffc7d8}
+  .conv .top{display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--muted)}
+  .conv .sum{
+    margin-left:auto; font-size:10.5px; line-height:1.5; color:var(--accent-d);
+    background:#fff2f6; border:1px solid #ffd9e5; border-radius:999px; padding:1px 8px;
+  }
+  /* 2 行で打ち切る。長い最初の質問で一覧が埋まると、どの会話か探せなくなる */
+  .conv .pv{
+    font-size:13px; word-break:break-word; overflow:hidden;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+  }
+  .conv .pv.none{color:var(--muted)}
+  .conv .foot{font-size:11px; color:var(--muted)}
+
   header{
     display:flex; align-items:center; gap:12px;
     padding:14px 18px; background:rgba(255,255,255,.85);
@@ -275,6 +324,12 @@
 </style>
 </head>
 <body>
+<div class="shell">
+<aside id="sidebar">
+  <div class="sbhead">会話 <span>新しい順</span></div>
+  <div class="sblist" id="convlist"></div>
+</aside>
+
 <div class="app">
   <header>
     <div class="face">🐱</div>
@@ -295,6 +350,7 @@
     </div>
     <p class="tip" id="tip"></p>
   </footer>
+</div>
 </div>
 
 <script>
@@ -1060,6 +1116,106 @@ async function streamTurn(url, body){
   }
 }
 
+/* ── 会話の切り替え欄 ─────────────────────────────────────────────
+   長い会話で文脈が保たれていることを人が確かめるには、会話を行き来できる必要が
+   ある(07 章の受け入れ検証)。**本筋のチャットを壊さないことが条件**なので、
+   一覧の取得に失敗しても黙って前の表示のままにする(エラーの吹き出しも出さない)。
+   読み取り専用で、ここから会話を消したり状態を変えたりはできない。 */
+const convList = document.getElementById('convlist');
+
+async function loadConversations(){
+  try{
+    const res = await fetch('/api/conversations?user_id=' + encodeURIComponent(userId));
+    if (!res.ok) return;                       // 黙って前の一覧を残す
+    renderConversations((await res.json()).items || []);
+  }catch{}                                     // サービスが落ちていてもチャットは続く
+}
+
+/* 「09/08 14:20」。年は出さない(一覧の 1 行に収める) */
+function when(iso){
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const p = n => String(n).padStart(2, '0');
+  return p(d.getMonth() + 1) + '/' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+
+function renderConversations(items){
+  convList.innerHTML = '';
+  if (!items.length){
+    const d = document.createElement('div');
+    d.className = 'sbempty';
+    d.textContent = 'まだ会話がありません';
+    convList.appendChild(d);
+    return;
+  }
+  for (const it of items){
+    const b = document.createElement('button');
+    b.className = 'conv' + (it.id === conversationId ? ' on' : '');
+
+    const top = document.createElement('div');
+    top.className = 'top';
+    const no = document.createElement('span');
+    no.textContent = '#' + it.id;
+    top.appendChild(no);
+    // 要約済みかどうかは、この章で確かめたいことそのものなので一覧に出す
+    if (it.has_summary){
+      const s = document.createElement('span');
+      s.className = 'sum';
+      s.textContent = '要約済み';
+      top.appendChild(s);
+    }
+
+    const pv = document.createElement('div');
+    pv.className = 'pv' + (it.preview ? '' : ' none');
+    pv.textContent = it.preview || 'まだ発話がありません';
+
+    const foot = document.createElement('div');
+    foot.className = 'foot';
+    // status は backend が日本語ラベルで返す(画面側に対応表を持たせない)
+    foot.textContent = it.status + ' · ' + when(it.updated_at);
+
+    b.append(top, pv, foot);
+    b.addEventListener('click', () => switchConversation(it.id));
+    convList.appendChild(b);
+  }
+}
+
+function renderHistoryRow(m){
+  if (m.role === 'user'){
+    // ユーザーの発話は素のテキスト。markdown として解釈すると、打った記号が
+    // 勝手に書式になって「自分が何を送ったか」が読めなくなる
+    addRow('me').textContent = m.content;
+    return;
+  }
+  const bub = addRow('bot');
+  const md = document.createElement('div');
+  md.className = 'md';
+  md.innerHTML = renderMd(m.content);
+  bub.appendChild(md);
+}
+
+async function switchConversation(cid){
+  if (busy) return;
+  setBusy(true);
+  try{
+    const res = await fetch('/api/conversations/' + cid + '/messages');
+    if (!res.ok){ addHint('この会話の履歴を読み込めませんでした'); return; }
+    const items = (await res.json()).items || [];
+    // 読めたときだけ切り替える。先に切り替えると、読めなかった会話へ次の発話が飛ぶ
+    setConversation(cid);
+    log.innerHTML = '';
+    addHint('会話 #' + cid + ' を開きました');
+    for (const m of items) renderHistoryRow(m);
+    if (!items.length) addHint('この会話にはまだ発話がありません');
+    scroll();
+  }catch{
+    addHint('この会話の履歴を読み込めませんでした');
+  }finally{
+    setBusy(false);
+    loadConversations();   // 選択中の印を付け直す
+  }
+}
+
 async function ask(message){
   addRow('me').textContent = message;
   await streamTurn('/api/chat',
@@ -1071,7 +1227,8 @@ async function submit(){
   if (!msg || busy) return;
   input.value = ''; autosize();
   setBusy(true);
-  try { await ask(msg); } finally { setBusy(false); }
+  // 初回のターンで会話が採番されるので、送り終わってから一覧を取り直す
+  try { await ask(msg); } finally { setBusy(false); loadConversations(); }
 }
 
 function autosize(){
@@ -1090,11 +1247,13 @@ document.getElementById('reset').addEventListener('click', () => {
   drop(CONV_KEY);
   updateTip();
   greet(true);
+  loadConversations();     // 選択中の印を外す(新しい会話はまだ採番されていない)
   input.focus();
 });
 
 updateTip();
 greet(false);
+loadConversations();
 input.focus();
 </script>
 </body>

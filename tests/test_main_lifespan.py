@@ -93,6 +93,13 @@ def test_action_router_is_registered_on_the_real_app():
     assert "/api/actions/create-ticket" in app.openapi()["paths"]
 
 
+def test_conversation_router_is_registered_on_the_real_app():
+    """会話の一覧と履歴も本番の app へ載っていること(07 章の受け入れ検証で使う)。"""
+    paths = app.openapi()["paths"]
+    assert "/api/conversations" in paths
+    assert "/api/conversations/{conversation_id}/messages" in paths
+
+
 @pytest.mark.parametrize("path", ["/", "/kb", "/admin", "/rag-eval"])
 def test_pages_still_carry_the_no_cache_header_after_the_lifespan_was_added(path):
     """lifespan を足すときに middleware か _PAGES を壊していないこと。"""

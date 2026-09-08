@@ -736,3 +736,67 @@ async def update_conversation_summary(conversation_id: int, summary: str,
             conv.summary = summary
             conv.summary_upto_msg_id = upto_msg_id
             await s.commit()
+
+
+# ---------------------------------------------------------------------------
+# 07 会話の一覧(受け入れ検証の sidebar)
+# ---------------------------------------------------------------------------
+
+# 一覧の 1 行に収まる長さ。全文を送ると sidebar が最初の質問の長文で埋まる。
+_PREVIEW_CHARS = 40
+
+
+async def list_conversations(user_id: str, limit: int = 50) -> list[dict]:
+    """その利用者の会話一覧(新しい順)。最初の質問の抜粋と、要約済みかの印を添える。
+
+    画面で会話を切り替えるためだけの読み取り。ORM の行ではなく dict を返すのは、
+    preview と has_summary が**組み立てた値**で、Conversation の列に対応しないため。
+
+    preview は「最初の」ユーザー発話。最後の発話にすると一覧が毎ターン書き換わり、
+    どの会話だったかを目で追えなくなる。要約本文は載せない(数百文字あるので、
+    一覧の応答が要約で埋まる)。載せるのは有無の印だけ。
+
+    **会話ごとに問い合わせを往復しない。** 1 件ずつ最初の発話を引くと 50 件で
+    51 クエリになる。会話をまとめて引いてから、その id 群に対する最初の user 行を
+    1 回で引く(合計 2 クエリ。会話の件数が増えても増えない)。
+
+    status は DB の英語識別子のまま返す。日本語への変換は API 層の仕事で、
+    ここで labels を引くと日本語の表示名がデータ層から漏れ出す。
+    """
+    async with db.async_session() as s:
+        convs = list((await s.execute(
+            select(Conversation)
+            .where(Conversation.user_id == user_id)
+            .order_by(Conversation.id.desc())
+            .limit(limit)
+        )).scalars())
+        if not convs:
+            return []
+
+        # 会話ごとの「最初の user 行」の id を 1 回で求め、その本文だけを引く。
+        first_ids = (
+            select(func.min(Message.id))
+            .where(Message.conversation_id.in_([c.id for c in convs]),
+                   Message.role == "user")
+            .group_by(Message.conversation_id)
+        )
+        previews = {
+            cid: (content or "")[:_PREVIEW_CHARS]
+            for cid, content in (await s.execute(
+                select(Message.conversation_id, Message.content)
+                .where(Message.id.in_(first_ids))
+            )).all()
+        }
+
+    return [
+        {
+            "id": c.id,
+            "status": c.status,
+            # まだ発話の無い会話も一覧に出す(preview は空)。落とすと、作った直後の
+            # 会話が sidebar から消え、いま居る場所が一覧に無いことになる。
+            "preview": previews.get(c.id, ""),
+            "has_summary": bool(c.summary),
+            "updated_at": c.updated_at,
+        }
+        for c in convs
+    ]

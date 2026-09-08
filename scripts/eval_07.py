@@ -1,12 +1,16 @@
-"""07 章の要約プロンプトを、正解を人が付けた 3 件で測る。
+"""07 章の要約プロンプトを、正解を人が付けた 4 件で測る。
 
 要約は純粋な Prompt の仕事で、単体テストでは品質を測れない。「注文番号が残ったか」
 「書かれていない数字を足していないか」は上流を実際に呼んでみないと分からないので、
 この章では TDD の代わりにこの eval を置く(04 章の eval_04.py と同じ考え方)。
 
-見るのは 4 点。key fact(注文番号 / 電話番号 / 商品)が残ること、挨拶が残らないこと、
-source に無い数字を作らないこと、長さが範囲に収まること。JSON の形は
-structured output が保証するのでここでは測らない。
+見るのは 5 点。key fact(注文番号 / 電話番号 / 商品 / 未解決の問題)が残ること、
+挨拶と雑談が残らないこと、source に無い数字を作らないこと、前回の要約と繋いだときに
+古い事実を落とさないこと、そして**素材より十分短いこと**。JSON の形は structured
+output が保証するのでここでは測らない。
+
+最後の 1 点を落とすと残り全部が空回りする。原文をそのまま連結して返す要約器は、
+事実も数字も完璧に「保持」してしまうからだ。圧縮が起きているかを先に見る。
 
 会話本文の話者名は summarizer._render_dialog の出力に合わせて「ユーザー」「担当」で
 書く。実際に要約器へ渡る形と違う形で測っても、prompt の出来は分からない。
@@ -17,6 +21,7 @@ structured output が保証するのでここでは測らない。
 import asyncio
 import re
 
+from app.config import settings
 from app.core.summarizer import summarize_dialog
 
 # case1: 事実の保持。注文番号 / 電話番号 / 要望は要約に必ず残る
@@ -29,7 +34,9 @@ CASE1_DIALOG = """ユーザー:こんにちは、いますか
 ユーザー:ちなみに、このキャットタワーの耐荷重はいくつですか
 担当:このキャットタワーの最大耐荷重は15kgです。"""
 CASE1_MUST = ["1001", "13800138000", "キャットタワー"]
-CASE1_BAN = ["いますか", "こんにちは。私は小ニャーです"]  # 挨拶は残さない
+# 挨拶が残る最もありそうな形は原文の丸写しではなく「ユーザーはこんにちはと挨拶し」
+# のような言い換えなので、一文まるごとではなく素の語も禁じる
+CASE1_BAN = ["こんにちは", "いますか", "小ニャー", "こんにちは。私は小ニャーです"]
 
 # case2: 捏造しない。要約に出てくる数字はすべて会話本文に存在すること
 CASE2_DIALOG = """ユーザー:注文2002は返品できますか
@@ -44,26 +51,68 @@ CASE3_DIALOG = """ユーザー:キャットタワーは届きましたが、支�
 ユーザー:再発送してください
 担当:承知しました。注文1001の支柱再発送を登録しました。3日以内に発送予定です。"""
 CASE3_MUST = ["1001", "13800138000", "支柱"]  # 前回の事実(電話番号)+ 今回の事実(部品の再発送)
+CASE3_BAN = ["申し訳ありません", "承知しました"]  # 相槌。丸写しの検出も兼ねる
+
+# case4: 本番と同じ規模(16 発話 / 917 文字)。summary_trigger_messages=30 と
+# context_window_turns=8 から、実際に要約器へ渡る区間はこのくらいになる。
+# 事実が落ちるのは圧縮率が高いときなので、短い fixture だけでは測れない。
+# 前半で注文番号と電話番号、中盤に雑談と別商品の問い合わせ、後半に未解決の問題を置く。
+CASE4_DIALOG = """ユーザー:先週注文した猫用の自動給餌器のことでご相談したいのですが、少しお時間よろしいでしょうか
+担当:かしこまりました。お手続きのためにご注文番号をお伺いできますでしょうか。お手元の注文履歴からご確認いただけます。
+ユーザー:注文3015です。木曜日に届いたので説明書のとおりに設置したのですが、タイマーが設定した時間になっても動きません
+担当:注文3015の自動給餌器ですね。ご不便をおかけして申し訳ありません。差し支えなければ症状を詳しく教えていただけますでしょうか。
+ユーザー:朝7時に設定しても餌が出ないんです。何度かやり直しても同じでした。連絡先は09012345678です。日中は仕事に出ているので、連絡は夕方以降にお願いします
+担当:09012345678へ夕方以降にご連絡するよう記録いたしました。技術担当から折り返しご案内いたしますので、少々お待ちください。
+ユーザー:ところで、うちの猫は三毛猫なんですが、最近よく窓際で寝ているんですよ。日差しが気持ちいいんでしょうね
+担当:三毛猫は人懐こい子が多いと聞きます。窓際は日当たりが良く、猫が好んで過ごす場所ですね。
+ユーザー:そういえば、前に商品ページで見たキャットタワーはまだ在庫がありますか。買い足そうか迷っていて
+担当:キャットタワーは現在も在庫がございます。ご希望でしたら商品ページをご案内いたしますので、お気軽にお申し付けください。
+ユーザー:今回は見送ります。それより給餌器の件ですが、修理と交換のどちらになりますか
+担当:確認したところ、タイマー不良は初期不良の可能性が高く、交換で対応できる見込みです。ただいま担当部署の確認を待っている状態です。
+ユーザー:わかりました。交換になるならいつ届くのか知りたいです。それまでは手動で餌をあげることにします
+担当:承知しました。交換の可否と発送日が確定しましたら、09012345678へご連絡いたします。
+ユーザー:あと、交換のときに今の機械は返送が必要ですか。箱はもう捨ててしまいました
+担当:返送の要否も担当部署の確認結果に含めてご案内いたします。梱包材は当社からお送りできますのでご安心ください。"""
+CASE4_MUST = ["3015", "09012345678", "給餌器", "交換"]  # 前半の事実 + 後半の未解決の問題
+# 中盤の雑談。圧縮で真っ先に落ちるべきもの。別商品(キャットタワー)の問い合わせは
+# SUMMARY_SYSTEM が「これまでに問い合わせた商品」として残せと言っているので禁じない。
+CASE4_BAN = ["三毛猫", "窓際"]
 
 
-def check(name: str, summary: str, must=(), ban=(), src_digits: str = "") -> bool:
+def check(name: str, summary: str, src: str, must=(), ban=()) -> bool:
     """1 件分の判定。落ちた理由を全部並べてから OK / NG を返す。"""
     problems = []
-    if not 20 <= len(summary) <= 250:
-        problems.append(f"長さ{len(summary)}が範囲外[20,250]")
+
+    # 上限は 2 つの小さい方。
+    #  - summary_max_chars * 1.25: prompt へ {max_chars} として注入している上限そのもの
+    #    を基準にする。ここに数値を直書きすると .env で SUMMARY_MAX_CHARS を変えたときに
+    #    片方だけずれる。1.25 は語尾や句読点の揺れに対する許容。
+    #  - len(src) * 0.6: 要約器の存在意義は次ターン以降の prompt を軽くすることなので、
+    #    素材の 6 割を超える長さは圧縮が起きていない(丸写しに近い)とみなす。これが無いと、
+    #    素材が短い case2 / case3 では「前回の要約と今回の会話をそのまま連結しただけ」の
+    #    出力が must も数字も長さも全部満たして OK になり、何も測っていないことになる。
+    # 素材が短い case ほど後者が、本番規模の case4 では前者が効く。
+    upper = min(settings.summary_max_chars * 1.25, len(src) * 0.6)
+    if not 20 <= len(summary) <= upper:
+        problems.append(f"長さ{len(summary)}が範囲外[20,{upper:.0f}](素材{len(src)})")
+
     for kw in must:
         if kw not in summary:
             problems.append(f"事実が落ちた:{kw}")
     for kw in ban:
         if kw in summary:
-            problems.append(f"挨拶が残った:{kw}")
-    if src_digits:
-        # 4 桁以上の数字だけを見る。注文番号と電話番号がこの形で、
-        # 「3日」「15kg」のような会話の中の小さい数はここでは問わない。
-        src_nums = set(re.findall(r"\d{4,}", src_digits))
-        for n in sorted(set(re.findall(r"\d{4,}", summary))):
-            if n not in src_nums:
-                problems.append(f"会話に無い数字を作った:{n}")
+            problems.append(f"挨拶・雑談が残った:{kw}")
+
+    # 2 桁以上の数字を見る。注文番号と電話番号だけを守るなら 4 桁以上で足りるが、
+    # それでは実際に起きる捏造をほとんど拾えない。この会話で現実にずれるのは
+    # 「受取後3日」→「受取後30日」、「7日以内」→「14日以内」のような期限の数字で、
+    # 返品可否の判断に直結する。1 桁は残す(「3日」「7日」「1本」が正しく残った要約を
+    # 誤って落とさないため)。
+    src_nums = set(re.findall(r"\d{2,}", src))
+    for n in sorted(set(re.findall(r"\d{2,}", summary))):
+        if n not in src_nums:
+            problems.append(f"会話に無い数字を作った:{n}")
+
     ok = not problems
     print(f"{'OK' if ok else 'NG'}  {name} len={len(summary)}")
     print(f"      要約:{summary}")
@@ -76,16 +125,20 @@ async def main() -> int:
     results = []
 
     s1 = await summarize_dialog("", CASE1_DIALOG)
-    results.append(check("1 事実の保持と挨拶の除去", s1,
-                         must=CASE1_MUST, ban=CASE1_BAN, src_digits=CASE1_DIALOG))
+    results.append(check("1 事実の保持と挨拶の除去", s1, CASE1_DIALOG,
+                         must=CASE1_MUST, ban=CASE1_BAN))
 
     s2 = await summarize_dialog("", CASE2_DIALOG)
-    results.append(check("2 捏造しない(数字は会話本文にあるものだけ)", s2,
-                         must=["2002"], src_digits=CASE2_DIALOG))
+    results.append(check("2 捏造しない(数字は会話本文にあるものだけ)", s2, CASE2_DIALOG,
+                         must=["2002"]))
 
     s3 = await summarize_dialog(CASE3_OLD, CASE3_DIALOG)
-    results.append(check("3 繋ぎ込みで前回の事実を落とさない", s3,
-                         must=CASE3_MUST, src_digits=CASE3_OLD + CASE3_DIALOG))
+    results.append(check("3 繋ぎ込みで前回の事実を落とさない", s3, CASE3_OLD + CASE3_DIALOG,
+                         must=CASE3_MUST, ban=CASE3_BAN))
+
+    s4 = await summarize_dialog("", CASE4_DIALOG)
+    results.append(check("4 本番規模の会話を圧縮しても事実が残る", s4, CASE4_DIALOG,
+                         must=CASE4_MUST, ban=CASE4_BAN))
 
     print(f"\n{sum(results)}/{len(results)} 件が期待どおり"
           "（モデルは非決定的。揺れたら再実行して記録する）")

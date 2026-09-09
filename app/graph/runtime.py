@@ -31,6 +31,7 @@ from app.config import settings
 from app.core import summarizer
 from app.core.observability import attach_observability
 from app.db import repository
+from app.graph import nodes
 from app.graph import state as state_mod
 from app.graph.build import build_graph
 
@@ -410,3 +411,45 @@ async def stream_resume(conversation_id: int, resume_value) -> AsyncIterator[dic
     async for ev in _stream_events(Command(resume=resume_value), cid):
         yield ev
     await summarizer.maybe_schedule_summary(cid)
+
+
+async def get_turn_snapshot(conversation_id: int) -> dict:
+    """その会話の最新 State から {"question", "snapshot"} を取る。09 章の 👎 が使う。
+
+    返すのは「直前のユーザー発話」と「そのターンで引いた検索結果の写し」で、
+    どちらも checkpointer が持っている最終 State から読む。押された 👎 に写しを
+    添えられるのは、strong で通ったターンでも forced_rag が写しを残しているため
+    (app/graph/nodes.py)。**答えたが外していた**回答こそ、そのとき何を引いて
+    いたかが無いと直しようがない。
+
+    **読むだけで書かない。** aget_state は checkpoint を進めず、State も変えない。
+    ここから run_turn / resume_turn 相当のことをすると、👎 を押した操作が会話を
+    1 ターン進めてしまう。
+
+    質問を一緒に返すのは、呼び出し側が「この写しは押された質問のものか」を
+    確かめられるようにするため。State は turn をまたいで残るので、押すのが遅れて
+    次のターンが始まっていれば、最新の写しは別の質問のものになる。
+    突き合わせの判断はこの層では行わない(用途によって厳しさが変わる)。
+
+    **例外は握らない。** checkpointer が開いていない(get_graph の RuntimeError)、
+    sqlite が読めない、といった事情は呼び出し元に伝える。ここで空を返して隠すと、
+    「そのターンに検索が無かった」のか「読めなかった」のかが区別できなくなる。
+    握ってよいかどうかは用途を知っている側が決める(09 の 👎 は app/api/feedback.py
+    で握っている)。State がまだ無い会話だけは例外にせず空で返す。採番されたばかりの
+    会話や、graph を通っていない会話は「読めなかった」のではなく「まだ何も無い」。
+    """
+    st = await get_graph().aget_state(_config(conversation_id))
+    # StateSnapshot.values は State が無ければ空 dict。属性ごと無い実装に備えて
+    # getattr で受けるのは、ここで AttributeError を出しても呼び出し側にできることが
+    # 無いため(写しは best effort で、質問の記録が本体)。
+    values = getattr(st, "values", None) or {}
+    snapshot = values.get("retrieved_snapshot")
+    return {
+        # 発話の取り出しは nodes と同じ関数を使う。プールへ入る raw_question は
+        # fallback_reply が書くものと同じ文字列でなければならず、2 通りの取り出し方を
+        # 持つと、同じ質問が別の綴りで 2 行に分かれて積まれる。
+        "question": nodes._user_text(values),
+        # dict や None が入っていたら空として扱う。呼び出し側は list として
+        # 数えたり切ったりする
+        "snapshot": snapshot if isinstance(snapshot, list) else [],
+    }

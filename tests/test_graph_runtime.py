@@ -1108,3 +1108,112 @@ async def test_知らない会話では要約を起動しない(monkeypatch, _su
         await runtime.run_turn("u1", "続きです", 999)
 
     assert _summary_calls == []
+
+
+# --- get_turn_snapshot (09 Task 7) ----------------------------------------------
+
+
+def _snapshot_builder(record: list | None = None):
+    """検索の写しを State へ書く 1 node の graph。forced_rag の出力の最小形。
+
+    本物の forced_rag は上流(retrieval / rerank)を叩くのでここでは使えない。
+    確かめたいのは「checkpointer に残った写しを読み出せるか」なので、写しを
+    書く node があれば足りる。
+    """
+
+    def _build(checkpointer=None):
+        b = StateGraph(ConversationState)
+
+        async def reply(state):
+            text = state["messages"][-1].content
+            if record is not None:
+                record.append(text)
+            return {
+                "messages": [AIMessage(f"返答:{text}")],
+                "retrieved_snapshot": [{"question": text, "answer": "本文",
+                                        "rerank_score": 0.5, "section_path": "節"}],
+            }
+
+        b.add_node("reply", reply)
+        b.add_edge(START, "reply")
+        b.add_edge("reply", END)
+        return b.compile(checkpointer=checkpointer)
+
+    return _build
+
+
+async def test_get_turn_snapshotは直前の発話とそのターンの写しを返す(monkeypatch, tmp_path):
+    """👎 が拾うのはこの 2 つ。実物の sqlite に書かれた State から読む。"""
+    _fake_repo(monkeypatch, known=(7,))
+    async with _running(monkeypatch, tmp_path, _snapshot_builder()):
+        await runtime.run_turn("u1", "返品の送料は誰が負担しますか", 7)
+        got = await runtime.get_turn_snapshot(7)
+
+    assert got["question"] == "返品の送料は誰が負担しますか"
+    assert [c["question"] for c in got["snapshot"]] == ["返品の送料は誰が負担しますか"]
+
+
+async def test_get_turn_snapshotは最新のターンの値を返す(monkeypatch, tmp_path):
+    """State は turn をまたいで残る。押すのが遅れれば別の質問の写しが載っている。
+
+    👎 に写しを添えてよいかを呼び出し側が判断できるよう、質問を一緒に返している。
+    ここが最新ターンを返さなくなると、その突き合わせが意味を失う。
+    """
+    _fake_repo(monkeypatch, known=(7,))
+    async with _running(monkeypatch, tmp_path, _snapshot_builder()):
+        await runtime.run_turn("u1", "1つ目の質問", 7)
+        await runtime.run_turn("u1", "2つ目の質問", 7)
+        got = await runtime.get_turn_snapshot(7)
+
+    assert got["question"] == "2つ目の質問"
+    assert [c["question"] for c in got["snapshot"]] == ["2つ目の質問"]
+
+
+async def test_get_turn_snapshotはStateの無い会話でも落ちない(monkeypatch, tmp_path):
+    """graph を 1 度も通っていない会話は「読めなかった」ではなく「まだ何も無い」。"""
+    async with _running(monkeypatch, tmp_path, _snapshot_builder()):
+        got = await runtime.get_turn_snapshot(4242)
+
+    assert got == {"question": "", "snapshot": []}
+
+
+async def test_get_turn_snapshotはStateを進めない(monkeypatch, tmp_path):
+    """読むだけ。ここで turn が 1 つ進むと、👎 を押した操作が会話を動かす。"""
+    seen: list = []
+    _fake_repo(monkeypatch, known=(7,))
+    async with _running(monkeypatch, tmp_path, _snapshot_builder(seen)):
+        await runtime.run_turn("u1", "1つ目の質問", 7)
+        await runtime.get_turn_snapshot(7)
+        await runtime.get_turn_snapshot(7)
+        after = await runtime.run_turn("u1", "2つ目の質問", 7)
+
+    assert seen == ["1つ目の質問", "2つ目の質問"]   # node は turn の分しか走らない
+    assert [m.content for m in after["state"]["messages"]] == [
+        "1つ目の質問", "返答:1つ目の質問", "2つ目の質問", "返答:2つ目の質問",
+    ]
+
+
+async def test_get_turn_snapshotは未初期化なら例外を出す():
+    """読めなかったことを空の写しとして隠さない。握るかどうかは呼び出し側が決める。"""
+    with pytest.raises(RuntimeError, match="init_graph"):
+        await runtime.get_turn_snapshot(7)
+
+
+async def test_get_turn_snapshotは会話ごとに切り分けて読む(monkeypatch, tmp_path):
+    """thread_id を取り違えると、👎 に別の会話の質問と写しが付く。
+
+    プールに残るのは「押されていない質問」で、査読する人にはそれが分からない。
+    """
+    _fake_repo(monkeypatch, known=(7, 8))
+    async with _running(monkeypatch, tmp_path, _snapshot_builder()):
+        await runtime.run_turn("u1", "会話7の質問", 7)
+        await runtime.run_turn("u2", "会話8の質問", 8)
+        # **両方を確かめる。** 片方だけだと、thread_id をその会話 ID に固定した
+        # 実装(取り違えの典型)がそのまま通ってしまう
+        seven = await runtime.get_turn_snapshot(7)
+        eight = await runtime.get_turn_snapshot(8)
+
+    assert seven["question"] == "会話7の質問"
+    assert [c["question"] for c in seven["snapshot"]] == ["会話7の質問"]
+    assert eight["question"] == "会話8の質問"
+    assert [c["question"] for c in eight["snapshot"]] == ["会話8の質問"]

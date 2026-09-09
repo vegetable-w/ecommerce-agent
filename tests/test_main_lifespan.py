@@ -100,6 +100,12 @@ def test_conversation_router_is_registered_on_the_real_app():
     assert "/api/conversations/{conversation_id}/messages" in paths
 
 
+def test_feedback_router_is_registered_on_the_real_app():
+    """画面の 👎 が叩く先。登録が漏れると、押しても 404 が返るだけで
+    (画面は黙って諦める)データフライホイールへ何も流れ込まない。"""
+    assert "/api/feedback" in app.openapi()["paths"]
+
+
 @pytest.mark.parametrize("path", ["/", "/kb", "/admin", "/rag-eval"])
 def test_pages_still_carry_the_no_cache_header_after_the_lifespan_was_added(path):
     """lifespan を足すときに middleware か _PAGES を壊していないこと。"""

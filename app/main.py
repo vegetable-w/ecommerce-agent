@@ -11,6 +11,7 @@ from app.api.agent import router as agent_router
 from app.api.chat import router as chat_router
 from app.api.conversations import router as conversations_router
 from app.api.extract import router as extract_router
+from app.api.feedback import router as feedback_router
 from app.api.jobs import router as jobs_router
 from app.api.kb import router as kb_router
 from app.api.rageval import router as rageval_router
@@ -89,6 +90,7 @@ app.include_router(admin_router)
 app.include_router(rageval_router)
 app.include_router(actions_router)
 app.include_router(conversations_router)
+app.include_router(feedback_router)
 
 # チャット画面。API と同一オリジンで配信するので CORS 設定は不要。
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"

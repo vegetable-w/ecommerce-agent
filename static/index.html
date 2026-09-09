@@ -396,6 +396,10 @@ let userId = load(UID_KEY) || ('web-' + Math.random().toString(36).slice(2, 10))
 save(UID_KEY, userId);
 let conversationId = Number(load(CONV_KEY)) || null;
 let busy = false;
+/* 満足度と一緒に送る「そのターンのユーザー発話」。モデルの回答ではない。
+   ask() で更新し、満足度バーを作る時点の値をバーごとに閉じ込める(押すのが
+   遅れて次のターンが始まっても、そのバーは自分のターンの質問を送る)。 */
+let lastQuestion = '';
 
 function updateTip(){
   tip.textContent = 'user_id: ' + userId + (conversationId ? '  /  conversation_id: ' + conversationId : '');
@@ -687,8 +691,11 @@ function showSource(bub, items, n){
 }
 
 /* 満足度。1 回押したら固定する(押し直しを許すと、記録の意味が曖昧になる)。
-   この章では画面上の反応だけで、DB へは保存しない。 */
-function addFeedbackBar(bub){
+   09 章から 👎 は backend へ送り、その質問を低信頼プールへ積む(👍 は保存されない)。
+   **送信の成否で画面を変えない。** 押した時点で見た目を確定させ、通信が失敗しても
+   黙って諦める。満足度はこの会話の本筋ではないので、ここでエラーを出すと、
+   答えは届いているのに画面だけが失敗したように見える。 */
+function addFeedbackBar(bub, question, cid){
   if (bub.querySelector('.fb')) return;
   const bar = document.createElement('div');
   bar.className = 'fb';
@@ -702,8 +709,20 @@ function addFeedbackBar(bub){
       o.classList.add(o === b ? 'active' : 'dim');
     });
     thanks.textContent = 'フィードバック済み';
+    sendFeedback(cid, b.dataset.v, question);
   }));
   bub.appendChild(bar);
+}
+
+/* 満足度の送信。会話 ID か質問が分からないときは送らない(backend が 422 で弾く
+   内容をわざわざ往復させない)。await しないのは、押した手応えを通信で待たせないため。 */
+function sendFeedback(cid, rating, question){
+  if (!cid || !String(question || '').trim()) return;
+  fetch('/api/feedback', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ conversation_id: cid, rating, question })
+  }).catch(() => {});          // 失敗しても会話の本筋は壊さない
 }
 
 /* 選択肢ボタン。backend は苦情のとき「有人対応 / チケット作成」を提案するだけで、
@@ -1193,7 +1212,7 @@ async function streamTurn(url, body){
     // 選択肢は満足度より先に出す。押してほしいのはこちらなので
     if (bub.isConnected) renderActions(bub, actions);
     // answer が出た場合だけ満足度を出す。拒否やエラーの吹き出しには付けない
-    if (started) addFeedbackBar(bub);
+    if (started) addFeedbackBar(bub, lastQuestion, conversationId);
 
   } catch (err){
     await fail('⚠ サーバーに接続できませんでした。サービスが起動しているか確認してください。');
@@ -1302,6 +1321,7 @@ async function switchConversation(cid){
 
 async function ask(message){
   addRow('me').textContent = message;
+  lastQuestion = message;      // 満足度はこの発話に付く(注文の選択で再開しても変わらない)
   await streamTurn('/api/chat',
                    { user_id: userId, message, conversation_id: conversationId });
 }

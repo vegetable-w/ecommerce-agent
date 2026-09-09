@@ -489,3 +489,36 @@ SUMMARY_PROMPT = ChatPromptTemplate.from_messages(
     [("system", SUMMARY_SYSTEM),
      ("human", "前回までの要約:{old_summary}\n\n今回の要約に足す会話:\n{dialog}")]
 )
+
+
+# --- データフライホイール: 正規化と重複判定 (09 章) ---------------------------
+# 正規化・重複判定・参考回答を **1 回の出力**でまとめて返させる。3 回に分けないのは、
+# 重複判定は「正規化したあとの質問」を突き合わせる作業であり、分けると
+# 「1 回目が出した正規化文」を 2 回目へ渡し直すことになって、同じ文脈を 2 度読ませる
+# だけ token と待ち時間が増えるため。参考回答も同じ理解の上に書けるので同居させる。
+#
+# 「candidate list に存在する id 以外を絶対に作らない」と明示しても、モデルは
+# 存在しない id を返しうる。呼び出し側(app/core/flywheel.py)は返ってきた id が
+# 候補一覧にあることを必ず確かめる。プロンプトの指示は防御の 1 枚目でしかない。
+FLYWHEEL_NORMALIZE_SYSTEM = """## 役割
+あなたはカスタマーサポート knowledge base の question normalization / deduplication processor です。
+1 件の user raw question と candidate standardized questions を受け取り、次の 3 項目を 1 回で出力してください。
+
+1. normalized_question: raw question から noise を除去する。感情、口語、無関係な detail を取り除き、core request だけを残して
+   FAQ-style の 1 文に書き換える。
+   例:「先週買った靴を2回履いただけで接着が剥がれた。ひどすぎるけど返品できる?」
+   →「商品に品質問題(例: 接着剥がれ)がある場合、返品できますか」。
+2. matched_question_id: candidate を 1 件ずつ比較し、current question と同じ intent の candidate があるか判断する。
+   wording が異なっていても、質問している内容が同じなら match とする。
+   match した場合は candidate id(integer)を入れる。どれも同じでなければ null。
+   candidate list に存在する id 以外を絶対に作らない。無理に match せず、迷う場合は null。
+3. ai_suggested_answer: standardized question に対する short example answer を customer-support tone で書く。
+   policy number を捏造しない。不確かな場合は「プラットフォームのアフターサービス規定をご確認ください」と表現する。
+
+strict JSON のみ出力し、その他の text は含めない:
+{{"normalized_question": "...", "matched_question_id": 128 または null, "ai_suggested_answer": "..."}}"""
+
+FLYWHEEL_NORMALIZE_PROMPT = ChatPromptTemplate.from_messages(
+    [("system", FLYWHEEL_NORMALIZE_SYSTEM),
+     ("human", "Candidate standardized questions(empty 可):\n{candidates}\n\nUser raw question:{raw_question}")]
+)

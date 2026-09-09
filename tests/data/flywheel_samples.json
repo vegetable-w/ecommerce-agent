@@ -1,0 +1,98 @@
+[
+  {
+    "name": "感情と口語のノイズを落として品質不良の返品可否にする",
+    "raw_question": "先週買ったロボット掃除機、2回使っただけで異音がします。ひどすぎるんですけど返品できますか",
+    "candidates": [],
+    "expect_match": null,
+    "expect_keywords": ["返品"],
+    "expect_absent": ["ひどすぎる", "先週買った", "2回使っただけ"]
+  },
+  {
+    "name": "ほぼ同文の言い換えを既存の穴へまとめる",
+    "raw_question": "自動ペット給水器って水洗いできますか",
+    "candidates": [{"id": 1, "normalized_question": "自動ペット給水器は水洗いに対応していますか"}],
+    "expect_match": 1,
+    "expect_keywords": ["給水器"],
+    "expect_absent": []
+  },
+  {
+    "name": "言い回しが違っても同じ intent ならまとめる",
+    "raw_question": "自動ペット給水器が汚れてきたんですが、壊さずにどうやって洗えばいいですか",
+    "candidates": [{"id": 1, "normalized_question": "自動ペット給水器は水洗いに対応していますか"}],
+    "expect_match": 1,
+    "expect_keywords": [],
+    "expect_absent": ["汚れてきた", "壊さずに"]
+  },
+  {
+    "name": "似ているが別の質問(色)はまとめない",
+    "raw_question": "自動ペット給水器にはどんな色がありますか",
+    "candidates": [{"id": 1, "normalized_question": "自動ペット給水器は水洗いに対応していますか"}],
+    "expect_match": null,
+    "expect_keywords": ["色"],
+    "expect_absent": []
+  },
+  {
+    "name": "苛立ちの表明を落として保証期間の質問へまとめる",
+    "raw_question": "そちらのオフィスチェアの保証期間は結局何年ですか。何度聞いても返事がありません",
+    "candidates": [{"id": 3, "normalized_question": "オフィスチェアの保証期間はどのくらいですか"}],
+    "expect_match": 3,
+    "expect_keywords": [],
+    "expect_absent": ["何度聞いても", "返事がありません", "結局"]
+  },
+  {
+    "name": "似ているが別の質問(修理費用 vs 保証期間)はまとめない",
+    "raw_question": "オフィスチェアが壊れた場合、修理1回にいくらかかりますか",
+    "candidates": [{"id": 3, "normalized_question": "オフィスチェアの保証期間はどのくらいですか"}],
+    "expect_match": null,
+    "expect_keywords": ["修理"],
+    "expect_absent": []
+  },
+  {
+    "name": "世代差の質問を既存の比較の穴へまとめる",
+    "raw_question": "前から Lite を使ってるんですけど、ワイヤレスイヤホン Pro って Lite から何がアップグレードされてるんですか",
+    "candidates": [{"id": 5, "normalized_question": "ワイヤレスイヤホン Pro と Lite の違い"}],
+    "expect_match": 5,
+    "expect_keywords": [],
+    "expect_absent": ["前から", "使ってるんですけど"]
+  },
+  {
+    "name": "開封後の返品可否を既存の穴へまとめる",
+    "raw_question": "買った化粧品を開けちゃったんですけど、それでもまだ返品できますか",
+    "candidates": [{"id": 7, "normalized_question": "開封後の化粧品は返品できますか"}],
+    "expect_match": 7,
+    "expect_keywords": [],
+    "expect_absent": ["開けちゃった", "んですけど"]
+  },
+  {
+    "name": "似ているが別の質問(発送時期 vs 開封後の返品)はまとめない",
+    "raw_question": "セールで買った商品はいつ発送されますか。ずっと待っています",
+    "candidates": [{"id": 7, "normalized_question": "開封後の化粧品は返品できますか"}],
+    "expect_match": null,
+    "expect_keywords": ["発送"],
+    "expect_absent": ["ずっと待っています"]
+  },
+  {
+    "name": "複数の要求から主要な要求(組み立ての要否)だけを残す",
+    "raw_question": "オフィスチェアは自分で組み立てる必要がありますか。複雑そうなんですが、うまくできない場合は誰かに頼めますか",
+    "candidates": [],
+    "expect_match": null,
+    "expect_keywords": ["組み立て"],
+    "expect_absent": ["複雑そう", "うまくできない"]
+  },
+  {
+    "name": "苦情の体裁でも中身は返金の反映時期なのでまとめる",
+    "raw_question": "前の担当の方は返金できると言ったのに、まだお金が戻ってきません。苦情を入れたいです",
+    "candidates": [{"id": 9, "normalized_question": "返金はどのくらいで反映されますか"}],
+    "expect_match": 9,
+    "expect_keywords": [],
+    "expect_absent": ["前の担当", "苦情を入れたい"]
+  },
+  {
+    "name": "候補が空の新しい質問(温度の上限)",
+    "raw_question": "ペットにも使えると聞いて買ったのに、ヘアドライヤー Ionic は熱すぎませんか。温度の上限は何度ですか",
+    "candidates": [],
+    "expect_match": null,
+    "expect_keywords": ["温度"],
+    "expect_absent": ["聞いて買ったのに"]
+  }
+]

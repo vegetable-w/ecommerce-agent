@@ -1,4 +1,4 @@
-.PHONY: dev test eval seed seed-conv kb-preview kb-build kb-repatch kb-vectorize kb-mine kb-reset eval-retrieval eval-mining eval-rag eval-check judge-check eval-05 eval-06 smoke-interrupt calibrate-confidence eval-07 eval-08 mcp-up mcp-down langfuse-up langfuse-down
+.PHONY: dev test eval seed seed-conv kb-preview kb-build kb-repatch kb-vectorize kb-mine kb-reset eval-retrieval eval-mining eval-rag eval-check judge-check eval-05 eval-06 smoke-interrupt calibrate-confidence eval-07 eval-08 mcp-up mcp-down langfuse-up langfuse-down flywheel flywheel-samples
 
 # --reload は付けない。この環境では watchfiles が入っていても変更を検知せず
 # (実測: 起動後の app/tools/business.py の更新で reload されなかった)、
@@ -137,3 +137,14 @@ langfuse-down:
 # Milvus の起動とナレッジベースの構築が要る。
 calibrate-confidence:
 	PYTHONUTF8=1 uv run --env-file .env python scripts/calibrate_confidence.py
+
+# 09 データフライホイールのバッチ。未処理の低信頼質問を正規化・重複判定して
+# レビュー待ちへ積む。**本番相当の support DB へ書き込む**(それがこの job の目的)。
+# 1 行につき上流を 1 回呼ぶので課金される。定期実行の例は script の docstring を参照。
+flywheel:
+	PYTHONUTF8=1 uv run --env-file .env python scripts/flywheel_pipeline.py
+
+# 09 正規化・重複判定プロンプトをラベル付きサンプル 12 件で測る(合格ライン 80%)。
+# 上流を 12 回呼ぶ。DB も Milvus も使わず、1 行も書き込まない。
+flywheel-samples:
+	PYTHONUTF8=1 uv run --env-file .env python scripts/validate_flywheel_samples.py

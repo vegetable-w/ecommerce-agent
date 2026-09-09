@@ -13,18 +13,18 @@
           border:1px solid var(--line); border-radius:999px; padding:7px 13px}
 
   /* 3 つの門。査読の前に必ず読む静的な案内で、操作要素ではない */
-  .rv-gates{border:1px dashed #e3d7e8; background:#fdfafc; border-radius:16px;
-            padding:12px 15px; margin-bottom:16px; font-size:12.5px; line-height:1.85; color:#5d5470}
+  .rv-gates{border:1px dashed var(--line); background:#fafbfc; border-radius:var(--radius);
+            padding:12px 15px; margin-bottom:16px; font-size:12.5px; line-height:1.85; color:var(--ink-2)}
   .rv-gates b{color:var(--accent-d)}
 
-  .rv-row{border:1px solid var(--line); border-radius:16px; background:#fff;
+  .rv-row{border:1px solid var(--line); border-radius:var(--radius); background:#fff;
           padding:11px 14px; margin-bottom:9px; transition:border-color .15s}
-  .rv-row.open{border-color:#ffc7d8; background:#fffdfe}
+  .rv-row.open{border-color:var(--accent); background:#fafbfc}
   .rv-head{display:flex; align-items:center; gap:10px; cursor:pointer}
   .rv-head .q{flex:1; font-size:14px; font-weight:600; word-break:break-word}
   .rv-head .cnt{font-size:11.5px; color:var(--muted); white-space:nowrap}
   /* 頻度が高いものほど先に直す価値がある。3 件以上を目立たせる */
-  .rv-head .cnt.hot{color:#b4700f; background:#fff6e6; border:1px solid #ffd9a0;
+  .rv-head .cnt.hot{color:var(--warn); background:var(--warn-bg); border:1px solid #f0dcb4;
                     border-radius:999px; padding:2px 9px; font-weight:600}
   .rv-sum{font-size:12.5px; color:var(--muted); margin:5px 0 0;
           overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
@@ -32,18 +32,18 @@
 
   .rv-detail{margin-top:11px; padding-top:11px; border-top:1px solid var(--line)}
   .rv-note{font-size:12px; color:var(--muted); line-height:1.8; margin:0 0 10px}
-  .rv-raw{border:1px solid var(--line); border-radius:14px; padding:9px 12px;
-          margin-bottom:8px; background:#fffdfe}
+  .rv-raw{border:1px solid var(--line); border-radius:var(--radius-sm); padding:9px 12px;
+          margin-bottom:8px; background:#fafbfc}
   .rv-raw .meta{display:flex; align-items:center; gap:7px; font-size:11px;
                 color:var(--muted); margin-bottom:5px; flex-wrap:wrap}
   .rv-raw .txt{font-size:13px; word-break:break-word}
   .rv-raw .reason{font-size:11.5px; color:var(--muted); margin-top:4px}
 
   /* 検索の写し。ここを読んで「ナレッジに無い」のか「有るのに引けていない」のかを見分ける */
-  .rv-snap{margin-top:8px; padding-left:11px; border-left:2px solid #ffd9e5}
+  .rv-snap{margin-top:8px; padding-left:11px; border-left:2px solid var(--line)}
   .rv-snap .chunk{margin-bottom:7px}
   .rv-snap .cq{font-size:12.5px; font-weight:600; word-break:break-word}
-  .rv-snap .ca{font-size:12px; color:#5d5470; line-height:1.7; word-break:break-word}
+  .rv-snap .ca{font-size:12px; color:var(--ink-2); line-height:1.7; word-break:break-word}
   .rv-snap .path{font-size:10.5px; color:var(--muted)}
   .rv-bar-wrap{display:flex; align-items:center; gap:7px; margin:3px 0}
   .rv-bar-wrap .track{flex:1; max-width:180px; height:5px; background:var(--line); border-radius:99px}
@@ -51,14 +51,14 @@
   .rv-bar-wrap .num{font-family:ui-monospace,Consolas,monospace; font-size:11px; color:var(--accent-d)}
   .rv-empty{font-size:12px; color:var(--muted); padding:14px 2px; text-align:center; line-height:1.8}
 
-  .rv-mask{position:fixed; inset:0; background:rgba(61,53,80,.32); display:grid;
+  .rv-mask{position:fixed; inset:0; background:rgba(16,20,26,.40); display:grid;
            place-items:center; z-index:50; padding:16px}
-  .rv-sheet{background:#fff; border-radius:22px; padding:20px 22px; width:min(620px,100%);
-            box-shadow:0 24px 60px rgba(160,120,170,.28)}
+  .rv-sheet{background:#fff; border-radius:var(--radius); padding:20px 22px; width:min(620px,100%);
+            box-shadow:0 24px 60px rgba(16,20,26,.18)}
   .rv-sheet h3{margin:0 0 6px; font-size:16px}
   .rv-sheet .lead{margin:0 0 12px; font-size:12.5px; color:var(--muted); line-height:1.8}
   .rv-sheet textarea{width:100%; min-height:150px; font:inherit; font-size:13.5px; line-height:1.8;
-                     color:var(--ink); border:1px solid var(--line); border-radius:14px;
+                     color:var(--ink); border:1px solid var(--line); border-radius:var(--radius-sm);
                      padding:10px 12px; resize:vertical}
   .rv-sheet .foot{display:flex; justify-content:flex-end; gap:8px; margin-top:13px}
 </style>

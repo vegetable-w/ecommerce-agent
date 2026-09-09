@@ -9,8 +9,8 @@
   /* このページ固有のものだけ。配色・角丸・カプセルは admin.js が注入する共通 CSS を使う。
      外部ライブラリは入れない(01 章のチャット画面と同じ方針)。棒グラフもドーナツも
      div の width と SVG の stroke-dasharray だけで描く。 */
-  .rag-strat1{--rag-c:#ff8fb1} .rag-strat2{--rag-c:#8fd3ff}
-  .rag-strat3{--rag-c:#ffc46b} .rag-strat4{--rag-c:#5ed6a4}
+  .rag-strat1{--rag-c:#2563eb} .rag-strat2{--rag-c:#0891b2}
+  .rag-strat3{--rag-c:#b45309} .rag-strat4{--rag-c:#0f9960}
   /* bucket 別の棒。同じ戦略を問い方で切っただけなので、戦略の色を使い回さない
      (上のグラフでは緑 = hybrid_rerank なので、混ぜると別物を同じ色で示すことになる)。 */
   .rag-bkt{--rag-c:#7fc7c2}
@@ -44,7 +44,7 @@
   .rag-col.best{outline:2px solid var(--accent-d); outline-offset:1px}
   .rag-col .v{position:absolute; left:-3px; right:-3px; top:-21px; text-align:center;
     font-size:12.5px; font-weight:600; font-family:ui-monospace,Consolas,monospace;
-    color:#5d5470; white-space:nowrap}
+    color:var(--ink-2); white-space:nowrap}
   .rag-col.na{background:repeating-linear-gradient(45deg,#f4eff6,#f4eff6 5px,#fbf8fc 5px,#fbf8fc 10px);
     height:100% !important; border-radius:7px}
   .rag-col.na .v{color:var(--muted); font-weight:400; top:calc(50% - 10px)}
@@ -90,10 +90,10 @@
 
 
   .rag-tbl td.num{font-family:ui-monospace,Consolas,monospace; text-align:right; white-space:nowrap}
-  .rag-tbl tr.best td{background:#fff6f9}
+  .rag-tbl tr.best td{background:var(--accent-soft)}
   .rag-tbl tr.best td:first-child{font-weight:700; color:var(--accent-d)}
 
-  .rag-hint{background:#fbf7fd; border:1px solid var(--line); border-radius:14px;
+  .rag-hint{background:#fbf7fd; border:1px solid var(--line); border-radius:var(--radius-sm);
     padding:12px 15px; font-size:14px; color:#6c6280; line-height:1.85; margin:12px 0 0}
   .rag-sub{font-size:12.5px; color:var(--muted); margin-top:3px}
   .rag-meta{display:flex; flex-wrap:wrap; gap:6px}
@@ -104,27 +104,27 @@
   .adm-btn.pri .fc-n{color:#fff}
   .fc-n.na{font-family:inherit; font-size:11px}
 
-  .fcase{border:1px solid var(--line); border-radius:16px; padding:11px 14px;
-    margin-bottom:10px; background:#fffdfe}
+  .fcase{border:1px solid var(--line); border-radius:var(--radius); padding:11px 14px;
+    margin-bottom:10px; background:#fafbfc}
   .fcase .head{display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:6px}
   .fcase .eid{font-family:ui-monospace,Consolas,monospace; font-size:14px;
     font-weight:700; color:var(--accent-d)}
   .fcase .q{font-size:15px; font-weight:600; line-height:1.7; word-break:break-word; margin-bottom:7px}
   .fcase .lbl{font-size:12.5px; color:var(--muted); margin:8px 0 3px}
-  .fcase .body{font-size:14px; line-height:1.85; color:#5d5470;
+  .fcase .body{font-size:14px; line-height:1.85; color:var(--ink-2);
     white-space:pre-wrap; word-break:break-word}
-  .fcase .why{background:#fff4f4; border:1px solid #ffd9d9; border-radius:12px; padding:8px 11px}
+  .fcase .why{background:var(--bad-bg); border:1px solid #f5cdc9; border-radius:12px; padding:8px 11px}
   .fcase .res{background:#f5fbf8; border:1px solid #d5efe3; border-radius:12px; padding:8px 11px}
   .fc-ref{font-family:ui-monospace,Consolas,monospace; color:var(--accent-d); font-weight:700}
 
   .fc-cites{margin-top:8px}
   .fc-cite{border:1px solid var(--line); border-radius:12px; padding:8px 11px; margin-top:6px; background:#fff}
-  .fc-cite.used{border-color:#ffc7d8; background:#fff6f9}
+  .fc-cite.used{border-color:var(--accent); background:var(--accent-soft)}
   .fc-cite .no{font-family:ui-monospace,Consolas,monospace; font-size:13.5px; color:var(--muted)}
   .fc-cite.used .no{color:var(--accent-d); font-weight:700}
   .fc-cite .path{font-size:12.5px; color:var(--muted)}
   .fc-cite .cq{font-size:14px; font-weight:600; margin:4px 0 5px}
-  .fc-cite .ca{font-size:13.5px; line-height:1.8; color:#5d5470; white-space:pre-wrap; word-break:break-word}
+  .fc-cite .ca{font-size:13.5px; line-height:1.8; color:var(--ink-2); white-space:pre-wrap; word-break:break-word}
 
   .fc-acts{margin-top:10px}
   .fc-note{margin-top:9px}

@@ -12,10 +12,10 @@
   .ob-when{font-size:12px; color:var(--muted)}
 
   /* 未実行 / 空 / 失敗の案内。次に何をすればよいかを必ず 1 行添える */
-  .ob-missing{border:1px dashed #e3d7e8; background:#fdfafc; border-radius:16px;
-              padding:13px 16px; font-size:13px; line-height:1.85; color:#5d5470}
+  .ob-missing{border:1px dashed var(--line); background:#fafbfc; border-radius:var(--radius);
+              padding:13px 16px; font-size:13px; line-height:1.85; color:var(--ink-2)}
   .ob-missing b{color:var(--accent-d)}
-  .ob-missing.bad{border-style:solid; border-color:#ffd9d9; background:#fff6f6; color:#b4444f}
+  .ob-missing.bad{border-style:solid; border-color:#f5cdc9; background:var(--bad-bg); color:var(--bad)}
 
   /* コストの割合バー */
   .ob-share{margin-bottom:14px}
@@ -24,16 +24,16 @@
   .ob-share .track{flex:1; height:11px; background:#f6eff8; border-radius:99px; overflow:hidden}
   .ob-share .fill{height:100%; border-radius:99px;
                   background:linear-gradient(90deg,var(--accent),var(--accent-d))}
-  .ob-share .line.top .fill{background:linear-gradient(90deg,#ffb36b,#ff8f6b)}
+  .ob-share .line.top .fill{background:linear-gradient(90deg,#2563eb,#60a5fa)}
   .ob-share .pv{width:52px; flex:none; text-align:right;
                 font-family:ui-monospace,Consolas,monospace; font-size:12.5px; color:var(--accent-d)}
   .ob-num{font-family:ui-monospace,Consolas,monospace; text-align:right; white-space:nowrap}
-  .ob-tag{font-size:11px; color:#b4700f; background:#fff6e6; border:1px solid #ffd9a0;
+  .ob-tag{font-size:11px; color:var(--warn); background:var(--warn-bg); border:1px solid #f0dcb4;
           border-radius:999px; padding:1px 8px; margin-left:6px; white-space:nowrap}
 
   /* トレンド */
-  .ob-up{color:#1f9d6b} .ob-down{color:#9b91ad}
-  .ob-warn{color:#b4444f; font-weight:600}
+  .ob-up{color:var(--ok)} .ob-down{color:var(--bad)}
+  .ob-warn{color:var(--bad); font-weight:600}
   .ob-flat{color:var(--muted)}
   .ob-tbl-note{font-size:12px; color:var(--muted); margin:8px 0 0; line-height:1.8}
 
@@ -42,7 +42,7 @@
   .ob-legend span{display:inline-flex; align-items:center; gap:6px}
   .ob-legend i{width:16px; height:0; border-top-width:2px; border-top-style:solid; display:block}
   .ob-chart{width:100%; height:250px; display:block}
-  .ob-chart text{font-size:10px; fill:#9b91ad}
+  .ob-chart text{font-size:10px; fill:var(--muted)}
   .ob-thr{display:flex; flex-wrap:wrap; gap:9px; margin-top:10px}
 
   .ob-log{margin-top:4px}
@@ -245,7 +245,7 @@ function scanChart(s) {
 
   const grid = [0, 0.25, 0.5, 0.75, 1].map(v =>
     '<line x1="' + L + '" y1="' + py(v) + '" x2="' + (W - R) + '" y2="' + py(v) +
-    '" stroke="#f0e6f2"/><text x="' + (L - 6) + '" y="' + (py(v) + 3) +
+    '" stroke="#e3e6ea"/><text x="' + (L - 6) + '" y="' + (py(v) + 3) +
     '" text-anchor="end">' + (v * 100) + '%</text>').join('');
 
   const ticks = [0.1, 0.3, 0.5, 0.7, 0.9].map(t =>
@@ -263,9 +263,9 @@ function scanChart(s) {
 
   return '<svg class="ob-chart" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="しきい値の走査">' +
     grid + ticks +
-    line('tpr', '#5ed6a4') + line('fpr', '#ff8a8a') + line('j', '#ff6f9c', '5 3') +
-    marker(s.recommended_threshold, '#ff6f9c', '4 3', '推奨 ' + s.recommended_threshold) +
-    marker(s.active_threshold, '#3d3550', '2 4', '有効 ' + s.active_threshold) +
+    line('tpr', '#0f9960') + line('fpr', '#c0392b') + line('j', '#2563eb', '5 3') +
+    marker(s.recommended_threshold, '#2563eb', '4 3', '推奨 ' + s.recommended_threshold) +
+    marker(s.active_threshold, '#1c2024', '2 4', '有効 ' + s.active_threshold) +
     '</svg>';
 }
 
@@ -294,9 +294,9 @@ function renderCal() {
       '<tbody>' + dist + '</tbody></table></div>' +
     '<div class="ob-legend">' +
       '<span><i style="border-color:#5ed6a4"></i>通過率（答えられる問い）</span>' +
-      '<span><i style="border-color:#ff8a8a"></i>誤通過率（断るべき問い）</span>' +
-      '<span><i style="border-color:#ff6f9c;border-top-style:dashed"></i>Youden J</span>' +
-      '<span><i style="border-color:#3d3550;border-top-style:dotted"></i>いま有効なしきい値</span>' +
+      '<span><i style="border-color:#c0392b"></i>誤通過率（断るべき問い）</span>' +
+      '<span><i style="border-color:#2563eb;border-top-style:dashed"></i>Youden J</span>' +
+      '<span><i style="border-color:#1c2024;border-top-style:dotted"></i>いま有効なしきい値</span>' +
     '</div>' +
     scanChart(s) +
     '<div class="ob-thr">' + sync +

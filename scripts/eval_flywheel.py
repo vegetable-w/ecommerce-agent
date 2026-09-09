@@ -36,7 +36,9 @@ bucket ごとに均等に取るので、先頭から N 件を切り出したと�
     0 6 * * * cd /path/to/ecommerce-agent && make eval-flywheel TRIGGER=scheduled >> log/eval.log 2>&1
 
 前提: Milvus と MySQL が起動し、ナレッジベースが構築済みであること。
-出力: dev-notes/09-eval-trend.txt(eval_runs が正本で、この txt は読むための控え)
+出力: data/09/reports/eval_trend.txt(eval_runs が正本で、この txt は読むための控え)
+      **JSON は作らない。** 画面(/observability)は eval_runs を直接読む。
+      成果物を挟むと、画面が最後にレポートを書いた 1 回だけを映すことになる。
 """
 
 import argparse
@@ -53,7 +55,8 @@ from app.kb import milvus_client
 from scripts import eval_04 as ev
 
 _ROOT = pathlib.Path(__file__).resolve().parent.parent
-_OUT = _ROOT / "dev-notes" / "09-eval-trend.txt"
+_OUT_DIR = _ROOT / "data" / "09" / "reports"
+_OUT = _OUT_DIR / "eval_trend.txt"
 
 # 04 章の 4 戦略のうち、本番が使っている 1 つだけを回す。トレンドは戦略の比較ではない。
 STRATEGY = "hybrid_rerank"
@@ -305,7 +308,7 @@ async def main(argv: list[str] | None = None) -> int:
             ev._log(f"\neval_runs #{run_id} として保存しました(dataset_size={len(samples)})。")
             show_trend(await repository.list_eval_runs(limit=TREND_LIMIT))
 
-    _OUT.parent.mkdir(parents=True, exist_ok=True)
+    _OUT_DIR.mkdir(parents=True, exist_ok=True)
     _OUT.write_text("\n".join(ev._LINES) + "\n", encoding="utf-8")
     ev._log(f"\nレポート: {_OUT.relative_to(_ROOT)}")
     return code

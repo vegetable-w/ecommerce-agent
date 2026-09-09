@@ -103,6 +103,27 @@ JOBS: dict[str, JobSpec] = {
         "300 問 × 4 戦略で埋め込み・リランク・生成・判定の上流を実際に呼ぶ。"
         "Milvus と構築済みナレッジが必要で、数十分かかり課金される",
     ),
+    "cost-report": JobSpec(
+        "cost-report", False, "コスト集計（intent 別）",
+        "Langfuse の observation を読んで intent 別の token を集計する。"
+        "上流も DB も使わず 1 行も書き込まない（Langfuse の起動が要る）",
+    ),
+    # **ターゲットが名前と違う唯一の job。** make eval-flywheel の LIMIT は既定が 0 =
+    # 全量で、生成 300 回 + judge 240 回を上流へ投げる。ここから起動する argv は
+    # [make, ターゲット] に固定されていて LIMIT を渡せないので、件数を埋め込んだ
+    # 専用ターゲット(eval-flywheel-ui)を指す。heavy=True の確認は画面側の一手間で
+    # あって、POST を直に叩けば素通りする。**件数の上限は registry 側で決める。**
+    "eval-flywheel": JobSpec(
+        "eval-flywheel-ui", True, "評価の実行（トレンド）",
+        "評価セットから 40 問を bucket ごとに均等に取って回し、1 回分を eval_runs へ"
+        "記録する。回答の生成と judge で上流を呼ぶため課金される"
+        "（全量で回すときは端末から make eval-flywheel LIMIT=...）",
+    ),
+    "calibrate-confidence": JobSpec(
+        "calibrate-confidence", True, "確信度の校正",
+        "評価セット 300 件で検索とリランクだけを走らせ、しきい値を走査する。"
+        "生成も judge も呼ばないが、埋め込みとリランクの上流は 300 件ぶん呼ぶ",
+    ),
 }
 
 

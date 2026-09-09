@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>可観測性 · STORE 管理画面</title>
+<script src="/static/admin.js"></script>
+<style>
+  /* このページ固有のものだけ。共通の見た目は admin.js が注入する */
+  .ob-head{display:flex; align-items:center; gap:9px; flex-wrap:wrap; margin-bottom:12px}
+  .ob-head .grow{flex:1}
+  .ob-when{font-size:12px; color:var(--muted)}
+
+  /* 未実行 / 空 / 失敗の案内。次に何をすればよいかを必ず 1 行添える */
+  .ob-missing{border:1px dashed #e3d7e8; background:#fdfafc; border-radius:16px;
+              padding:13px 16px; font-size:13px; line-height:1.85; color:#5d5470}
+  .ob-missing b{color:var(--accent-d)}
+  .ob-missing.bad{border-style:solid; border-color:#ffd9d9; background:#fff6f6; color:#b4444f}
+
+  /* コストの割合バー */
+  .ob-share{margin-bottom:14px}
+  .ob-share .line{display:flex; align-items:center; gap:9px; margin-bottom:6px}
+  .ob-share .nm{width:110px; flex:none; font-size:13px; word-break:break-all}
+  .ob-share .track{flex:1; height:11px; background:#f6eff8; border-radius:99px; overflow:hidden}
+  .ob-share .fill{height:100%; border-radius:99px;
+                  background:linear-gradient(90deg,var(--accent),var(--accent-d))}
+  .ob-share .line.top .fill{background:linear-gradient(90deg,#ffb36b,#ff8f6b)}
+  .ob-share .pv{width:52px; flex:none; text-align:right;
+                font-family:ui-monospace,Consolas,monospace; font-size:12.5px; color:var(--accent-d)}
+  .ob-num{font-family:ui-monospace,Consolas,monospace; text-align:right; white-space:nowrap}
+  .ob-tag{font-size:11px; color:#b4700f; background:#fff6e6; border:1px solid #ffd9a0;
+          border-radius:999px; padding:1px 8px; margin-left:6px; white-space:nowrap}
+
+  /* トレンド */
+  .ob-up{color:#1f9d6b} .ob-down{color:#9b91ad}
+  .ob-warn{color:#b4444f; font-weight:600}
+  .ob-flat{color:var(--muted)}
+  .ob-tbl-note{font-size:12px; color:var(--muted); margin:8px 0 0; line-height:1.8}
+
+  /* 校正 */
+  .ob-legend{display:flex; flex-wrap:wrap; gap:14px; font-size:12px; color:var(--muted); margin:4px 0 10px}
+  .ob-legend span{display:inline-flex; align-items:center; gap:6px}
+  .ob-legend i{width:16px; height:0; border-top-width:2px; border-top-style:solid; display:block}
+  .ob-chart{width:100%; height:250px; display:block}
+  .ob-chart text{font-size:10px; fill:#9b91ad}
+  .ob-thr{display:flex; flex-wrap:wrap; gap:9px; margin-top:10px}
+
+  .ob-log{margin-top:4px}
+</style>
+</head>
+<body>
+<div class="adm-wrap">
+
+  <div class="adm-card">
+    <h2><span class="adm-num">1</span>intent 別のコスト</h2>
+    <div class="ob-head">
+      <span id="costWhen" class="ob-when"></span>
+      <span class="grow"></span>
+      <span id="costRun"></span>
+    </div>
+    <div id="cost"></div>
+  </div>
+
+  <div class="adm-card">
+    <h2><span class="adm-num">2</span>評価トレンド</h2>
+    <div class="ob-head">
+      <span id="trendWhen" class="ob-when"></span>
+      <span class="grow"></span>
+      <span id="trendRun"></span>
+    </div>
+    <div id="trend"></div>
+  </div>
+
+  <div class="adm-card">
+    <h2><span class="adm-num">3</span>確信度の校正</h2>
+    <div class="ob-head">
+      <span id="calWhen" class="ob-when"></span>
+      <span class="grow"></span>
+      <span id="calRun"></span>
+    </div>
+    <div id="cal"></div>
+  </div>
+
+  <div class="adm-card">
+    <h2><span class="adm-num">L</span>実行ログ</h2>
+    <p class="adm-note" id="logNote">再実行を押すと、そのジョブの出力がここに流れます。</p>
+    <div class="adm-log ob-log" id="log"></div>
+  </div>
+
+</div>
+
+<script>
+const { mountAdminNav, getJSON, postJSON, pill, esc, toast } = window.Admin;
+mountAdminNav('observability');
+
+const $ = id => document.getElementById(id);
+
+/* 3 つの section と、それぞれの再実行ボタンが指すジョブ。
+   ジョブ名は app/core/jobs.py の JOBS のキーで、ここから送るのは**名前だけ**である
+   (引数は送れない。argv を決めるのは registry 側だけ)。 */
+const SECTIONS = [
+  { key: 'cost',        job: 'cost-report',          box: 'cost',  run: 'costRun',  when: 'costWhen'  },
+  { key: 'trend',       job: 'eval-flywheel',        box: 'trend', run: 'trendRun', when: 'trendWhen' },
+  { key: 'calibration', job: 'calibrate-confidence', box: 'cal',   run: 'calRun',   when: 'calWhen'   },
+];
+
+let data = null;
+let armed = null;       // 2 段階確認で「本当に実行する」まで進んでいるジョブ名
+let polling = null;     // 実行中のジョブを追いかける interval
+let watching = null;    // いま追いかけているジョブ名
+
+/* ---------- 小物 ---------- */
+
+const num = v => (v === null || v === undefined) ? '—' : Number(v).toLocaleString('ja-JP');
+/* 保存済みの値を桁を揃えて出すだけ。指標そのものはここでは作らない */
+const fx3 = v => (typeof v === 'number') ? v.toFixed(3) : '--';
+
+function when(ts, tz) {
+  if (!ts) return '';
+  return '生成: ' + esc(String(ts).replace('T', ' ').slice(0, 16)) + (tz ? ' ' + tz : '');
+}
+
+/* 未実行・空・失敗の箱。message(何が起きたか)と hint(次に何をするか)を分けて出す。 */
+function missingBox(sec) {
+  const bad = sec.status === 'error';
+  return '<div class="ob-missing' + (bad ? ' bad' : '') + '">' +
+           '<b>' + esc(sec.message || '') + '</b>' +
+           (sec.hint ? '<br>' + esc(sec.hint) : '') +
+         '</div>';
+}
+
+/* ---------- 1. コスト ---------- */
+
+function renderCost() {
+  const s = data.cost;
+  $('costWhen').textContent = s.present ? when(s.generated_at) + '（直近 ' + s.days + ' 日）' : '';
+  if (s.status !== 'ok') { $('cost').innerHTML = missingBox(s); return; }
+
+  // 割合は成果物の share / share_label をそのまま使う。ここで割り算をしない
+  const bars = s.rows.map(function (r, i) {
+    const w = Math.max(0, Math.min(1, Number(r.share) || 0)) * 100;
+    return '<div class="line' + (i === 0 ? ' top' : '') + '">' +
+             '<span class="nm">' + esc(r.intent) + '</span>' +
+             '<span class="track"><span class="fill" style="width:' + w + '%"></span></span>' +
+             '<span class="pv">' + esc(r.share_label) + '</span>' +
+           '</div>';
+  }).join('');
+
+  const rows = s.rows.map(function (r, i) {
+    return '<tr>' +
+             '<td>' + esc(r.intent) + (i === 0 ? '<span class="ob-tag">最もコストが高い</span>' : '') + '</td>' +
+             '<td class="ob-num">' + num(r.count) + '</td>' +
+             '<td class="ob-num">' + num(r.tokens) + '</td>' +
+             '<td class="ob-num">' + num(r.avg_tokens) + '</td>' +
+             '<td class="ob-num">' + esc(r.share_label) + '</td>' +
+           '</tr>';
+  }).join('');
+
+  $('cost').innerHTML =
+    '<div class="ob-share">' + bars + '</div>' +
+    '<div class="adm-scroll"><table class="adm-tbl">' +
+      '<thead><tr><th>intent</th><th class="ob-num">リクエスト</th>' +
+        '<th class="ob-num">合計 token</th><th class="ob-num">平均 token</th>' +
+        '<th class="ob-num">割合</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody>' +
+      '<tfoot><tr><th>合計</th>' +
+        '<th class="ob-num">' + num(s.resolved) + '</th>' +
+        '<th class="ob-num">' + num(s.total_tokens) + '</th>' +
+        '<th></th><th></th></tr></tfoot>' +
+    '</table></div>' +
+    '<p class="ob-tbl-note">窓内の trace ' + num(s.traces) + ' 本のうち intent を解決できたもの ' +
+      num(s.resolved) + ' 本' +
+      (s.unknown ? '（解決できなかった ' + num(s.unknown) +
+        ' 本は graph 以外の経路で作られた trace です）' : '') + '。' +
+      '出典は Langfuse で、金額ではなく token 数で見ています。</p>';
+}
+
+/* ---------- 2. トレンド ---------- */
+
+function cellHtml(cell) {
+  if (!cell || cell.value === null || cell.value === undefined) {
+    return '<span class="ob-flat">--</span>';
+  }
+  const v = fx3(cell.value);
+  if (!cell.arrow) return v;                       // 比較する前回が無い
+  if (cell.arrow === '→') return v + ' <span class="ob-flat">→</span>';
+  const cls = cell.warn ? 'ob-warn' : (cell.arrow === '↑' ? 'ob-up' : 'ob-down');
+  return v + ' <span class="' + cls + '">' + cell.arrow + (cell.warn ? ' ⚠' : '') + '</span>';
+}
+
+function renderTrend() {
+  const s = data.trend;
+  $('trendWhen').textContent = s.present
+    ? '直近 ' + s.runs.length + ' 回（日時は ' + s.timezone + '）' : '';
+  if (s.status !== 'ok') { $('trend').innerHTML = missingBox(s); return; }
+
+  const head = '<tr><th>run</th><th>日時 (' + esc(s.timezone) + ')</th><th>由来</th>' +
+    '<th class="ob-num">件数</th>' +
+    s.metrics.map(m => '<th class="ob-num">' + esc(m.label) + '</th>').join('') + '</tr>';
+
+  const rows = s.runs.map(function (r) {
+    return '<tr>' +
+             '<td>#' + esc(r.id) + '</td>' +
+             '<td>' + esc(String(r.created_at || '').replace('T', ' ')) + '</td>' +
+             '<td>' + esc(r.triggered_by_label) + '</td>' +
+             '<td class="ob-num">' + num(r.dataset_size) + '</td>' +
+             s.metrics.map(m => '<td class="ob-num">' + cellHtml(r.cells[m.key]) + '</td>').join('') +
+           '</tr>';
+  }).join('');
+
+  const dropped = s.dropped.length
+    ? '<p class="ob-tbl-note ob-warn">⚠ 前回から下がった指標: ' +
+      s.dropped.map(function (k) {
+        const m = s.metrics.find(x => x.key === k);
+        return esc(m ? m.label : k);
+      }).join('、') + '</p>'
+    : '<p class="ob-tbl-note">前回から下がった指標はありません。</p>';
+
+  $('trend').innerHTML =
+    '<div class="adm-scroll"><table class="adm-tbl"><thead>' + head +
+      '</thead><tbody>' + rows + '</tbody></table></div>' + dropped +
+    '<p class="ob-tbl-note">↑↓ は値そのものの動き、⚠ は<b>その指標にとって悪い方へ動いた</b>印です。' +
+      'ナレッジ外の拒否率は「知らないと言えた割合」なので、下がることが悪化にあたります。<br>' +
+      '正本は eval_runs テーブルで、レポートの控えではありません。' +
+      '日時は ' + esc(s.timezone) + '（MySQL の既定）で、日本時間ではありません。</p>';
+}
+
+/* ---------- 3. 校正 ---------- */
+
+/* しきい値の走査。**曲線は成果物の点をそのまま結ぶだけ**で、ここで走査し直さない。
+   縦線は 2 本引く: 推奨値(成果物の結論)と、いま有効な値(settings)。
+   この 2 本が離れているときが「校正したのに設定へ反映していない」状態である。 */
+function scanChart(s) {
+  const W = 720, H = 250, L = 42, R = 14, T = 12, B = 26;
+  const scan = s.scan;
+  const xs = scan.map(p => p.t);
+  const x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs);
+  const px = t => L + ((t - x0) / ((x1 - x0) || 1)) * (W - L - R);
+  const py = v => T + (1 - Math.max(0, Math.min(1, v))) * (H - T - B);
+
+  const line = (key, color, dash) =>
+    '<polyline fill="none" stroke="' + color + '" stroke-width="2"' +
+    (dash ? ' stroke-dasharray="' + dash + '"' : '') + ' points="' +
+    scan.map(p => px(p.t).toFixed(1) + ',' + py(p[key]).toFixed(1)).join(' ') + '"/>';
+
+  const grid = [0, 0.25, 0.5, 0.75, 1].map(v =>
+    '<line x1="' + L + '" y1="' + py(v) + '" x2="' + (W - R) + '" y2="' + py(v) +
+    '" stroke="#f0e6f2"/><text x="' + (L - 6) + '" y="' + (py(v) + 3) +
+    '" text-anchor="end">' + (v * 100) + '%</text>').join('');
+
+  const ticks = [0.1, 0.3, 0.5, 0.7, 0.9].map(t =>
+    '<text x="' + px(t) + '" y="' + (H - 8) + '" text-anchor="middle">' + t.toFixed(1) + '</text>'
+  ).join('');
+
+  const marker = (t, color, dash, label) => {
+    if (typeof t !== 'number' || t < x0 || t > x1) return '';
+    const x = px(t).toFixed(1);
+    return '<line x1="' + x + '" y1="' + T + '" x2="' + x + '" y2="' + (H - B) +
+           '" stroke="' + color + '" stroke-width="2" stroke-dasharray="' + dash + '"/>' +
+           '<text x="' + x + '" y="' + (T + 10) + '" text-anchor="middle" fill="' + color +
+           '">' + esc(label) + '</text>';
+  };
+
+  return '<svg class="ob-chart" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="しきい値の走査">' +
+    grid + ticks +
+    line('tpr', '#5ed6a4') + line('fpr', '#ff8a8a') + line('j', '#ff6f9c', '5 3') +
+    marker(s.recommended_threshold, '#ff6f9c', '4 3', '推奨 ' + s.recommended_threshold) +
+    marker(s.active_threshold, '#3d3550', '2 4', '有効 ' + s.active_threshold) +
+    '</svg>';
+}
+
+function renderCal() {
+  const s = data.calibration;
+  $('calWhen').textContent = s.present ? when(s.generated_at) + '（' + esc(s.strategy || '') + '）' : '';
+  if (s.status !== 'ok') { $('cal').innerHTML = missingBox(s); return; }
+
+  const dist = s.distributions.map(function (d) {
+    return '<tr><td>' + esc(d.name) + '</td><td class="ob-num">' + num(d.n) + '</td>' +
+      ['min', 'p25', 'p50', 'p75', 'max'].map(k =>
+        '<td class="ob-num">' + fx3(d[k]) + '</td>').join('') + '</tr>';
+  }).join('');
+
+  const sync = s.in_sync === null
+    ? pill('', '推奨値なし', true)
+    : (s.in_sync ? pill('ok', '設定に反映済み')
+                 : pill('bad', '設定へ未反映（推奨 ' + s.recommended_threshold +
+                                ' / 有効 ' + s.active_threshold + '）'));
+
+  $('cal').innerHTML =
+    '<div class="adm-scroll"><table class="adm-tbl">' +
+      '<thead><tr><th>分布</th><th class="ob-num">n</th><th class="ob-num">min</th>' +
+        '<th class="ob-num">p25</th><th class="ob-num">p50</th><th class="ob-num">p75</th>' +
+        '<th class="ob-num">max</th></tr></thead>' +
+      '<tbody>' + dist + '</tbody></table></div>' +
+    '<div class="ob-legend">' +
+      '<span><i style="border-color:#5ed6a4"></i>通過率（答えられる問い）</span>' +
+      '<span><i style="border-color:#ff8a8a"></i>誤通過率（断るべき問い）</span>' +
+      '<span><i style="border-color:#ff6f9c;border-top-style:dashed"></i>Youden J</span>' +
+      '<span><i style="border-color:#3d3550;border-top-style:dotted"></i>いま有効なしきい値</span>' +
+    '</div>' +
+    scanChart(s) +
+    '<div class="ob-thr">' + sync +
+      pill('', '推奨 ' + (s.recommended_threshold === null ? '—' : s.recommended_threshold) +
+               '（Youden J ' + fx3(s.best_j) + '）') +
+      pill('', 'evidence_confidence_threshold = ' + s.active_threshold) +
+    '</div>' +
+    (s.weak_separation
+      ? '<p class="ob-tbl-note ob-warn">分離が弱い（J &lt; 0.3）ため、推奨値をそのまま採用しないこと。' +
+        '信号か重みの見直しが要ります。</p>'
+      : '') +
+    '<p class="ob-tbl-note">推奨値も Youden J も <b>' + esc(s.report_path) +
+      '</b> に書かれた値をそのまま出しています（この画面では走査し直しません）。' +
+      '反映するときは .env の EVIDENCE_CONFIDENCE_THRESHOLD を直してアプリを再起動してください。</p>';
+}
+
+/* ---------- 再実行（rageval.html と同じ作法）---------- */
+
+function renderRun(conf) {
+  const sec = data[conf.key] || {};
+  const job = sec.job || { name: conf.job };
+  const st = job.running ? pill('warn', '実行中')
+    : (job.exit_code === 0 ? pill('ok', '正常終了')
+    : (job.exit_code === null || job.exit_code === undefined ? pill('', '未実行', true)
+    : pill('bad', '終了コード ' + job.exit_code)));
+
+  let buttons;
+  if (job.running) {
+    buttons = '<button class="adm-btn heavy" data-stop="' + conf.job + '">停止する</button>';
+  } else if (armed === conf.job) {
+    // heavy = 上流を呼ぶか破壊的。押し間違いで課金しないよう一度受け止める
+    buttons = '<button class="adm-btn heavy" data-go="' + conf.job + '">本当に実行する</button>' +
+              '<button class="adm-btn" data-cancel="1">やめる</button>';
+  } else {
+    buttons = '<button class="adm-btn' + (job.heavy ? '' : ' pri') + '" data-arm="' + conf.job +
+              '">' + esc(job.label || conf.job) + 'を実行</button>';
+  }
+  const note = job.description
+    ? '<span class="ob-when" style="margin-right:8px">' + esc(job.description) + '</span>' : '';
+  $(conf.run).innerHTML = note + st + ' ' + buttons;
+}
+
+function renderRuns() { SECTIONS.forEach(renderRun); }
+
+async function start(name) {
+  armed = null;
+  try {
+    await postJSON('/api/jobs/' + name);
+    toast(name + ' を開始しました');
+    watch(name);
+  } catch (e) {
+    toast(e.message);
+  }
+  refresh();
+}
+
+async function tail(name) {
+  try {
+    const d = await getJSON('/api/jobs/' + name);
+    $('log').textContent = d.log || '(ログがありません)';
+    $('logNote').textContent = name + ' の出力';
+    return d;
+  } catch (e) {
+    return null;
+  }
+}
+
+/* 実行中は 1.5 秒ごとにログを取り直し、終わったら画面ごと取り直す。 */
+function watch(name) {
+  clearInterval(polling);
+  watching = name;
+  polling = setInterval(async function () {
+    const d = await tail(name);
+    if (!d) { clearInterval(polling); polling = null; watching = null; return; }
+    if (!d.running) {
+      clearInterval(polling); polling = null; watching = null;
+      toast(name + ' が終了しました');
+      refresh();
+    }
+  }, 1500);
+}
+
+document.body.addEventListener('click', function (ev) {
+  const t = ev.target.closest('[data-arm],[data-go],[data-cancel],[data-stop]');
+  if (!t) return;
+  if (t.dataset.cancel) { armed = null; renderRuns(); return; }
+  if (t.dataset.arm) {
+    const job = (data[SECTIONS.find(s => s.job === t.dataset.arm).key] || {}).job || {};
+    if (!job.heavy) { start(t.dataset.arm); return; }   // 読むだけのジョブは確認を挟まない
+    armed = t.dataset.arm;
+    renderRuns();
+    return;
+  }
+  if (t.dataset.go) { start(t.dataset.go); return; }
+  if (t.dataset.stop) {
+    postJSON('/api/jobs/' + t.dataset.stop + '/stop')
+      .then(function () { toast('停止しました'); refresh(); })
+      .catch(function (e) { toast(e.message); });
+  }
+});
+
+/* ---------- 読み込み ---------- */
+
+async function refresh() {
+  try {
+    data = await getJSON('/api/observability/overview');
+  } catch (e) {
+    $('cost').innerHTML = '<div class="ob-missing bad">取得できませんでした: ' + esc(e.message) + '</div>';
+    return;
+  }
+  renderCost();
+  renderTrend();
+  renderCal();
+  renderRuns();
+
+  // 画面を開いた時点で走っているジョブがあれば、そのまま追いかける
+  if (!polling) {
+    const running = SECTIONS.find(c => (data[c.key].job || {}).running);
+    if (running) watch(running.job);
+  } else if (watching) {
+    tail(watching);
+  }
+}
+
+refresh();
+</script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-.PHONY: dev test eval seed seed-conv kb-preview kb-build kb-repatch kb-vectorize kb-mine kb-reset eval-retrieval eval-mining eval-rag eval-check judge-check eval-05 eval-06 smoke-interrupt calibrate-confidence eval-07 eval-08 mcp-up mcp-down langfuse-up langfuse-down flywheel flywheel-samples eval-flywheel cost-report
+.PHONY: dev test eval seed seed-conv kb-preview kb-build kb-repatch kb-vectorize kb-mine kb-reset eval-retrieval eval-mining eval-rag eval-check judge-check eval-05 eval-06 smoke-interrupt calibrate-confidence eval-07 eval-08 mcp-up mcp-down langfuse-up langfuse-down flywheel flywheel-samples eval-flywheel eval-flywheel-ui cost-report
 
 # --reload は付けない。この環境では watchfiles が入っていても変更を検知せず
 # (実測: 起動後の app/tools/business.py の更新で reload されなかった)、
@@ -156,6 +156,14 @@ flywheel-samples:
 # Milvus の起動とナレッジベースの構築が要る。定期実行の例は script の docstring を参照。
 eval-flywheel:
 	PYTHONUTF8=1 uv run --env-file .env python scripts/eval_flywheel.py --triggered-by $(or $(TRIGGER),manual) --limit $(or $(LIMIT),0)
+
+# 09 画面(/observability)の再実行ボタンから起動する評価。**LIMIT=40 で固定する。**
+# ジョブランナーは argv を [make, ターゲット] の 2 要素に固定していて引数を受け取れない
+# (app/core/jobs.py)。上の eval-flywheel をそのまま割り当てると、既定が LIMIT=0 =
+# 全量なので、ボタン 1 つで生成 300 回 + judge 240 回が走る。全量が要るときは
+# 端末から make eval-flywheel LIMIT=... を使うこと。
+eval-flywheel-ui:
+	PYTHONUTF8=1 uv run --env-file .env python scripts/eval_flywheel.py --triggered-by manual --limit 40
 
 # 09 intent 別の token 集計。Langfuse の起動(make langfuse-up)と
 # LANGFUSE_* の 3 変数が要る。DAYS で窓の日数を変えられる(既定 7)。

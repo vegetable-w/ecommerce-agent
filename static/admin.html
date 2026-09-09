@@ -18,7 +18,8 @@ mountAdminNav('admin');
 
 /* 各モジュールの入口だけをここに集める。モジュール側の URL は変えない。 */
 const LINKS = { knowledge: '/kb', vectors: '/kb', staging: '/kb', sources: '/kb',
-                jobs: '/kb', conversations: '/', rag_eval: '/rag-eval', config: null };
+                jobs: '/kb', conversations: '/', rag_eval: '/rag-eval',
+                observability: '/observability', config: null };
 
 const pct = v => (v === null || v === undefined) ? '取得不可' : (v * 100).toFixed(1) + '%';
 
@@ -38,6 +39,20 @@ function summarize(key, s) {
                             ? `最良 ${esc(s.best_strategy)} / MRR ${pct(s.best_mrr)} / `
                               + `評価 ${n(s.samples)} 問 / ナレッジ外の拒否率 ${pct(s.refusal_rate)}`
                             : 'まだ評価を実行していません';
+    case 'observability': {
+      // 4 つだけ。割合も faithfulness も API が成果物から持ってきた値をそのまま出す
+      const cost = s.cost_present
+        ? `最もコストが高い ${esc(s.top_intent)} ${esc(s.top_share_label ?? '-')}`
+        : 'コスト未集計';
+      const runs = s.runs === null || s.runs === undefined
+        ? '評価 取得不可' : `評価 直近 ${s.runs} 回`;
+      const faith = `忠実性 ${pct(s.latest_faithfulness)}`;
+      const th = s.recommended_threshold === null || s.recommended_threshold === undefined
+        ? `しきい値 ${s.active_threshold}（未校正）`
+        : `しきい値 ${s.active_threshold}` +
+          (s.threshold_in_sync ? '' : `（推奨 ${s.recommended_threshold}）`);
+      return `${cost} / ${runs} / ${faith} / ${th}`;
+    }
     default:              return Object.entries(s).slice(0, 3)
                             .map(([k, v]) => `${esc(k)}: ${esc(v)}`).join(' / ');
   }
@@ -52,6 +67,10 @@ function state(card) {
   if (card.key === 'vectors' && s.count === 0)   return pill('warn', 'データなし', true);
   if (card.key === 'rag_eval' && !s.present)     return pill('warn', '未実行', true);
   if (card.key === 'rag_eval' && !s.generation_done) return pill('warn', '生成側が未完了');
+  // 校正の結論が設定に反映されていない = 直す先がはっきりしている取りこぼし
+  if (card.key === 'observability' && s.needs_attention) return pill('bad', '要対応: しきい値');
+  if (card.key === 'observability' && (s.dropped || []).length) return pill('warn', '前回から悪化');
+  if (card.key === 'observability' && !s.cost_present) return pill('warn', '未実行あり', true);
   return pill('ok', '正常');
 }
 

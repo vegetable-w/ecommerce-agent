@@ -11,6 +11,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.api import admin as admin_api
+from app.api import observability as obs_api
 from app.api import rageval
 from app.core import jobs
 from app.db import repository
@@ -20,7 +21,7 @@ from app.main import app
 session_loop = pytest.mark.asyncio(loop_scope="session")
 
 CARD_KEYS = ["conversations", "knowledge", "vectors", "staging", "sources",
-             "rag_eval", "jobs", "config"]
+             "rag_eval", "observability", "jobs", "config"]
 
 
 def _client() -> AsyncClient:
@@ -36,7 +37,8 @@ def _kill_everything(monkeypatch) -> None:
     def sync_boom(*args, **kwargs):
         raise ConnectionError("依存先が停止している")
 
-    for name in ("conversation_stats", "knowledge_stats", "list_recent_chunks", "staging_stats"):
+    for name in ("conversation_stats", "knowledge_stats", "list_recent_chunks",
+                 "staging_stats", "list_eval_runs"):
         monkeypatch.setattr(repository, name, async_boom)
     monkeypatch.setattr(milvus_client, "get_client", sync_boom)
     monkeypatch.setattr(admin_api.documents, "build_chunks", sync_boom)
@@ -44,6 +46,9 @@ def _kill_everything(monkeypatch) -> None:
     # 評価レポートはローカルのファイルなので普段は落ちないが、読めない状況
     # (権限・破損)でもカードごとに閉じることをここで一緒に見る
     monkeypatch.setattr(rageval, "load_report", sync_boom)
+    # 可観測性のカードは成果物(ファイル)と eval_runs(MySQL)の両方に依存する。
+    # 成果物を読む側も塞いで、カードが自分の失敗を名乗ることを見る
+    monkeypatch.setattr(obs_api, "_load", sync_boom)
 
 
 @session_loop
@@ -96,7 +101,8 @@ async def test_one_dead_dependency_does_not_affect_other_cards(db_session_factor
     cards = {card["key"]: card for card in body["cards"]}
     assert body["degraded"] == ["vectors"]
     assert cards["vectors"]["ok"] is False
-    for key in ("conversations", "knowledge", "staging", "sources", "rag_eval", "jobs", "config"):
+    for key in ("conversations", "knowledge", "staging", "sources", "rag_eval",
+                "observability", "jobs", "config"):
         assert cards[key]["ok"] is True, key
         assert cards[key]["error"] is None
 

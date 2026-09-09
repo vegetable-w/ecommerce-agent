@@ -2,7 +2,9 @@
 
 データ源は Langfuse（self-hosted）。使い方は `make cost-report`（DAYS=N、既定 7）で、
 Langfuse の起動（make langfuse-up）と 3 つの環境変数が要る。
-成果物は dev-notes/09-cost-report.txt。
+成果物は data/09/reports/cost_by_intent.{txt,json}。txt は端末で読むための控えで、
+json は /observability の画面が読む。**割合も平均 token もここで計算して両方へ書く。**
+画面側が計算し直すと、端末の数字と画面の数字が食い違う道が開く。
 
 custom の model 名は Langfuse に組み込みの価格が無いため、この script は token 数を
 基準にする。金額で見たい場合は Langfuse の UI で model の価格を設定する。
@@ -65,7 +67,9 @@ from app.core.intent import INTENTS
 from app.core.observability import get_langfuse
 
 _ROOT = pathlib.Path(__file__).resolve().parent.parent
-_OUT = _ROOT / "dev-notes" / "09-cost-report.txt"
+_OUT_DIR = _ROOT / "data" / "09" / "reports"
+_OUT = _OUT_DIR / "cost_by_intent.txt"
+_OUT_JSON = _OUT_DIR / "cost_by_intent.json"
 
 # tag_intent が付ける接頭辞（app/core/observability.py と同じ形）
 _TAG_PREFIX = "intent:"
@@ -201,34 +205,67 @@ def collect(client, frm: datetime, to: datetime) -> tuple[dict, int, int]:
     return table, len(tokens), unknown
 
 
-def report(table: dict, traces: int, unknown: int, days: int) -> None:
+def build_rows(table: dict) -> list[dict]:
+    """token の降順で 1 行 1 intent。**平均も割合もここで確定させる。**
+
+    端末の表と JSON の両方がこの list だけを見るので、同じ数を 2 か所で計算する余地が
+    無くなる。share_label まで作るのは、0.6174 を渡された画面が自分で丸めると、
+    丸め方の違いだけで端末の 62% と食い違いうるため。
+    """
+    total = sum(r["tokens"] for r in table.values())
+    ordered = sorted(table.items(), key=lambda kv: kv[1]["tokens"], reverse=True)
+    rows = []
+    for name, r in ordered:
+        share = r["tokens"] / total if total else 0.0
+        rows.append({
+            "intent": name,
+            "count": r["count"],
+            "tokens": r["tokens"],
+            "avg_tokens": r["tokens"] // max(r["count"], 1),
+            "share": share,
+            "share_label": f"{share:.0%}",
+        })
+    return rows
+
+
+def report(table: dict, traces: int, unknown: int, days: int) -> dict:
+    """端末へ表を出し、**同じ値で組んだ**成果物を返す。"""
+    payload = {
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "days": days,
+        "traces": traces,
+        "resolved": traces - unknown,
+        "unknown": unknown,
+        "total_tokens": sum(r["tokens"] for r in table.values()),
+        "rows": build_rows(table),
+    }
+    rows = payload["rows"]
+
     _log(f"=== intent 別の token 集計(直近 {days} 日 / 出典: Langfuse)===")
     _log(f"窓内の trace: {traces} 本   intent を解決できたもの: {traces - unknown} 本")
-    if not table:
+    if not rows:
         _log("")
         _log("この窓には intent の分かる trace がありません。"
              "先に会話をいくつか流してから実行してください。")
-        return
+        return payload
 
-    total = sum(r["tokens"] for r in table.values())
-    rows = sorted(table.items(), key=lambda kv: kv[1]["tokens"], reverse=True)
-    label_w = max(_width(name) for name, _ in rows) + 2
+    label_w = max(_width(row["intent"]) for row in rows) + 2
 
     _log("")
     _log(f"{_pad('intent', label_w)}{_rpad('リクエスト', 10)} {_rpad('合計token', 13)} "
          f"{_rpad('平均token', 13)} {_rpad('割合', 8)}")
-    for i, (name, r) in enumerate(rows):
-        share = r["tokens"] / total if total else 0.0
+    for i, row in enumerate(rows):
         mark = "  ← 最もコストが高い" if i == 0 else ""
-        _log(f"{_pad(name, label_w)}{r['count']:>10d} {r['tokens']:>13,d} "
-             f"{r['tokens'] // max(r['count'], 1):>13,d} {share:>8.0%}{mark}")
-    _log(f"{_pad('合計', label_w)}{sum(r['count'] for r in table.values()):>10d} "
-         f"{total:>13,d}")
+        _log(f"{_pad(row['intent'], label_w)}{row['count']:>10d} {row['tokens']:>13,d} "
+             f"{row['avg_tokens']:>13,d} {row['share_label']:>8s}{mark}")
+    _log(f"{_pad('合計', label_w)}{sum(r['count'] for r in rows):>10d} "
+         f"{payload['total_tokens']:>13,d}")
 
     if unknown:
         _log("")
         _log(f"※ intent を解決できなかった trace が {unknown} 本あります"
              "(graph 以外の経路で作られた trace はここに入ります)。")
+    return payload
 
 
 def main() -> int:
@@ -256,10 +293,12 @@ def main() -> int:
               "make langfuse-up で起動しているか確認してください。", file=sys.stderr)
         return 1
 
-    report(table, traces, unknown, args.days)
-    _OUT.parent.mkdir(parents=True, exist_ok=True)
+    payload = report(table, traces, unknown, args.days)
+    _OUT_DIR.mkdir(parents=True, exist_ok=True)
     _OUT.write_text("\n".join(_LINES) + "\n", encoding="utf-8")
-    _log(f"\nレポート: {_OUT.relative_to(_ROOT)}")
+    _OUT_JSON.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _log(f"\nレポート: {_OUT.relative_to(_ROOT)} / {_OUT_JSON.relative_to(_ROOT)}")
     return 0
 
 

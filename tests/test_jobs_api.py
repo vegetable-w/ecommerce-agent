@@ -170,8 +170,26 @@ def test_registry_is_exactly_the_agreed_set():
     assert set(jobs.JOBS) == {
         "kb-preview", "kb-build", "kb-repatch", "kb-vectorize", "kb-mine",
         "kb-reset", "seed-conv", "eval-retrieval", "eval-mining", "eval-rag",
+        "cost-report", "eval-flywheel", "calibrate-confidence",
     }
-    assert {n for n, s in jobs.JOBS.items() if s.heavy} == {"kb-mine", "kb-reset", "eval-rag"}
+    assert {n for n, s in jobs.JOBS.items() if s.heavy} == {
+        "kb-mine", "kb-reset", "eval-rag", "eval-flywheel", "calibrate-confidence",
+    }
+
+
+def test_the_flywheel_button_cannot_start_a_full_run():
+    """ボタンから起こる評価は件数が固定されていること。
+
+    make eval-flywheel の LIMIT は既定が 0(全量)で、生成 300 回 + judge 240 回を
+    上流へ投げる。ここから渡せる argv は [make, ターゲット] だけで LIMIT を載せられない
+    ので、**件数を埋め込んだ専用ターゲット**を指していなければならない。
+    heavy=True は画面が確認を挟むための印にすぎず、POST を直に叩けば素通りする。
+    """
+    spec = jobs.JOBS["eval-flywheel"]
+    assert spec.target == "eval-flywheel-ui", "全量が走るターゲットを指している"
+    recipe = MAKEFILE.read_text(encoding="utf-8").split("\neval-flywheel-ui:\n", 1)[1]
+    recipe = recipe.split("\n\n", 1)[0]
+    assert "--limit 40" in recipe, "ボタンから起動するターゲットに件数の上限が無い"
 
 
 # ---------------------------------------------------------------------------

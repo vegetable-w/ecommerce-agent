@@ -14,7 +14,7 @@ from collections.abc import Callable
 
 from fastapi import APIRouter
 
-from app.api import rageval
+from app.api import observability, rageval
 from app.config import settings
 from app.core import jobs
 from app.db import repository
@@ -118,6 +118,15 @@ async def _rag_eval() -> dict:
     }
 
 
+async def _observability() -> dict:
+    """可観測性の 4 つの数字。数値は app.api.observability を通す(出所を 1 つにする)。
+
+    成果物が無いのは異常ではなく未実行なので、あちらが present=False を返す。
+    ここで例外にせず、カード自体は ok のまま出す(RAG 評価のカードと同じ扱い)。
+    """
+    return await observability.build_card()
+
+
 async def _config() -> dict:
     # 秘密は 1 つも入れない。API キーはもちろん、DATABASE_URL も
     # 資格情報を含むので出さない
@@ -142,6 +151,7 @@ async def overview() -> dict:
         await _card("staging", "会話からの抽出", _staging),
         await _card("sources", "ナレッジ元資料", _sources),
         await _card("rag_eval", "RAG 評価（4戦略比較）", _rag_eval),
+        await _card("observability", "可観測性（コスト・トレンド・校正）", _observability),
         await _card("jobs", "ジョブ", _jobs),
         await _card("config", "設定", _config),
     ]

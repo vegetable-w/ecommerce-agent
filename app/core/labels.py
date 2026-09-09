@@ -33,6 +33,21 @@ TOOL_AUDIT_STATUS: dict[str, str] = {
 }
 
 
+# review_queue.review_status（09 章）。データフライホイールのレビュー画面の表示名。
+REVIEW_STATUS: dict[str, str] = {
+    "pending": "未対応",
+    "approved": "承認済み",
+    "rejected": "却下",
+}
+
+# eval_runs.triggered_by（09 章）。評価のトレンドは運用者が読む画面に出すので、
+# 各実行の由来もそこに日本語で並ぶ。監査ログ（TOOL_AUDIT_STATUS）と同じ扱いにする。
+EVAL_TRIGGERED_BY: dict[str, str] = {
+    "scheduled": "定期実行",
+    "manual": "手動実行",
+}
+
+
 def label(table: dict[str, str], value: str) -> str:
     """未知の値が来ても落とさず、識別子をそのまま返す。
 

@@ -52,6 +52,10 @@ _DDL_FILES = [
     pathlib.Path(__file__).resolve().parent.parent / "sql" / "07-layers.sql",
     # 08 は tool_audit_logs の CREATE TABLE。FK を持たないので順序の制約はない。
     pathlib.Path(__file__).resolve().parent.parent / "sql" / "08-ddl.sql",
+    # 09 は review_queue / eval_runs の CREATE と、low_confidence_questions への ALTER。
+    # ALTER が review_queue への FK を張るので、04(低信頼プールの CREATE)より後に置く。
+    # ファイル内でも CREATE が先に書かれている。
+    pathlib.Path(__file__).resolve().parent.parent / "sql" / "09-ddl.sql",
 ]
 # 削除順: 子 → 親。knowledge_chunks の自己参照 FK は FOREIGN_KEY_CHECKS=0 で吸収する。
 # low_confidence_questions は conversations への FK を持つので conversations より先に置く。
@@ -59,7 +63,10 @@ _DDL_FILES = [
 # tool_audit_logs も FK を持たないが、conversation_id で会話を指すので会話より先に消す。
 # conversation_summaries は conversations への FK を持たないが、会話より先に消す
 # (会話が消えたのに要約の断片だけ残ると、次のテストが前のテストの断片を読む)。
-_TABLES = ["low_confidence_questions", "conversation_summaries", "messages", "tickets",
+# review_queue は low_confidence_questions.matched_review_id から参照される親なので、
+# 子である low_confidence_questions より後ろに置く。eval_runs は FK を持たない。
+_TABLES = ["low_confidence_questions", "review_queue", "eval_runs",
+           "conversation_summaries", "messages", "tickets",
            "tool_audit_logs", "conversations", "faq", "qa_extraction_staging",
            "knowledge_chunks", "faith_cases"]
 
@@ -124,7 +131,12 @@ async def _test_engine():
             # SET NAMES などのセッション設定は engine 側で済んでいるので流さない。
             # 実行するのはスキーマを作る文だけに絞る。
             if s.lstrip().upper().startswith(("CREATE TABLE", "ALTER TABLE")):
-                await conn.execute(text(s))
+                # text() ではなく exec_driver_sql で流す。text() は `:name` を
+                # bind parameter として解釈するため、COMMENT の中に JSON の例
+                # (`{"recall_at_k":0.82}` など)がある DDL がそのまま壊れる
+                # (09-ddl.sql の eval_runs.metrics)。ここで流すのは値を差し込まない
+                # 固定の DDL だけなので、bind の仕組みは元々要らない。
+                await conn.exec_driver_sql(s)
     yield engine
     await engine.dispose()
 

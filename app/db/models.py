@@ -179,6 +179,26 @@ class LowConfidenceQuestion(Base):
         Enum("retrieval_low_conf", "self_check", "user_feedback")
     )
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 09 章で追加(sql/09-ddl.sql)。
+    # retrieved_chunks は投入時点の検索結果の写し。あとから同じ質問を引き直しても、
+    # そのときにはナレッジベースが更新されていて「なぜ答えられなかったのか」が
+    # 再現できない。レビュー画面で根拠を見るには、この時点の写しが要る。
+    # 検索を通らない経路(self_check / user_feedback)からの投入は NULL のままでよい。
+    #
+    # none_as_null=True を付けているのは、既定では Python の None が JSON の
+    # `null` リテラルとして書かれ、SQL 上は NULL ではない値になるため。DDL は
+    # この列の NULL を「検索を通っていない」の意味で使うと書いてあり、
+    # `retrieved_chunks IS NULL` で数えたり絞ったりする側から見ると、
+    # 写しの無い行が JSON null として全部ヒットしないことになる。
+    retrieved_chunks: Mapped[list | None] = mapped_column(
+        JSON(none_as_null=True), nullable=True
+    )
+    # 正規化と重複排除のあと、どの review_queue の行にまとめられたか。
+    # NULL は「まだ pipeline が処理していない」を意味し、この列が
+    # fetch_unmatched_low_conf の未処理判定そのものになる。
+    matched_review_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("review_queue.id"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
@@ -252,4 +272,50 @@ class ToolAuditLog(Base):
     error_message: Mapped[str | None] = mapped_column(String(512), nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, server_default="0")
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class ReviewQueue(Base):
+    """重複排除まで済んだナレッジの穴。1 行が 1 つの穴を表す(sql/09-ddl.sql)。
+
+    low_confidence_questions が「生の質問を取りこぼさないための箱」なのに対し、
+    こちらは人がレビューする単位。同じ穴が何度も来たら行を増やさず
+    occurrence_count を進めるので、この数字がそのままレビューの優先度になる。
+
+    review_status は英語識別子。日本語の表示ラベルは app/core/labels.py の
+    REVIEW_STATUS だけが持つ(DB へ日本語を書く経路は作らない)。
+    """
+
+    __tablename__ = "review_queue"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    normalized_question: Mapped[str] = mapped_column(String(512))
+    ai_suggested_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    occurrence_count: Mapped[int] = mapped_column(Integer, server_default="1")
+    review_status: Mapped[str] = mapped_column(
+        Enum("pending", "approved", "rejected"), server_default="pending"
+    )
+    approved_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class EvalRun(Base):
+    """評価パイプラインの 1 回分の結果(sql/09-ddl.sql)。
+
+    個々の指標は metrics(JSON)に入れる。列にしないのは、章が進むごとに測る指標が
+    増えるためで、指標を足すたびに ALTER TABLE を打つ運用にはしない。
+    時系列に並べたものが評価のトレンドになる。
+    """
+
+    __tablename__ = "eval_runs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    triggered_by: Mapped[str] = mapped_column(
+        Enum("scheduled", "manual"), server_default="scheduled"
+    )
+    dataset_size: Mapped[int] = mapped_column(Integer)
+    metrics: Mapped[dict] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

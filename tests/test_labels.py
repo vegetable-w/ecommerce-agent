@@ -17,7 +17,7 @@ from app.core import labels
 _SQL_DIR = pathlib.Path(__file__).resolve().parent.parent / "sql"
 # ENUM 列を持つ表を作る章のファイル。新しい章が ENUM 列を足したらここに追記する
 # (追記しないと、その列は下の未対応チェックをすり抜ける)。
-_DDL_PATHS = [_SQL_DIR / "02-ddl.sql", _SQL_DIR / "08-ddl.sql"]
+_DDL_PATHS = [_SQL_DIR / "02-ddl.sql", _SQL_DIR / "08-ddl.sql", _SQL_DIR / "09-ddl.sql"]
 # ENUM 列を後から書き換える章のファイル。適用順に並べる(後のものが勝つ)。
 _ALTER_PATHS = [_SQL_DIR / "06-ticket-type.sql"]
 
@@ -31,6 +31,8 @@ _ENUM_TO_LABEL_TABLE: dict[tuple[str, str], dict[str, str]] = {
     ("tickets", "ticket_type"): labels.TICKET_TYPE,
     ("tickets", "status"): labels.TICKET_STATUS,
     ("tool_audit_logs", "status"): labels.TOOL_AUDIT_STATUS,
+    ("review_queue", "review_status"): labels.REVIEW_STATUS,
+    ("eval_runs", "triggered_by"): labels.EVAL_TRIGGERED_BY,
 }
 _NO_LABEL_NEEDED: set[tuple[str, str]] = {
     ("messages", "role"),  # user/assistant/tool は内部プロトコル値であり画面表示しない
@@ -106,6 +108,8 @@ def test_ddl_has_expected_enum_columns():
         ("tool_audit_logs", "status"): {
             "success", "failed", "timeout", "validation_blocked", "permission_denied",
         },
+        ("review_queue", "review_status"): {"pending", "approved", "rejected"},
+        ("eval_runs", "triggered_by"): {"scheduled", "manual"},
     }
 
 

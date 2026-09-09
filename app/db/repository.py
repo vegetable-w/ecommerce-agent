@@ -11,19 +11,21 @@
 import logging
 from datetime import datetime
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import IntegrityError
 
 import app.db.base as db
 from app.db.models import (
     Conversation,
     ConversationSummary,
+    EvalRun,
     FaithCase,
     Faq,
     KnowledgeChunk,
     LowConfidenceQuestion,
     Message,
     QaExtractionStaging,
+    ReviewQueue,
     Ticket,
     ToolAuditLog,
 )
@@ -403,7 +405,11 @@ async def clear_knowledge() -> None:
 
 
 async def _insert_low_confidence(
-    conversation_id: int | None, raw_question: str, source: str, reason: str | None
+    conversation_id: int | None,
+    raw_question: str,
+    source: str,
+    reason: str | None,
+    retrieved_chunks: list | None,
 ) -> int:
     async with db.async_session() as s:
         row = LowConfidenceQuestion(
@@ -411,6 +417,7 @@ async def _insert_low_confidence(
             raw_question=raw_question,
             source=source,
             reason=reason,
+            retrieved_chunks=retrieved_chunks,
         )
         s.add(row)
         await s.commit()
@@ -418,11 +425,19 @@ async def _insert_low_confidence(
 
 
 async def insert_low_confidence(
-    conversation_id: int | None, raw_question: str, source: str, reason: str | None
+    conversation_id: int | None,
+    raw_question: str,
+    source: str,
+    reason: str | None,
+    retrieved_chunks: list | None = None,
 ) -> int:
     """回答を断った質問を低信頼プールへ積み、その id を返す。
 
     source は DDL の ENUM('retrieval_low_conf','self_check','user_feedback') に従う。
+
+    retrieved_chunks は投入時点の検索結果の写し(09 章)。既定 None で末尾に足して
+    あるのは、既存の呼び出し元(04 章の回答拒否パスと自己点検パス)を 4 引数のまま
+    通すため。検索を通らない経路は渡さなくてよい。
 
     conversation_id は conversations への FK であり、存在しない id を渡すと
     IntegrityError になる。ただし呼び出し元(04 章の回答拒否パス)は「根拠が足りないので
@@ -431,7 +446,9 @@ async def insert_low_confidence(
     後から辿るための手掛かりに過ぎないので、紐付けだけを捨てて質問文を残す。
     """
     try:
-        return await _insert_low_confidence(conversation_id, raw_question, source, reason)
+        return await _insert_low_confidence(
+            conversation_id, raw_question, source, reason, retrieved_chunks
+        )
     except IntegrityError:
         if conversation_id is None:
             raise
@@ -439,7 +456,9 @@ async def insert_low_confidence(
             "conversation_id=%s が見つからないため、会話に紐づけずにプールへ積む",
             conversation_id,
         )
-        return await _insert_low_confidence(None, raw_question, source, reason)
+        return await _insert_low_confidence(
+            None, raw_question, source, reason, retrieved_chunks
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -849,3 +868,186 @@ async def insert_tool_audit(
             )
         )
         await s.commit()
+
+
+# ---------------------------------------------------------------------------
+# データフライホイール (09 Task 1)
+#
+# 低信頼プール(生の質問) → 正規化と重複排除 → review_queue(人がレビューする単位)
+# → 承認された答えを 03 章の取り込み経路でナレッジベースへ戻す、という閉ループの
+# データ層。ここは pipeline と API の両方から呼ばれる。
+# ---------------------------------------------------------------------------
+
+
+async def fetch_unmatched_low_conf(limit: int) -> list[LowConfidenceQuestion]:
+    """まだ review_queue へまとめられていない低信頼質問を、古い順に取る。
+
+    id 昇順にするのは、pipeline を何度回しても同じ質問から処理され、
+    limit で切ったときの積み残しが「新しい方」に揃うようにするため。
+    降順にすると、古い質問が limit の外に残り続けて永久に処理されない。
+    """
+    async with db.async_session() as s:
+        stmt = (
+            select(LowConfidenceQuestion)
+            .where(LowConfidenceQuestion.matched_review_id.is_(None))
+            .order_by(LowConfidenceQuestion.id.asc())
+            .limit(limit)
+        )
+        return list((await s.execute(stmt)).scalars())
+
+
+async def list_review_candidates(limit: int = 200) -> list[dict]:
+    """重複排除の突き合わせ相手。id と正規化済みの質問文だけを返す。
+
+    行全体ではなく 2 列に絞るのは、この結果が候補の一覧としてモデルの prompt に
+    載るため。answer 本文まで積むと候補数に比例して無駄に token を食う。
+
+    updated_at 降順にするのは、直近に触れた穴ほど今の質問と重なりやすいため。
+    limit で切られるのは古い穴の側になる。
+    """
+    async with db.async_session() as s:
+        stmt = (
+            select(ReviewQueue.id, ReviewQueue.normalized_question)
+            .order_by(ReviewQueue.updated_at.desc())
+            .limit(limit)
+        )
+        rows = (await s.execute(stmt)).all()
+    return [{"id": r.id, "normalized_question": r.normalized_question} for r in rows]
+
+
+async def insert_review_item(normalized_question: str, ai_suggested_answer: str | None) -> int:
+    """新しいナレッジの穴を 1 件レビュー待ちへ積み、その id を返す。"""
+    async with db.async_session() as s:
+        row = ReviewQueue(
+            normalized_question=normalized_question,
+            ai_suggested_answer=ai_suggested_answer,
+        )
+        s.add(row)
+        await s.commit()
+        return row.id
+
+
+async def increment_occurrence(review_id: int) -> None:
+    """既存の穴に同じ質問が再び来たときに出現回数を 1 進める。
+
+    Python 側で読んでから +1 して書き戻すのではなく、SQL の
+    `occurrence_count = occurrence_count + 1` で加算する。pipeline は複数の質問を
+    まとめて処理するので、読み書きに分けると同じ穴への 2 件が同じ値を読んで
+    片方の加算が消える。
+    """
+    async with db.async_session() as s:
+        await s.execute(
+            update(ReviewQueue)
+            .where(ReviewQueue.id == review_id)
+            .values(occurrence_count=ReviewQueue.occurrence_count + 1)
+        )
+        await s.commit()
+
+
+async def set_matched_review(lcq_id: int, review_id: int) -> None:
+    """低信頼質問を、まとめ先のナレッジの穴へ紐づける。
+
+    この列が埋まった時点でその質問は fetch_unmatched_low_conf から外れる。
+    つまりこの更新が pipeline の「処理済み」の印そのものになるので、
+    occurrence_count を進めたあとに必ず呼ぶこと。
+    """
+    async with db.async_session() as s:
+        await s.execute(
+            update(LowConfidenceQuestion)
+            .where(LowConfidenceQuestion.id == lcq_id)
+            .values(matched_review_id=review_id)
+        )
+        await s.commit()
+
+
+async def list_review_queue(status: str | None) -> list[ReviewQueue]:
+    """レビュー待ちの一覧。occurrence_count 降順(よく来る穴が上)。
+
+    status=None は絞り込みなしの全件。
+    """
+    async with db.async_session() as s:
+        stmt = select(ReviewQueue).order_by(ReviewQueue.occurrence_count.desc())
+        if status:
+            stmt = stmt.where(ReviewQueue.review_status == status)
+        return list((await s.execute(stmt)).scalars())
+
+
+async def get_review_detail(
+    review_id: int,
+) -> tuple[ReviewQueue, list[LowConfidenceQuestion]] | None:
+    """1 件のナレッジの穴と、そこへまとめられた生の質問たち。
+
+    生の質問を一緒に返すのは、正規化後の 1 行だけを見て承認すると、
+    正規化が意味を削っていた場合(例えば注文番号や条件が落ちた場合)に
+    気づけないため。レビューする人は元の言い回しを読めなければならない。
+
+    穴そのものが無ければ None。生の質問が 0 件なのは異常ではない
+    (紐づけ前や、pipeline が穴だけ先に作った直後)。
+    """
+    async with db.async_session() as s:
+        item = await s.get(ReviewQueue, review_id)
+        if item is None:
+            return None
+        raws = list(
+            (
+                await s.execute(
+                    select(LowConfidenceQuestion)
+                    .where(LowConfidenceQuestion.matched_review_id == review_id)
+                    .order_by(LowConfidenceQuestion.id.asc())
+                )
+            ).scalars()
+        )
+        return item, raws
+
+
+async def update_review_status(
+    review_id: int, status: str, approved_answer: str | None = None
+) -> bool:
+    """レビュー結果を確定する。**pending の行だけ**動かせる。更新できたら True。
+
+    「読んで pending か確かめてから書く」形にはしない。2 人が同時に同じ行を開いて
+    片方が承認、片方が却下を押すと、どちらも読み取り時点では pending なので両方が
+    成功してしまい、後勝ちで片方の判断が黙って消える。承認は 03 章の取り込み経路を
+    通してナレッジベースへ書き戻る操作なので、消えたことに誰も気づけない。
+
+    条件を UPDATE の WHERE に畳み込めば、状態の確認と更新が 1 文の中で起きる。
+    行ロックを取れた方だけが rowcount=1 を得て、もう片方は 0 を受け取り、
+    自分の操作が通らなかったことを呼び出し元へ返せる。
+    """
+    async with db.async_session() as s:
+        result = await s.execute(
+            update(ReviewQueue)
+            .where(ReviewQueue.id == review_id, ReviewQueue.review_status == "pending")
+            .values(review_status=status, approved_answer=approved_answer)
+        )
+        await s.commit()
+        return result.rowcount == 1
+
+
+async def insert_eval_run(triggered_by: str, dataset_size: int, metrics: dict) -> int:
+    """評価の 1 回分を記録し、その id を返す。"""
+    async with db.async_session() as s:
+        row = EvalRun(
+            triggered_by=triggered_by,
+            dataset_size=dataset_size,
+            metrics=metrics,
+        )
+        s.add(row)
+        await s.commit()
+        return row.id
+
+
+async def list_eval_runs(limit: int = 10) -> list[EvalRun]:
+    """新しい順に評価の実行結果を返す。トレンドの描画元。
+
+    created_at は DATETIME(秒精度)で、同じ秒に 2 件入ることがある。
+    第 2 キーに id を足しておかないと同秒の 2 件の並びが実行ごとに変わり、
+    トレンドの端が揺れる。
+    """
+    async with db.async_session() as s:
+        stmt = (
+            select(EvalRun)
+            .order_by(EvalRun.created_at.desc(), EvalRun.id.desc())
+            .limit(limit)
+        )
+        return list((await s.execute(stmt)).scalars())

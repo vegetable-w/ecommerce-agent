@@ -29,6 +29,7 @@ from langgraph.types import Command
 
 from app.config import settings
 from app.core import summarizer
+from app.core.observability import attach_observability
 from app.db import repository
 from app.graph import state as state_mod
 from app.graph.build import build_graph
@@ -77,7 +78,10 @@ async def init_graph() -> None:
     checkpointer = await _cm.__aenter__()
     # setup() はテーブルを作る。冪等だが、呼ばないと初回の書き込みで落ちる
     await checkpointer.setup()
-    _graph = build_graph(checkpointer=checkpointer)
+    # 09: compile 済みの graph に observability の callback を 1 回だけ被せる。
+    # Langfuse が未設定なら attach_observability は graph をそのまま返すので、
+    # ここ以外に分岐は要らない。
+    _graph = attach_observability(build_graph(checkpointer=checkpointer))
     logger.info("05 graph compiled, checkpointer=%s", settings.checkpointer_db_path)
 
 
@@ -180,8 +184,20 @@ def _graph_input(user_id: str, message: str, cid: int, msg_id: int,
 
 
 def _config(cid: int) -> dict:
-    """thread_id は会話 ID。checkpointer はこの値で State を切り分ける。"""
-    return {"configurable": {"thread_id": str(cid)}}
+    """thread_id は会話 ID。checkpointer はこの値で State を切り分ける。
+
+    09: metadata の langfuse_session_id も同じ会話 ID。Langfuse の CallbackHandler は
+    LangChain の metadata から `langfuse_` 接頭辞の key を拾って trace 根へ引き上げるので、
+    これだけで 1 会話の複数 turn が Langfuse の 1 session にまとまる。**Langfuse を
+    使っていなければただの未使用 metadata**で、graph の挙動には何も影響しない。
+
+    turn の入口 3 つ(run_turn / resume_turn / _stream_events)はどれもこの関数から
+    config を得ているので、session の紐付けもここ 1 箇所で済む。
+    """
+    return {
+        "configurable": {"thread_id": str(cid)},
+        "metadata": {"langfuse_session_id": str(cid)},
+    }
 
 
 def _interrupt_payload(raw) -> dict | None:

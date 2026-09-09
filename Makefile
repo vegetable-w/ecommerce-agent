@@ -1,4 +1,4 @@
-.PHONY: dev test eval seed seed-conv kb-preview kb-build kb-repatch kb-vectorize kb-mine kb-reset eval-retrieval eval-mining eval-rag eval-check judge-check eval-05 eval-06 smoke-interrupt eval-07 eval-08 mcp-up mcp-down
+.PHONY: dev test eval seed seed-conv kb-preview kb-build kb-repatch kb-vectorize kb-mine kb-reset eval-retrieval eval-mining eval-rag eval-check judge-check eval-05 eval-06 smoke-interrupt eval-07 eval-08 mcp-up mcp-down langfuse-up langfuse-down
 
 # --reload は付けない。この環境では watchfiles が入っていても変更を検知せず
 # (実測: 起動後の app/tools/business.py の更新で reload されなかった)、
@@ -118,3 +118,16 @@ mcp-down:
 	@for p in 8101 8102; do for pid in $$($(MCP_LISTENER) | sort -u); do taskkill //F //T //PID $$pid >/dev/null 2>&1 || kill -9 $$pid 2>/dev/null || true; done; done
 	@rm -f data/mcp-logistics.pid data/mcp-aftersales.pid
 	@echo "MCP Servers stopped"
+
+# 09 Langfuse self-hosted。**既存の docker-compose.yml とは別 stack**で、
+# project 名は docker-compose.langfuse.yml の `name: langfuse` が固定している
+# (既定の project 名は directory 名になり、mysql / milvus を巻き込む)。
+# 初回は image の pull と migration で 2〜3 分かかる。固定の sleep ではなく
+# health endpoint が通るまで待つ(pull にかかる時間はマシンによって桁が違う)。
+# recipe を 1 物理行に畳んであるのは milvus-up と同じ理由(継続行を使わない)。
+langfuse-up:
+	docker compose -f docker-compose.langfuse.yml up -d
+	@echo "Langfuse の起動を待機中 (http://localhost:3000/api/public/health)..."; 	for i in $$(seq 1 120); do 	  curl -sf http://localhost:3000/api/public/health >/dev/null 2>&1 && echo "Langfuse OK  http://localhost:3000  (admin@support.local / support123)" && exit 0; 	  sleep 3; done; echo "Langfuse が ready になりません。docker compose -f docker-compose.langfuse.yml logs langfuse-web を確認してください" && exit 1
+
+langfuse-down:
+	docker compose -f docker-compose.langfuse.yml down

@@ -177,8 +177,11 @@ async def test_run_turn_は会話IDが無ければ採番する(monkeypatch):
 
     assert result == {"conversation_id": 55, "state": {"answer": "はい"}, "interrupt": None}
     assert calls == [("create", "u1"), ("append", 55, "user", "こんにちは")]
-    # thread_id は会話 ID の文字列。ここがずれると turn をまたいで履歴が続かない
-    assert graph.calls[0]["config"] == {"configurable": {"thread_id": "55"}}
+    # thread_id は会話 ID の文字列。ここがずれると turn をまたいで履歴が続かない。
+    # 09: langfuse_session_id も同じ会話 ID。turn の入口 3 つすべてに乗っていることを
+    # それぞれの入口で押さえる(1 箇所で足しているが、抜けたときに気づける場所は入口ごと)
+    assert graph.calls[0]["config"] == {"configurable": {"thread_id": "55"},
+                                        "metadata": {"langfuse_session_id": "55"}}
 
 
 async def test_run_turn_は既存の会話をそのまま使う(monkeypatch):
@@ -189,7 +192,8 @@ async def test_run_turn_は既存の会話をそのまま使う(monkeypatch):
 
     assert result["conversation_id"] == 7
     assert calls == [("get", 7), ("append", 7, "user", "続きです")]
-    assert graph.calls[0]["config"] == {"configurable": {"thread_id": "7"}}
+    assert graph.calls[0]["config"] == {"configurable": {"thread_id": "7"},
+                                        "metadata": {"langfuse_session_id": "7"}}
 
 
 async def test_run_turn_は知らない会話IDを拒否して何も保存しない(monkeypatch):
@@ -479,7 +483,8 @@ async def test_stream_turnは2つのmodeを要求する(monkeypatch):
     await _events(user_id="u1", message="こんにちは", conversation_id=None)
 
     assert graph.calls[0]["kwargs"]["stream_mode"] == ["messages", "updates"]
-    assert graph.calls[0]["config"] == {"configurable": {"thread_id": "55"}}
+    assert graph.calls[0]["config"] == {"configurable": {"thread_id": "55"},
+                                        "metadata": {"langfuse_session_id": "55"}}
 
 
 async def test_stream_turnはuser_messageを先に保存する(monkeypatch):
@@ -934,7 +939,8 @@ async def test_resume_turnはCommandを渡しuser_messageを保存しない(monk
     # _graph_input を通すと turn の入口のリセットが走り、interrupt 待ちの State が壊れる
     assert isinstance(inp, Command)
     assert inp.resume == "1001"
-    assert graph.calls[0]["config"] == {"configurable": {"thread_id": "7"}}
+    assert graph.calls[0]["config"] == {"configurable": {"thread_id": "7"},
+                                        "metadata": {"langfuse_session_id": "7"}}
 
 
 async def test_resume_turnは知らない会話を拒否してgraphを呼ばない(monkeypatch):

@@ -103,6 +103,12 @@ class Settings(BaseSettings):
     tool_max_retries: int = 2            # read-only tool の一時的な失敗に対する最大 retry 数
     demo_ticket_delay_seconds: float = 0.0  # acceptance 6：>0 で create_ticket を意図的に遅延させる（write の timeout を見せるため）
 
+    # --- 09 Observability（Langfuse self-hosted。3 config が揃った場合のみ callback を付ける。
+    # 未設定なら system は通常動作し、test 環境も Langfuse に依存しない）---
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_base_url: str = ""     # 例：http://localhost:3000（self-hosted。データを外へ出さない）
+
     # ログ。app.* の logger をどこへどの水準で出すか(app/core/logging_setup.py)。
     # 既定を INFO にするのは、model_ctx と要約の進行が受け入れ検証の見どころで、
     # WARNING だと 1 行も出ないため。

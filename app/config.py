@@ -115,10 +115,18 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_file: str = "log/app.log"
 
-    # 09 根拠の確信度のしきい値。**勘で決めない。**
-    # `make calibrate-confidence` を 04 章の評価セットで走らせ、その出力から入れる。
-    # ここは校正前の仮置き。
-    evidence_confidence_threshold: float = 0.5
+    # 09 根拠の確信度のしきい値。`make calibrate-confidence` を 04 章の評価セット
+    # 300 件に掛けた実測から決めた(dev-notes/09-confidence-calibration.txt)。
+    #
+    # **Youden J の argmax(0.05)は採らない。** 分布が二峰で、0.05〜0.45 の間は
+    # J がほぼ平ら(0.672 → 0.667。差は 1 サンプル)なので、argmax はその平坦部の
+    # 端に偶然立っているだけで「測って決めた」ことにならない。同じ平坦部の中で
+    # 0.45 を選ぶ理由は 2 つ:
+    #   ・断るべき質問を誤って通す率が半分になる(2/60 → 1/60)。答えられる質問の
+    #     通過率は 0.706 → 0.683 とほぼ動かない(4 サンプル)。
+    #   ・誤りの重さが非対称。根拠が無いのに答えるのは作り話だが、答えられるのに
+    #     断るのは低信頼プールへ積まれて次の改善につながる。
+    evidence_confidence_threshold: float = 0.45
 
     @property
     def rerank_key(self) -> SecretStr:

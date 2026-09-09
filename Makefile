@@ -1,4 +1,4 @@
-.PHONY: dev test eval seed seed-conv kb-preview kb-build kb-repatch kb-vectorize kb-mine kb-reset eval-retrieval eval-mining eval-rag eval-check judge-check eval-05 eval-06 smoke-interrupt eval-07 eval-08 mcp-up mcp-down langfuse-up langfuse-down
+.PHONY: dev test eval seed seed-conv kb-preview kb-build kb-repatch kb-vectorize kb-mine kb-reset eval-retrieval eval-mining eval-rag eval-check judge-check eval-05 eval-06 smoke-interrupt calibrate-confidence eval-07 eval-08 mcp-up mcp-down langfuse-up langfuse-down
 
 # --reload は付けない。この環境では watchfiles が入っていても変更を検知せず
 # (実測: 起動後の app/tools/business.py の更新で reload されなかった)、
@@ -131,3 +131,9 @@ langfuse-up:
 
 langfuse-down:
 	docker compose -f docker-compose.langfuse.yml down
+
+# 09 章の確信度のしきい値を 04 章の評価セットで校正する。
+# 検索とリランクだけを 300 件走らせる(生成も judge も呼ばない)。
+# Milvus の起動とナレッジベースの構築が要る。
+calibrate-confidence:
+	PYTHONUTF8=1 uv run --env-file .env python scripts/calibrate_confidence.py

@@ -29,4 +29,10 @@ def get_chat_model(streaming: bool = False,
         streaming=streaming,
         temperature=temperature,
         request_timeout=settings.request_timeout,
+        # streaming でも usage を返させる。**既定のままだと streaming=True の呼び出しは
+        # usage_metadata が None になり**(実測)、agent_llm が積む tokens_used が
+        # 常に 0 のままになる。09 章の intent 別コスト集計はこの値を土台にするので、
+        # ここで一括して有効にする(呼び出し側それぞれに bind させると 1 か所の
+        # 書き忘れでその経路のコストだけ静かに消える)。
+        stream_usage=True,
     )

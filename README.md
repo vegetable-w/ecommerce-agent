@@ -190,6 +190,60 @@ SELECT tool_name, tool_source, mcp_server, status, retry_count, duration_ms
 ほしいです」と伝えると**チケット内容の確認カード**が出て、「送信を確認」でチケット番号が返り、
 「キャンセル」では作成されないことを確認する。
 
+### 7. 09 章の受け入れ（実サービス）
+
+査読キューと評価トレンドのテーブルを 1 度だけ流す:
+
+```bash
+docker compose exec -T mysql mysql --default-character-set=utf8mb4 -uroot -proot support < sql/09-ddl.sql
+```
+
+**トレースを見るには Langfuse を別 stack で起動する**（既存の mysql / milvus とは独立。データはローカルに留まる）:
+
+```bash
+make langfuse-up     # http://localhost:3000  admin@support.local / support123
+make langfuse-down
+```
+
+起動後、`.env` に 3 行を足すとトレースが送られる（未設定なら送らず、通常どおり動く）:
+
+```text
+LANGFUSE_PUBLIC_KEY=pk-lf-support-local
+LANGFUSE_SECRET_KEY=sk-lf-support-local
+LANGFUSE_BASE_URL=http://localhost:3000
+```
+
+確認する内容:
+
+1. **1 リクエストの全体がトレースで開ける** — coref → intent → route → agent → tool → log が 1 本の木になり、
+   LLM の span に prompt と token が乗る
+2. **答えられなかった質問が改善の燃料になる**（この章の核心）:
+
+```bash
+make flywheel        # プール → 正規化と重複排除 → 査読キュー
+```
+
+   画面 `http://localhost:8000/review` で穴を読み、承認するとナレッジベースへ書き戻る。
+   **同じ質問をもう一度聞くと、今度は答えられる。**
+3. **3 つのレポートを画面から読む** — `http://localhost:8000/observability`
+
+```bash
+make cost-report            # intent 別の token（Langfuse の起動が要る）
+make calibrate-confidence   # 確信度のしきい値の校正（検索のみ 300 件）
+make eval-flywheel LIMIT=40 # 評価してトレンドへ 1 行足す
+```
+
+**`make eval-flywheel` は LIMIT を付けずに走らせると評価セット全量（生成 300 + judge 240）を
+上流へ投げる。** 画面のボタンからは `--limit 40` を焼き込んだ target が起動する。
+
+プールへ入った質問と検索の写しは DB からも読める:
+
+```sql
+SELECT id, source, raw_question, matched_review_id FROM low_confidence_questions ORDER BY id DESC LIMIT 20;
+SELECT id, normalized_question, occurrence_count, review_status FROM review_queue ORDER BY occurrence_count DESC;
+SELECT id, triggered_by, dataset_size, metrics FROM eval_runs ORDER BY id DESC LIMIT 10;
+```
+
 ## ディレクトリ
 
 ```

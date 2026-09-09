@@ -69,6 +69,16 @@ class ConversationState(TypedDict, total=False):
     citations: list          # frontend から出典を開くための chunk 情報
     evidence_strong: bool    # 生成前の evidence gate の判定結果
 
+    # 09: 確信度ゲートの出力。3 つとも reducer は付けない(turn ごとの後勝ちの上書き)。
+    # 累積させると、前の turn の写しや別を引きずったまま次の turn の判断に混ざる。
+    evidence_confidence: float   # このターンの根拠の総合点(app/core/confidence.py)
+    # プールへ入れるときの source。"retrieval_low_conf"(根拠そのものが弱い)か
+    # "self_check"(根拠は取れたが答えきれない)。DDL の ENUM に合わせた英語の識別子
+    fallback_source: str
+    # 検索を通ったなら Top3 の写し。通っていなければ空 list。
+    # **strong で通ったターンでも残す**。Task 7 の 👎 が後からこの写しを拾うため
+    retrieved_snapshot: list
+
     # 決定的な node（script/complaint/fallback）の回答。
     # Agent の回答はここに入れない。token を stream して frontend へ直接流すため、
     # ここへ溜め込むと「stream した本文」と「State の本文」の 2 つの正が生まれる

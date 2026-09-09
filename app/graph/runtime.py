@@ -168,6 +168,11 @@ def _graph_input(user_id: str, message: str, cid: int, msg_id: int,
         "evidence": "",
         "citations": [],
         "evidence_strong": False,
+        # 09: 確信度ゲートの 3 つも同じ理由で戻す。とくに retrieved_snapshot が
+        # 前 turn のまま残ると、👎 のフィードバックが別の質問の検索結果を拾う
+        "evidence_confidence": 0.0,
+        "fallback_source": "",
+        "retrieved_snapshot": [],
         "intent": "",
         "route": "",
         "resolved_query": "",

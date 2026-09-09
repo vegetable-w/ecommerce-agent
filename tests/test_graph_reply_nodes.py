@@ -101,9 +101,10 @@ async def test_complaint_reply_does_not_create_the_ticket(monkeypatch):
 def _capture(monkeypatch):
     calls = {}
 
-    async def fake_insert(conversation_id, raw_question, source, reason):
+    async def fake_insert(conversation_id, raw_question, source, reason,
+                          retrieved_chunks=None):
         calls.update(conversation_id=conversation_id, raw=raw_question,
-                     source=source, reason=reason)
+                     source=source, reason=reason, chunks=retrieved_chunks)
         return 1
 
     monkeypatch.setattr(nodes.repository, "insert_low_confidence", fake_insert)

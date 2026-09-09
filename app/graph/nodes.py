@@ -32,7 +32,7 @@ from app.core import coref as coref_mod
 from app.core import intent as intent_mod
 from app.core import labels
 from app.core import memory
-from app.core import query_understanding, retrieval, selfcheck
+from app.core import confidence, query_understanding, retrieval, selfcheck
 from app.core.llm import get_chat_model
 from app.core.observability import tag_intent
 from app.core.prompts import (
@@ -146,12 +146,33 @@ async def fallback_reply(state) -> dict:
     low_confidence_questions へ残す(04 章の query_faq と同じ経路)。理由に載せる
     top スコアは、プールを人が見たときに「惜しかったのか、全く外れていたのか」を
     区別する唯一の数字になる。
+
+    09: source を確信度ゲート(forced_rag)が付けた fallback_source から取り、
+    そのときの検索結果の写しも一緒に積む。「根拠そのものが弱かった」のか
+    「根拠は取れたが答えきれなかった」のかは、査読画面でナレッジの穴を直すときに
+    やることが違う(前者は書き足す、後者は書き方か索き方を直す)。
+
+    **State の key はどれも無いことがありうる。** gate を通らずここへ倒れてきた
+    経路では trace も fallback_source も retrieved_snapshot も入っていない。
+    整形で落とすと、穏当な回答拒否がそのまま 500 に化ける。
     """
-    # trace ごと無い経路(gate を通らずここへ倒れてきた場合)でも整形で落とさない
-    top = state.get("trace", {}).get("evidence_top") or 0.0
-    reason = f"retrieval evidence が不十分(top={top:.3f})"
+    trace = state.get("trace", {})
+    top = trace.get("evidence_top") or 0.0
+    signals = trace.get("confidence_signals") or {}
+    conf = state.get("evidence_confidence") or 0.0
+    reason = (
+        f"retrieval evidence が不十分(top={top:.3f}, confidence={conf:.3f}, "
+        f"valid={signals.get('valid_count', 0)}, "
+        f"margin={float(signals.get('margin', 0.0)):.3f}, "
+        f"key_clause={bool(signals.get('key_clause_hit'))})"
+    )
+    # 写しが空のときは None を渡す。DDL はこの列の NULL を「検索を通っていない」の
+    # 意味で使っており(app/db/models.py)、空 list を入れると JSON の [] になって
+    # `retrieved_chunks IS NULL` で数える側から漏れる
     await repository.insert_low_confidence(
-        state.get("conversation_id"), _user_text(state), "retrieval_low_conf", reason
+        state.get("conversation_id"), _user_text(state),
+        state.get("fallback_source") or "retrieval_low_conf", reason,
+        retrieved_chunks=state.get("retrieved_snapshot") or None,
     )
     return {"answer": FALLBACK_REPLY, "trace": {"route": "fallback"}}
 
@@ -242,28 +263,50 @@ async def forced_rag(state) -> dict:
         search_query, strategy="hybrid_rerank", min_score=_UNGATED
     )
     if not hits:
-        return {**_NO_EVIDENCE,
+        return {**_NO_EVIDENCE, "evidence_confidence": 0.0,
+                "fallback_source": "retrieval_low_conf", "retrieved_snapshot": [],
                 "trace": {"forced_rag": True, "evidence_top": 0.0}}
 
-    # 機械ゲート。リランク上流が落ちた場合、search_knowledge は rerank_score なしの
-    # ハイブリッド順で返す(app/core/retrieval.py)。掛ける数字が無いのでゲートは飛ばし、
-    # 意味ゲートへ委ねる。ここで拒否に倒すと、上流の一時障害がそのまま回答拒否 +
-    # 低信頼プールへの投入に化けてしまう。
+    # 確信度と写しは**足切りの手前**の hits から取る。足切り後から取ると、断った
+    # ターンほど写しが空になり、査読画面で「ナレッジに本当に無いのか、有るのに
+    # 引けていないのか」を見分けるという写しの目的がそのまま潰れる。
+    conf = confidence.compute_evidence_confidence(hits)
+    snapshot = confidence.snapshot_from_hits(hits)
+
     top = hits[0].get("rerank_score")
-    trace = {"forced_rag": True, "evidence_top": top if top is not None else 0.0}
+    trace = {"forced_rag": True, "evidence_top": top if top is not None else 0.0,
+             "evidence_confidence": conf.score, "confidence_signals": conf.signals}
+    # 弱いと判定したときに共通で返す分。fallback_source だけ経路ごとに変える。
+    # **写しは弱いときも残す**(断った理由を人が読むための材料そのもの)
+    weak = {**_NO_EVIDENCE, "evidence_confidence": conf.score,
+            "retrieved_snapshot": snapshot}
+
+    # 機械ゲート(09 で Top1 の単一スコアから確信度の総合点へ置き換え)。
+    # リランク上流が落ちた場合、search_knowledge は rerank_score なしのハイブリッド順で
+    # 返す(app/core/retrieval.py)。**確信度の 4 信号はどれもリランクスコアから作られる**
+    # ので、掛ける数字が無いのは 09 でも変わらない。ゲートは飛ばして意味ゲートへ委ねる。
+    # ここで拒否に倒すと、上流の一時障害がそのまま回答拒否 + 低信頼プールへの投入に
+    # 化けてしまう。
     if top is None:
-        trace["rerank"] = "unavailable"  # evidence_top の 0.0 を実測値と読み違えないため
+        trace["rerank"] = "unavailable"  # evidence_top と confidence の 0.0 を実測値と読み違えないため
     else:
+        if conf.score < settings.evidence_confidence_threshold:
+            return {**weak, "fallback_source": "retrieval_low_conf", "trace": trace}
+        # 総合点が閾値を越えても、下限に満たない hit は根拠に混ぜない。答えるか断るかの
+        # 判断(ゲート)と、答えると決めた後にモデルへ渡す根拠の選別は別の話
         hits = [h for h in hits if h.get("rerank_score", 0.0) >= settings.rerank_min_score]
         if not hits:
-            return {**_NO_EVIDENCE, "trace": trace}
+            return {**weak, "fallback_source": "retrieval_low_conf", "trace": trace}
 
     # 意味ゲート: この根拠だけで答えきれるかをモデル自身に判定させる
     chk = await selfcheck.check_sufficient(
         query, [f"{h.get('question', '')} {h.get('answer', '')}" for h in hits]
     )
     if not chk["useful"]:
-        return {**_NO_EVIDENCE, "trace": {**trace, "self_check": chk["reason"]}}
+        # こちらは根拠が取れなかったのではなく、取れた根拠で答えきれなかった。
+        # プールでの直し方が変わるので source を分ける
+        return {**weak, "fallback_source": "self_check",
+                "trace": {**trace, "self_check": chk["reason"]}}
 
     # head/tail 配置の「後」に番号を振る。evidence 本文の [n] と citations の n が
     # 同じ chunk を指すのは、この順番が唯一の正であるため
@@ -275,8 +318,12 @@ async def forced_rag(state) -> dict:
         for i, h in enumerate(arranged)
     ]
     evidence = "\n".join(f"[{c['n']}] {c['question']}: {c['answer']}" for c in citations)
+    # strong で通ったターンでも写しは残す。Task 7 の 👎 は「答えたが外していた」
+    # 回答に付くもので、そのとき何を引いていたかが無いと直しようがない。
+    # fallback_source は空に戻す(書く側で 1 度揃える。_NO_EVIDENCE と同じ理由)
     return {"evidence_strong": True, "evidence": evidence, "citations": citations,
-            "trace": trace}
+            "evidence_confidence": conf.score, "fallback_source": "",
+            "retrieved_snapshot": snapshot, "trace": trace}
 
 
 async def confidence_check(state) -> dict:

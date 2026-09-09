@@ -115,6 +115,11 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_file: str = "log/app.log"
 
+    # 09 根拠の確信度のしきい値。**勘で決めない。**
+    # `make calibrate-confidence` を 04 章の評価セットで走らせ、その出力から入れる。
+    # ここは校正前の仮置き。
+    evidence_confidence_threshold: float = 0.5
+
     @property
     def rerank_key(self) -> SecretStr:
         return self.rerank_api_key or self.embed_api_key

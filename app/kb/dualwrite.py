@@ -34,15 +34,21 @@ def _batches(items: list, size: int):
 
 
 async def vectorize_pending(client, batch_size: int = 64,
-                            collection: str = milvus_client.COLLECTION) -> int:
+                            collection: str = milvus_client.COLLECTION,
+                            chunk_ids: list[int] | None = None) -> int:
     """冪等・再実行可能: pending を取得 → category+questions+answer を連結して埋め込み
     → Milvus upsert(PK=id) → vector_id 反映・status=done。
+
+    chunk_ids を渡すと、その id の pending だけを処理する(09 章の査読の承認)。
+    既定の None は今までどおり DB 全体の pending で、取り込み(make kb-vectorize)の
+    振る舞いは変わらない。絞っても冪等性は変わらない: 落ちたバッチは pending のまま
+    残り、次の実行(押し直しでも kb-vectorize でも)が拾う。
 
     連結した text は dense の埋め込み元であると同時に、BM25 の検索対象でもある。
     両経路が同じ文字列を見ることで、同じ chunk 群を recall できる(片方だけ別の文字列に
     すると、ハイブリッドが「2 つの別々のコーパス」を引くことになり RRF の融合が壊れる)。
     どのバッチで落ちても、再実行時は残りの pending だけを拾う(id 単位 upsert なので重複しない)。"""
-    pending = await repository.list_pending_chunks()
+    pending = await repository.list_pending_chunks(chunk_ids)
     done = 0
     for batch in _batches(pending, batch_size):
         texts = [f"{r.category}\n{r.questions}\n{r.answer}" for r in batch]

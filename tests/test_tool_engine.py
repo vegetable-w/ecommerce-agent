@@ -241,6 +241,42 @@ async def test_format_result_hook_translates_enum(audits):
     assert audits[-1]["tool_source"] == "mcp"
 
 
+async def test_the_raw_result_survives_the_formatting(audits):
+    """format_result が落とした値を ToolRun.raw_result から読めること。
+
+    「モデルへは見せないが node は要る」情報の受け渡し口(09 章の query_faq の
+    検索の写し)。ここが content 側に混ざると、断ったのと同じ turn でその根拠を
+    モデルへ読ませることになる。
+    """
+    async def ok(_):
+        return {"sufficient": False, "_retrieved_snapshot": [{"question": "秘密"}]}
+
+    spec = _spec("query_logistics", source="builtin", tool=_tool(ok, "query_logistics"),
+                 schema=LOGISTICS_SCHEMA,
+                 fmt=lambda d: {k: v for k, v in d.items() if k != "_retrieved_snapshot"})
+    run = await engine.execute_tool_call(
+        {"name": "query_logistics", "args": {"tracking_no": "SF1"}, "id": "c1"},
+        1,
+        {"query_logistics": spec},
+    )
+    assert "秘密" not in run.tool_message.content
+    assert run.raw_result["_retrieved_snapshot"] == [{"question": "秘密"}]
+    # 監査にも整形後の本文が載る(内部用の値を記録の側へ漏らさない)
+    assert "秘密" not in (audits[-1]["result_summary"] or "")
+
+
+async def test_a_failed_run_has_no_raw_result(audits):
+    """失敗した実行に生の戻り値は無い。読む側が「取れなかった」と扱えること。"""
+    async def boom(_):
+        raise ValueError("業務エラー")
+
+    spec = _spec(tool=_tool(boom))
+    run = await engine.execute_tool_call(
+        {"name": "query_order", "args": {"order_id": "1001"}, "id": "c1"}, 1,
+        {"query_order": spec})
+    assert run.ok is False and run.raw_result is None
+
+
 async def test_mcp_content_blocks_are_unwrapped_before_formatting(audits):
     """MCP の戻り(content block の list)を剥がしてから formatter へ渡すこと。
 

@@ -11,7 +11,8 @@ import pytest
 
 from app.config import settings
 from app.core.prompts import RAG_INSUFFICIENT_NOTICE
-from app.tools.builtin.faq import query_faq
+from app.tools import engine, registry
+from app.tools.builtin.faq import SNAPSHOT_KEY, query_faq
 
 
 def _hit(i, score, q, a, section="送料ポリシー", ctype="faq", cat="送料"):
@@ -20,6 +21,16 @@ def _hit(i, score, q, a, section="送料ポリシー", ctype="faq", cat="送料"
     if score is not None:
         h["rerank_score"] = score
     return h
+
+
+def _wire(out: dict) -> str:
+    """モデルが実際に読む本文。**engine の整形(format_result)を通す。**
+
+    dict のキーを見るだけでは、内部用の key がワイヤ上でモデルまで届いていても
+    気づけない(09 章で足した検索の写しがそれ)。
+    """
+    spec = registry.get_builtin_spec("query_faq")
+    return engine._format_content(spec, out)
 
 
 def _stub(monkeypatch, hits, *, useful=True, reason="十分",
@@ -197,10 +208,87 @@ async def test_insufficient_result_carries_the_refusal_instruction_as_text(
     out = await query_faq.ainvoke({"keyword": "火星探査車"})
     assert out["sufficient"] is False and out["source"] == source
 
-    wire = json.dumps(out, ensure_ascii=False, default=str)
+    wire = _wire(out)
     assert RAG_INSUFFICIENT_NOTICE in wire, "回答拒否の指示が本文として届いていない"
     assert "推測で回答を作らず" in wire
     assert "時間をおいての再試行は案内しない" in wire
+
+
+# --- 断ったときの検索の写し(09 章。低信頼プールと査読画面が読む)---------------
+
+
+async def test_a_score_refusal_carries_the_snapshot_taken_before_the_cutoff(monkeypatch):
+    """足切りで断ったときの写しは**足切り前**の Top3。
+
+    足切り後は空なので、そちらから取ると「何を引いていたのか」が残らない。査読で
+    いちばん知りたいのは、ナレッジに無いのか、有るのに引けていないのかの区別。
+    """
+    monkeypatch.setattr(settings, "rerank_min_score", 0.5)
+    _stub(monkeypatch, [
+        _hit(1, 0.21, "置き配はできますか", "対応していません"),
+        _hit(2, 0.11, "宅配ボックス", "利用できます", section="配送/受け取り"),
+        _hit(3, 0.10, "q3", "a3"),
+        _hit(4, 0.09, "q4", "a4"),
+    ])
+    out = await query_faq.ainvoke({"keyword": "置き配"})
+
+    snap = out[SNAPSHOT_KEY]
+    assert [c["question"] for c in snap] == ["置き配はできますか", "宅配ボックス", "q3"]
+    assert snap[0]["rerank_score"] == 0.21
+    assert snap[1]["section_path"] == "配送/受け取り"
+    # 形は app/core/confidence.py の snapshot_from_hits と同じ(査読画面がこの形を読む)
+    assert set(snap[0]) == {"question", "answer", "rerank_score", "section_path"}
+
+
+async def test_a_self_check_refusal_carries_the_snapshot(monkeypatch):
+    """意味ゲートで断った場合も写しを残す。こちらは足切りを通った根拠そのもの。"""
+    _stub(monkeypatch, [_hit(1, 0.8, "送料", "3,000円以上で送料無料")],
+          useful=False, reason="型番の質問だが根拠は送料のみ")
+    out = await query_faq.ainvoke({"keyword": "Pro モデルは自動清掃できますか"})
+
+    assert out["source"] == "self_check"
+    assert [c["question"] for c in out[SNAPSHOT_KEY]] == ["送料"]
+
+
+async def test_zero_hits_is_an_empty_snapshot_not_none(monkeypatch):
+    """**検索を通ったのに写しが None** になると、査読画面が嘘の説明を出す。
+
+    None は「検索を通っていない」の意味で、DDL もそう使っている(app/db/models.py)。
+    1 件も返らなかったことは [] で表す(static/review.html は別の文言で出し分ける)。
+    """
+    _stub(monkeypatch, [])
+    out = await query_faq.ainvoke({"keyword": "火星探査車"})
+
+    assert out[SNAPSHOT_KEY] == []
+    assert out[SNAPSHOT_KEY] is not None
+
+
+async def test_the_snapshot_never_reaches_the_model(monkeypatch):
+    """写しはモデルへ渡す本文に載らないこと。
+
+    断ったのと同じ turn で、その根拠らしきものを読ませることになる(04 章の回答拒否の
+    契約が濁る)。本物の ToolSpec の format_result を通して確かめる。
+    """
+    _stub(monkeypatch, [_hit(1, 0.8, "送料はいくらですか", "3,000円以上で送料無料")],
+          useful=False, reason="根拠不足")
+    out = await query_faq.ainvoke({"keyword": "火星探査車"})
+    assert out[SNAPSHOT_KEY], "写し自体は取れていること(前提)"
+
+    wire = _wire(out)
+    assert SNAPSHOT_KEY not in wire
+    assert "3,000円以上で送料無料" not in wire, "断った根拠の本文がモデルへ渡っている"
+    # 04 章からの契約は落とさない
+    assert json.loads(wire)["sufficient"] is False
+    assert json.loads(wire)["source"] == "self_check"
+
+
+async def test_a_sufficient_result_is_unchanged_by_the_stripping(monkeypatch):
+    """足りている側の本文は 04 章のまま(写しの key はそもそも載らない)。"""
+    _stub(monkeypatch, [_hit(1, 0.9, "送料はいくらですか", "3,000円以上で送料無料")])
+    out = await query_faq.ainvoke({"keyword": "送料"})
+
+    assert SNAPSHOT_KEY not in out
+    assert json.loads(_wire(out))["evidence"] == out["evidence"]
 
 
 # --- リランク上流が落ちた場合の縮退 -------------------------------------------

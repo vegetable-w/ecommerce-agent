@@ -45,6 +45,8 @@ _Q_RAW = "猫用ベッドって洗えますか"
 _AI_ANSWER = "プラットフォームのアフターサービス規定をご確認ください"
 _HUMAN_ANSWER = "カバーは取り外して手洗いできます。乾燥機は使わず陰干ししてください"
 _REASON = "ユーザーが回答に 👎 を付けた"
+# 承認が書く chunk の出所(app/api/review.py の _CATEGORY と同じ値)
+_CATEGORY_FOR_TEST = "フライホイール"
 
 # 09 章の確信度ゲートが残す形と同じ(app/core/confidence.py の snapshot_from_hits)。
 _SNAPSHOT = [
@@ -104,8 +106,9 @@ def stub_kb(monkeypatch) -> dict:
         seen["chunks"] = chunks
         return [101]
 
-    async def _fake_vectorize():
+    async def _fake_vectorize(chunk_ids):
         seen["vectorized"] = True
+        seen["vectorized_ids"] = chunk_ids
         return 1
 
     monkeypatch.setattr(review_api, "_write_chunks", _fake_write)
@@ -291,6 +294,101 @@ async def test_approve_writes_the_knowledge_base_then_flips_the_status(
     assert body["approved_answer"] == _HUMAN_ANSWER
 
 
+async def test_approve_vectorizes_only_the_chunk_it_just_wrote(db_session_factory, stub_kb):
+    """**承認 1 件で流れるのは 1 件。** 取り込みの積み残しまで引き受けない。
+
+    id で絞らずに呼ぶと dualwrite は DB 全体の pending を拾う。make kb-build の直後
+    (kb-vectorize をまだ回していない状態)で承認を押すと、その 1 リクエストの中で
+    数百件ぶんの埋め込みが走る(課金と長時間のブロック)。
+    """
+    rid = await _seed()
+    # 承認とは無関係な pending の chunk。ここへ手を出さないことを確かめる
+    other = await repository.insert_knowledge_chunk("送料", "他の質問", "他の答え")
+
+    async with _client() as c:
+        res = await c.post(f"/api/review/{rid}/approve",
+                           json={"approved_answer": _HUMAN_ANSWER})
+
+    assert res.status_code == 200
+    assert stub_kb["vectorized_ids"] == [101], "ベクトル化の対象を絞っていない"
+    assert other not in (stub_kb["vectorized_ids"] or [])
+
+
+async def test_the_vectorize_seam_forwards_the_ids_to_the_ingest_path(monkeypatch):
+    """_vectorize が受け取った id を dualwrite へそのまま渡すこと。
+
+    他のテストはこの関数ごと差し替えるので、ここだけが「絞り込みが取り込み経路まで
+    届いているか」を見る(Milvus と埋め込み上流は差し替える)。
+    """
+    seen = {}
+
+    async def _fake_vectorize(client, chunk_ids=None, **kw):
+        seen["chunk_ids"] = chunk_ids
+        return len(chunk_ids or [])
+
+    monkeypatch.setattr(review_api.milvus_client, "get_client", lambda *a, **k: object())
+    monkeypatch.setattr(review_api.milvus_client, "ensure_collection", lambda *a, **k: None)
+    monkeypatch.setattr(review_api.dualwrite, "vectorize_pending", _fake_vectorize)
+
+    assert await review_api._vectorize([42]) == 1
+    assert seen["chunk_ids"] == [42], "承認が DB 全体の pending を流している"
+
+
+async def test_a_retry_after_a_failed_vectorization_does_not_duplicate_the_chunk(
+        db_session_factory, monkeypatch):
+    """**押し直しで同じ Q&A の chunk を 2 行作らない。**
+
+    一度目で MySQL への書き込みが済み、ベクトル化だけが落ちた場合、その行は
+    pending のまま残っている。二度目の承認が無条件に書くと同じ知識が 2 行になり、
+    以後その質問は検索で二重にヒットする。判定は 03 章の取り込みと同じ指紋
+    (chunk_fingerprint)に任せ、既にある行をそのままベクトル化する。
+    """
+    rid = await _seed()
+    # 一度目の承認が書いた行(ベクトル化前なので pending のまま)
+    first = await repository.insert_knowledge_chunk(
+        _CATEGORY_FOR_TEST, _Q_NORM, _HUMAN_ANSWER,
+        section_path="flywheel", content_type="faq")
+
+    written: dict = {"vectorized_ids": None}
+
+    async def _boom_write(chunks):
+        raise AssertionError("同じ Q&A の chunk を二度書こうとした")
+
+    async def _vec(chunk_ids):
+        written["vectorized_ids"] = chunk_ids
+        return len(chunk_ids)
+
+    monkeypatch.setattr(review_api, "_write_chunks", _boom_write)
+    monkeypatch.setattr(review_api, "_vectorize", _vec)
+
+    async with _client() as c:
+        res = await c.post(f"/api/review/{rid}/approve",
+                           json={"approved_answer": _HUMAN_ANSWER})
+
+    assert res.status_code == 200
+    # 既にある行を対象にする。書かないだけでは、pending のまま残った行が
+    # ベクトル化されず「承認済みなのに検索へ出てこない」知識になる
+    assert res.json()["chunk_ids"] == [first]
+    assert written["vectorized_ids"] == [first]
+    assert await _status_of(rid) == "approved"
+
+
+async def test_a_different_answer_is_still_written(db_session_factory, stub_kb):
+    """指紋は questions と answer の両方で決まる。答えが違えば別の知識として書く。"""
+    rid = await _seed()
+    await repository.insert_knowledge_chunk(
+        _CATEGORY_FOR_TEST, _Q_NORM, "まったく別の答え",
+        section_path="flywheel", content_type="faq")
+
+    async with _client() as c:
+        res = await c.post(f"/api/review/{rid}/approve",
+                           json={"approved_answer": _HUMAN_ANSWER})
+
+    assert res.status_code == 200
+    assert res.json()["chunk_ids"] == [101]
+    assert stub_kb["chunks"][0].answer == _HUMAN_ANSWER
+
+
 async def test_approve_marks_a_key_clause_question_the_way_documents_does(
         db_session_factory, stub_kb):
     """is_key_clause は勝手な既定値ではなく documents.py と同じ判定器で決める。"""
@@ -359,8 +457,9 @@ async def test_approve_keeps_the_item_pending_when_the_write_fails(
         written["chunks"] = chunks
         return [7]
 
-    async def _vec():
+    async def _vec(chunk_ids):
         written["vectorized"] = True
+        written["vectorized_ids"] = chunk_ids
         return 1
 
     async with _client() as c:
@@ -394,7 +493,7 @@ async def test_approve_keeps_the_item_pending_when_only_the_vectorization_fails(
     async def _ok(chunks):
         return [11]
 
-    async def _boom():
+    async def _boom(chunk_ids):
         raise RuntimeError("Milvus offline: root:secret@10.0.0.1:19530")
 
     monkeypatch.setattr(review_api, "_write_chunks", _ok)

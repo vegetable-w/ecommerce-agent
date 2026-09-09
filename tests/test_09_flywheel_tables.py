@@ -154,6 +154,39 @@ async def test_list_review_queue_filters_by_status_and_sorts_by_count(db_session
     assert [r.id for r in await repository.list_review_queue("approved")] == [rare]
 
 
+async def test_review_queue_ties_are_broken_by_id(db_session_factory):
+    """同点の並びを固定する。**穴のほとんどは 1 件のまま**なので同点が普通。
+
+    第 1 キーだけだと並びが実行ごとに変わり、査読キューを開き直すたびに順番が
+    入れ替わる(どこまで見たかが分からなくなる)。list_eval_runs と同じ作法。
+    """
+    a = await repository.insert_review_item("同点の穴 A", None)
+    b = await repository.insert_review_item("同点の穴 B", None)
+    c = await repository.insert_review_item("同点の穴 C", None)
+
+    first = [r.id for r in await repository.list_review_queue("pending")]
+    again = [r.id for r in await repository.list_review_queue("pending")]
+    assert first == again
+    assert [i for i in first if i in (a, b, c)] == [c, b, a]
+
+
+async def test_low_confidence_exists_is_scoped_to_the_conversation(db_session_factory):
+    """同じ会話の同じ質問だけを「既にある」と答えること。
+
+    会話をまたいで潰すと、別の会話で同じことを訊かれた事実(= その穴が何度も
+    来ていること)まで消える。source は見ない: プールの 1 行は「直すべき質問」1 件で
+    あって、断り方の記録ではない。
+    """
+    conv = await repository.create_conversation("u-dup")
+    other = await repository.create_conversation("u-dup2")
+    q = "領収書の再発行はできますか"
+    await repository.insert_low_confidence(conv, q, "retrieval_low_conf", "top=0.100")
+
+    assert await repository.low_confidence_exists(conv, q) is True
+    assert await repository.low_confidence_exists(other, q) is False
+    assert await repository.low_confidence_exists(conv, "別の質問") is False
+
+
 async def test_eval_runs_are_listed_newest_first(db_session_factory):
     """評価の実行結果が JSON ごと残り、新しい順に並ぶこと。"""
     first = await repository.insert_eval_run("scheduled", 40, {"recall_at_k": 0.71})

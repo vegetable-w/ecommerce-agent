@@ -11,8 +11,12 @@ update_review_status は `pending` の行しか動かせない(同時に開い�
 後勝ちで消えるのを防ぐため)。先に `approved` にしてから書き戻すと、書き戻しが
 落ちた行は「承認済みなのにナレッジベースには無い」まま固定され、二度と承認できない
 = やり直す手段が無くなる。逆順なら、落ちても pending のまま残るので押し直せる。
-(ナレッジ側に chunk だけが残るが、あちらは status=pending として再実行で回収される
-設計で、承認できない行が残るより害が小さい。)
+(ナレッジ側に chunk だけが残るが、押し直しは同じ指紋の chunk を書き足さず、既にある
+その行をベクトル化する。承認できない行が残るより害が小さい。)
+
+**押し直しで同じ Q&A の chunk を 2 行作らないこと。** 重複の判定は 03 章の取り込みと
+同じ chunk_fingerprint に任せる(判定規則を 2 つ持たない)。二重に書くと、以後その質問は
+検索で二重にヒットし、リランクの上位を同じ答えで埋める。
 """
 
 import asyncio
@@ -54,8 +58,13 @@ async def _write_chunks(chunks: list[Chunk]) -> list[int]:
     return await dualwrite.write_pending(chunks)
 
 
-async def _vectorize() -> int:
-    """03 章の取り込み経路(Milvus 側)。
+async def _vectorize(chunk_ids: list[int]) -> int:
+    """03 章の取り込み経路(Milvus 側)。**今回の承認で書いた chunk だけを流す。**
+
+    id で絞らずに呼ぶと dualwrite は DB 全体の pending を拾う。make kb-build の直後
+    (kb-vectorize をまだ回していない状態)で承認を 1 件押すと、その 1 リクエストの中で
+    数百件ぶんの埋め込みが走り、課金と長時間のブロックがそこで起きる。承認が引き受ける
+    のは自分が書いた 1 件であって、取り込みの積み残しではない。
 
     client の用意を asyncio.to_thread へ逃がすのは app/api/kb.py の
     /api/kb/vectorize と同じ作法。pymilvus は同期の gRPC なので、
@@ -70,7 +79,7 @@ async def _vectorize() -> int:
     """
     client = await asyncio.to_thread(milvus_client.get_client)
     await asyncio.to_thread(milvus_client.ensure_collection, client)
-    return await dualwrite.vectorize_pending(client)
+    return await dualwrite.vectorize_pending(client, chunk_ids=chunk_ids)
 
 
 def _item_out(r) -> dict:
@@ -161,8 +170,15 @@ async def approve(review_id: int, req: ApproveRequest) -> dict:
         is_key_clause=documents._is_key(item.normalized_question),
     )
     try:
-        chunk_ids = await _write_chunks([chunk])
-        await _vectorize()
+        # 既に同じ Q&A が入っていれば書き足さず、その行を対象にする。押し直し
+        # (一度目でベクトル化だけが落ちた場合)に chunk が 2 行できるのを防ぐ。
+        # 既にベクトル化まで済んでいる行なら pending ではないので、下の _vectorize は
+        # 何もせず 0 を返す(冪等)。
+        existing = await repository.find_chunk_id_by_fingerprint(
+            chunk.questions, chunk.answer
+        )
+        chunk_ids = [existing] if existing is not None else await _write_chunks([chunk])
+        await _vectorize(chunk_ids)
     except Exception as exc:
         # 例外の型を絞らない。ここから先は MySQL・埋め込み上流・Milvus の 3 者が
         # 絡むので、型を並べると並べ忘れた 1 つが 500 になって画面へ traceback が出る。

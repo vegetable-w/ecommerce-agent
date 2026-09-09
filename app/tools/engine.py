@@ -70,6 +70,11 @@ class ToolRun:
     status: str               # ALL_STATUSES のいずれか(DB の ENUM と同じ英語識別子)
     retry_count: int = 0
     duration_ms: int = 0
+    # ツールが返した生の値(整形前)。成功したときだけ入る。
+    # format_result が落とした「モデルへは見せないが node は要る」情報の受け渡し口で、
+    # 今の利用者は query_faq の検索の写し(09 章)だけ。**モデルが読むのは
+    # tool_message.content の方**なので、契約(sufficient / notice など)はそちらから読むこと。
+    raw_result: object | None = None
 
 
 def validate_args(spec: ToolSpec, args: dict) -> str | None:
@@ -179,7 +184,8 @@ async def execute_tool_call(
     args = dict(tool_call.get("args") or {})
     started = time.monotonic()
 
-    def _run(ok: bool, content: str, status: str, retry_count: int = 0, *, msg_status=None) -> ToolRun:
+    def _run(ok: bool, content: str, status: str, retry_count: int = 0, *,
+             msg_status=None, raw_result=None) -> ToolRun:
         return ToolRun(
             tool_call_id=tc_id,
             name=name,
@@ -187,6 +193,7 @@ async def execute_tool_call(
             status=status,
             retry_count=retry_count,
             duration_ms=int((time.monotonic() - started) * 1000),
+            raw_result=raw_result,
             tool_message=ToolMessage(
                 content=content,
                 tool_call_id=tc_id,
@@ -255,7 +262,7 @@ async def execute_tool_call(
         try:
             result = await asyncio.wait_for(spec.tool.ainvoke(args), timeout=tool_timeout)
             content = _format_content(spec, result)
-            run = _run(True, content, STATUS_SUCCESS, attempt)
+            run = _run(True, content, STATUS_SUCCESS, attempt, raw_result=result)
             await _audit(
                 conversation_id, tc_id, name, spec, args, _summarize(content),
                 STATUS_SUCCESS, None, attempt, run.duration_ms,

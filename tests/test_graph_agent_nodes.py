@@ -16,6 +16,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 
 from app.core.prompts import AGENT_SYSTEM
 from app.graph import nodes
+from app.tools.builtin import faq as faq_tool
 from app.tools import registry
 from app.tools.engine import ToolRun
 
@@ -378,17 +379,25 @@ async def test_existing_suggested_actions_are_kept(monkeypatch):
 # プール(09 章のデータフライホイールの入口)が静かに取りこぼす。
 # ---------------------------------------------------------------------------
 
-def _faq_run(payload, name="query_faq"):
+def _faq_run(payload, name="query_faq", raw=None):
+    """engine が返す形。**本文と生の戻り値を別々に持てるようにする。**
+
+    検索の写しはモデルへ見せない(app/tools/builtin/faq.py の _strip_internal が
+    本文から落とす)ので、本物の engine でも content には載らない。node が読むのは
+    raw_result の方で、そこを取り違えると写しが黙って NULL のまま積まれる。
+    """
     return ToolRun(tool_call_id="t1", name=name, ok=True, status="success",
                    tool_message=ToolMessage(content=json.dumps(payload, ensure_ascii=False),
-                                            tool_call_id="t1", name=name))
+                                            tool_call_id="t1", name=name),
+                   raw_result=raw)
 
 
 async def test_a_refused_faq_on_the_business_route_reaches_the_pool(monkeypatch):
     saved = {}
 
-    async def _fake(cid, raw, source, reason):
-        saved.update(cid=cid, raw=raw, source=source, reason=reason)
+    async def _fake(cid, raw, source, reason, retrieved_chunks=None):
+        saved.update(cid=cid, raw=raw, source=source, reason=reason,
+                     chunks=retrieved_chunks)
         return 1
 
     async def _exec(tc, cid, specs):
@@ -404,6 +413,76 @@ async def test_a_refused_faq_on_the_business_route_reaches_the_pool(monkeypatch)
     assert saved["raw"] == "置き配できますか"          # ユーザーの原文
     assert saved["source"] == "retrieval_low_conf"
     assert "0.012" in saved["reason"]                 # 本当の top スコアが残る
+
+
+async def test_a_refused_faq_carries_the_retrieval_snapshot_into_the_pool(monkeypatch):
+    """**この経路も検索とリランクを通っている。** 写しを付けずに積んではいけない。
+
+    DDL はこの列の NULL を「検索を通っていない」の意味で使う(app/db/models.py)ので、
+    付け忘れると `retrieved_chunks IS NULL` で数える側が誤分類し、査読画面は
+    この行にだけ「検索を通っていないため写しはありません」と嘘の説明を出す。
+    """
+    saved = {}
+    snapshot = [{"question": "置き配について", "answer": "対応していません",
+                 "rerank_score": 0.12, "section_path": "配送/置き配"}]
+
+    async def _fake(cid, raw, source, reason, retrieved_chunks=None):
+        saved.update(chunks=retrieved_chunks)
+        return 1
+
+    async def _exec(tc, cid, specs):
+        # 本文(モデルが読む側)には写しが無い。engine が format_result で落とすため
+        return _faq_run(
+            {"sufficient": False, "source": "retrieval_low_conf", "reason": "閾値未満"},
+            raw={"sufficient": False, "source": "retrieval_low_conf",
+                 "reason": "閾値未満", faq_tool.SNAPSHOT_KEY: snapshot},
+        )
+
+    monkeypatch.setattr(nodes.repository, "insert_low_confidence", _fake)
+    monkeypatch.setattr(nodes.engine, "execute_tool_call", _exec)
+    ai = AIMessage("", tool_calls=[{"name": "query_faq", "args": {"keyword": "置き配"}, "id": "t1"}])
+    await nodes.agent_tools({"messages": [HumanMessage("置き配できますか"), ai],
+                             "conversation_id": 9})
+    assert saved["chunks"] == snapshot
+
+
+async def test_an_empty_snapshot_is_kept_as_an_empty_list(monkeypatch):
+    """「検索は通ったが 0 件」を None へ丸めない。査読画面は 2 つを別の文言で出す。"""
+    saved = {}
+
+    async def _fake(cid, raw, source, reason, retrieved_chunks=None):
+        saved.update(chunks=retrieved_chunks)
+        return 1
+
+    async def _exec(tc, cid, specs):
+        return _faq_run(
+            {"sufficient": False, "source": "retrieval_low_conf", "reason": "0 件"},
+            raw={"sufficient": False, faq_tool.SNAPSHOT_KEY: []},
+        )
+
+    monkeypatch.setattr(nodes.repository, "insert_low_confidence", _fake)
+    monkeypatch.setattr(nodes.engine, "execute_tool_call", _exec)
+    ai = AIMessage("", tool_calls=[{"name": "query_faq", "args": {"keyword": "x"}, "id": "t1"}])
+    await nodes.agent_tools({"messages": [HumanMessage("x"), ai], "conversation_id": 9})
+    assert saved["chunks"] == [], "0 件の写しが「検索を通っていない」と同じ扱いになっている"
+
+
+async def test_a_missing_snapshot_stays_none(monkeypatch):
+    """生の戻り値が読めなければ None のまま積む(写しは投入の条件ではない)。"""
+    saved = {}
+
+    async def _fake(cid, raw, source, reason, retrieved_chunks=None):
+        saved.update(chunks=retrieved_chunks)
+        return 1
+
+    async def _exec(tc, cid, specs):
+        return _faq_run({"sufficient": False, "source": "self_check", "reason": "不足"})
+
+    monkeypatch.setattr(nodes.repository, "insert_low_confidence", _fake)
+    monkeypatch.setattr(nodes.engine, "execute_tool_call", _exec)
+    ai = AIMessage("", tool_calls=[{"name": "query_faq", "args": {"keyword": "x"}, "id": "t1"}])
+    await nodes.agent_tools({"messages": [HumanMessage("x"), ai], "conversation_id": 9})
+    assert saved["chunks"] is None
 
 
 async def test_a_sufficient_faq_does_not_reach_the_pool(monkeypatch):
@@ -480,7 +559,7 @@ async def test_only_the_refused_faq_is_pooled_when_several_tools_run(monkeypatch
     """1 step に複数の tool が並んでも、断られた query_faq だけを積む。"""
     saved = []
 
-    async def _fake(cid, raw, source, reason):
+    async def _fake(cid, raw, source, reason, retrieved_chunks=None):
         saved.append(source)
         return 1
 

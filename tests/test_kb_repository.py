@@ -21,6 +21,36 @@ async def test_insert_and_list_pending(db_session_factory):
     assert pending[0].questions == "送料について"
 
 
+async def test_list_pending_can_be_narrowed_to_specific_ids(db_session_factory):
+    """id を渡したときは、その pending だけを返すこと(09 章の査読の承認が使う)。
+
+    **空の list は「対象なし」であって全件ではない。** ここで全件へ広がると、
+    承認 1 件で DB 全体の pending が埋め込みへ流れる(課金と長時間のブロック)。
+    """
+    a = await repository.insert_knowledge_chunk("cat", "q1", "a1")
+    b = await repository.insert_knowledge_chunk("cat", "q2", "a2")
+
+    assert [c.id for c in await repository.list_pending_chunks([b])] == [b]
+    assert {c.id for c in await repository.list_pending_chunks()} == {a, b}
+    assert await repository.list_pending_chunks([]) == []
+
+
+async def test_find_chunk_id_by_fingerprint(db_session_factory):
+    """同じ Q&A の chunk の id を引けること(承認の押し直しが二重に書かないため)。
+
+    判定は 03 章の取り込みと同じ chunk_fingerprint。答えが違えば別の知識なので
+    見つからない(質問一致で潰すと、同じ見出しで割れた表の 2 枚目以降が消える)。
+    """
+    cid = await repository.insert_knowledge_chunk(
+        "cat", "猫用ベッドは洗えますか", "カバーは手洗いできます")
+
+    assert await repository.find_chunk_id_by_fingerprint(
+        "猫用ベッドは洗えますか", "カバーは手洗いできます") == cid
+    assert await repository.find_chunk_id_by_fingerprint(
+        "猫用ベッドは洗えますか", "別の答え") is None
+    assert await repository.find_chunk_id_by_fingerprint("知らない質問", "答え") is None
+
+
 async def test_mark_vectorized_removes_from_pending(db_session_factory):
     cid = await repository.insert_knowledge_chunk("cat", "q", "a")
     await repository.mark_chunk_vectorized(cid, str(cid))

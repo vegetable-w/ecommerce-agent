@@ -67,6 +67,50 @@ async def test_vectorize_resumes_after_crash(db_session_factory, milvus, monkeyp
     assert milvus_client.count(client, collection=coll) == 4  # 重複も欠落もない
 
 
+async def test_vectorize_can_be_narrowed_to_the_chunks_just_written(
+    db_session_factory, milvus, monkeypatch
+):
+    """chunk_ids を渡したら、その chunk だけを流すこと(09 章の査読の承認)。
+
+    絞れないと、kb-build の直後(kb-vectorize をまだ回していない状態)に承認を 1 件
+    押しただけで、DB 全体の pending が 1 リクエストの中で埋め込みへ流れる。
+    既定(None)の振る舞いは今までどおり全件で、取り込みの経路は変わらない。
+    """
+    client, coll = milvus
+    ids = await dualwrite.write_pending([_chunk(f"q{i}", f"a{i}") for i in range(3)])
+    embedded: list[str] = []
+
+    async def ok_embed(texts):
+        embedded.extend(texts)
+        return [[1.0, 0.0, 1.0] + [0.0] * (milvus_client.DIM - 3) for _ in texts]
+
+    monkeypatch.setattr("app.kb.dualwrite.embeddings.embed_texts", ok_embed)
+
+    assert await dualwrite.vectorize_pending(client, collection=coll,
+                                             chunk_ids=[ids[1]]) == 1
+    assert len(embedded) == 1 and "q1" in embedded[0]
+    assert await repository.count_chunks_by_status("pending") == 2
+
+    # 残りは既定の呼び方(取り込みの経路)がそのまま拾う
+    assert await dualwrite.vectorize_pending(client, collection=coll) == 2
+    assert await repository.count_chunks_by_status("pending") == 0
+
+
+async def test_vectorize_with_no_target_does_nothing(
+    db_session_factory, milvus, monkeypatch
+):
+    """空の list は「対象なし」。全件へ広がらないこと(上流を 1 度も叩かない)。"""
+    client, coll = milvus
+    await dualwrite.write_pending([_chunk("q", "a")])
+
+    async def boom(texts):
+        raise AssertionError("対象が無いのに埋め込みを呼んだ")
+
+    monkeypatch.setattr("app.kb.dualwrite.embeddings.embed_texts", boom)
+    assert await dualwrite.vectorize_pending(client, collection=coll, chunk_ids=[]) == 0
+    assert await repository.count_chunks_by_status("pending") == 1
+
+
 async def test_short_embedding_response_leaves_batch_recoverable(
     db_session_factory, milvus, monkeypatch
 ):

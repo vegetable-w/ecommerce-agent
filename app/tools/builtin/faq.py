@@ -4,7 +4,7 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field, field_validator
 
 from app.config import settings
-from app.core import query_understanding, retrieval, selfcheck
+from app.core import confidence, query_understanding, retrieval, selfcheck
 from app.core.prompts import RAG_CITATION_NOTICE, RAG_INSUFFICIENT_NOTICE
 from app.tools import registry
 
@@ -32,13 +32,32 @@ class FaqInput(BaseModel):
 _UNGATED = float("-inf")
 
 
-def _insufficient(source: str, reason: str) -> dict:
+# 断ったときの検索の写しを載せる key。**モデルへは渡さない**(下の _strip_internal が
+# 落とす)。09 章の低信頼プールが「ナレッジに無いのか、有るのに引けていないのか」を
+# 後から見分けるための材料で、モデルに見せると、根拠不足だと伝えた直後に
+# その根拠らしきものを読ませることになる(04 章の回答拒否の契約が濁る)。
+SNAPSHOT_KEY = "_retrieved_snapshot"
+
+
+def _strip_internal(result: dict) -> dict:
+    """モデルへ渡す本文から内部用の key を落とす(engine の format_result)。
+
+    落とした値は ToolRun.raw_result に残るので、node はそちらから読める。
+    """
+    return {k: v for k, v in result.items() if k != SNAPSHOT_KEY}
+
+
+def _insufficient(source: str, reason: str, snapshot: list | None = None) -> dict:
     """根拠不足の戻り値。回答拒否の指示を「本文」として必ず載せる。
 
     02 章の実測: ToolMessage(status="error") の status は上流へ送る際に落ち、モデルには
     本文しか届かない。したがって sufficient=False という機械的なフラグだけでは指示にならず、
     モデルは残りの JSON から適当に回答を作ってしまう。RAG_INSUFFICIENT_NOTICE をここに
     載せるのは、モデルが実際に読む唯一の場所だからである(このキーを落とさないこと)。
+
+    snapshot は低信頼プールへ持ち回る検索の写し(09 章)。**None と [] は別の意味**で、
+    None は「検索を通っていない」、[] は「検索は通ったが 1 件も返らなかった」。
+    査読画面はこの 2 つを別の文言で出し分ける(static/review.html の snapshotHtml)。
     """
     return {
         "sufficient": False,
@@ -46,6 +65,7 @@ def _insufficient(source: str, reason: str) -> dict:
         "reason": reason,
         "citations": [],
         "notice": RAG_INSUFFICIENT_NOTICE,
+        SNAPSHOT_KEY: snapshot,
     }
 
 
@@ -79,23 +99,31 @@ async def query_faq(keyword: str, category: str | None = None) -> dict:
     )
 
     if not hits:
-        return _insufficient("retrieval_low_conf", "検索で根拠が 1 件も得られなかった")
+        # 写しは [] を渡す。検索は通っているので、None(検索を通っていない)にすると
+        # 査読画面が「この質問は検索を通っていない」と嘘の説明を出す。
+        return _insufficient("retrieval_low_conf", "検索で根拠が 1 件も得られなかった",
+                             snapshot=[])
 
     # リランク上流が落ちた場合、search_knowledge は rerank_score なしのハイブリッド順で
     # 返す(app/core/retrieval.py)。掛ける数字が無いので機械ゲートは飛ばし、意味ゲートへ
     # 委ねる。ここで拒否に倒すと、上流の一時障害がそのまま回答拒否 + プール投入に化ける。
     if "rerank_score" in hits[0]:
         top = hits[0]["rerank_score"]
-        hits = [h for h in hits if h["rerank_score"] >= settings.rerank_min_score]
-        if not hits:
+        kept = [h for h in hits if h["rerank_score"] >= settings.rerank_min_score]
+        if not kept:
+            # 写しは**足切り前**の hits から取る。足切り後は空なので、そちらから取ると
+            # 「何を引いていたのか」が残らない(査読で最も知りたいのがそこ)。
             return _insufficient(
-                "retrieval_low_conf", f"リランクの最高スコアが閾値未満(top={top:.3f})"
+                "retrieval_low_conf", f"リランクの最高スコアが閾値未満(top={top:.3f})",
+                snapshot=confidence.snapshot_from_hits(hits),
             )
+        hits = kept
 
     # 意味ゲート: この根拠だけで答えきれるかをモデル自身に判定させる
     chk = await selfcheck.check_sufficient(query, [f"{h['question']} {h['answer']}" for h in hits])
     if not chk["useful"]:
-        return _insufficient("self_check", chk["reason"])
+        return _insufficient("self_check", chk["reason"],
+                             snapshot=confidence.snapshot_from_hits(hits))
 
     # head/tail 配置の「後」に番号を振る。evidence 本文の [n] と citations の n が
     # 同じ chunk を指すのは、この順番が唯一の正であるため
@@ -113,6 +141,7 @@ async def query_faq(keyword: str, category: str | None = None) -> dict:
             "evidence": evidence, "citations": citations}
 
 
-registry.register(registry.spec_from_langchain_tool(query_faq, source="builtin", timeout=30.0))
+registry.register(registry.spec_from_langchain_tool(
+    query_faq, source="builtin", timeout=30.0, format_result=_strip_internal))
 # query_faq は書き換え → ハイブリッド検索 → リランク → セルフチェックと上流を何度も
 # 往復するため、他のツールの既定(5 秒)では終わらない

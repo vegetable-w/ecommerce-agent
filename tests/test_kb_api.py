@@ -334,9 +334,10 @@ async def test_ingest_then_vectorize_marks_rows_done(db_session_factory, monkeyp
     seen = {"called": 0}
     real = repository.list_pending_chunks
 
-    async def spy():
+    async def spy(chunk_ids=None):
         seen["called"] += 1
-        return await real()
+        seen["chunk_ids"] = chunk_ids
+        return await real(chunk_ids)
 
     monkeypatch.setattr(repository, "list_pending_chunks", spy)
     monkeypatch.setattr(milvus_client, "get_client", lambda uri=None: object())
@@ -358,6 +359,8 @@ async def test_ingest_then_vectorize_marks_rows_done(db_session_factory, monkeyp
     assert body["inserted"] == n
     assert body["vectorized"] == n
     assert seen["called"] >= 1, "vectorize_pending を経由していない"
+    # 取り込みの経路は今までどおり全 pending を拾う(id で絞るのは査読の承認だけ)
+    assert seen["chunk_ids"] is None
     assert (await repository.knowledge_stats())["done"] == n
 
 

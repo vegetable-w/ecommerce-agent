@@ -45,6 +45,7 @@ from app.core.prompts import (
 from app.db import repository
 from app.graph import routing
 from app.tools import engine, registry
+from app.tools.builtin import faq as faq_tool
 from app.tools.business import list_user_orders, order_snapshot
 
 logger = logging.getLogger(__name__)
@@ -799,6 +800,25 @@ def _faq_payload(run) -> dict | None:
     return parsed if isinstance(parsed, dict) else None
 
 
+def _faq_snapshot(run):
+    """query_faq が断ったときの検索の写し。取れなければ None。
+
+    **tool_message ではなく生の戻り値から読む。** 写しはモデルへ見せない
+    (app/tools/builtin/faq.py の _strip_internal が本文から落とす)ので、
+    モデルが読む本文には載っていない。engine が ToolRun.raw_result に残した
+    整形前の値がこちらの読み場所になる。
+
+    None と [] は別の意味で、None は「検索を通っていない」、[] は「検索は通ったが
+    1 件も返らなかった」。DDL はこの列の NULL を前者の意味で使う(app/db/models.py)
+    ので、区別したまま渡す。
+    """
+    raw = getattr(run, "raw_result", None)
+    if not isinstance(raw, dict):
+        return None
+    snapshot = raw.get(faq_tool.SNAPSHOT_KEY)
+    return snapshot if isinstance(snapshot, list) else None
+
+
 async def _record_faq_refusal(state, run) -> None:
     """query_faq が根拠不足で断ったターンを低信頼プールへ積む。
 
@@ -809,6 +829,11 @@ async def _record_faq_refusal(state, run) -> None:
 
     source は DDL の ENUM に合わせる。query_faq が付けなかった場合に self_check へ
     倒すのは、ENUM に無い値を書いて DB エラーにする方が害が大きいため。
+
+    **この経路も検索とリランクを通っている**ので、写しも一緒に積む(09 章)。
+    渡さないと `retrieved_chunks IS NULL` で「検索を通っていない行」を数える側が
+    誤分類し、査読画面はこの行にだけ「検索を通っていないため写しはありません」と
+    嘘の説明を出す。
     """
     faq = _faq_payload(run)
     if not faq or faq.get("sufficient") is not False:
@@ -817,7 +842,8 @@ async def _record_faq_refusal(state, run) -> None:
     if not cid:
         return
     await repository.insert_low_confidence(
-        cid, _user_text(state), faq.get("source") or "self_check", faq.get("reason")
+        cid, _user_text(state), faq.get("source") or "self_check", faq.get("reason"),
+        retrieved_chunks=_faq_snapshot(run),
     )
 
 

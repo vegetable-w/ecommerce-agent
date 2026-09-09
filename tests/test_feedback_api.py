@@ -10,6 +10,9 @@
    添えると、査読画面は「この質問でこれを引いていた」という嘘の材料を読む。
 3. **写しの失敗でプールへの投入を落とさない。** いちばん拾いたい「答えたが
    外していた」質問が、いちばん壊れているときに限って失われる形になる。
+4. **同じ会話の同じ質問を二度積まない。** agent が自分で断ったターンの吹き出しにも
+   満足度バーは出る。そこへ 👎 が付いて 2 行になると、flywheel が両方を同じ穴へ
+   まとめ、1 ターンで occurrence_count が 2 になる(= 査読の優先度が二重に付く)。
 
 **本番相当の support DB にも checkpointer にも上流にも触らない。**
 repository.insert_low_confidence と runtime.get_turn_snapshot は各テストで
@@ -85,8 +88,13 @@ def _no_real_checkpointer(monkeypatch):
     monkeypatch.setattr(feedback.runtime, "get_turn_snapshot", _boom)
 
 
-def _spy_insert(monkeypatch) -> list[dict]:
-    """repository.insert_low_confidence を記録用の偽物へ差し替える。"""
+def _spy_insert(monkeypatch, *, already_pooled: bool = False) -> list[dict]:
+    """repository の 2 つ(重複判定と投入)を記録用の偽物へ差し替える。
+
+    重複判定も一緒に差し替えるのは、これが投入と同じ 1 回の操作の一部だからで、
+    片方だけ本物のままにすると、そのテストは投入ではなく判定の DB 接続を測ることになる
+    (既定の _no_real_db が到達不能なので 503 になる)。
+    """
     calls: list[dict] = []
 
     async def _fake(conversation_id, raw_question, source, reason,
@@ -96,9 +104,13 @@ def _spy_insert(monkeypatch) -> list[dict]:
                       "retrieved_chunks": retrieved_chunks})
         return 1
 
+    async def _exists(conversation_id, raw_question):
+        return already_pooled
+
     # feedback.repository 経由で差し替える。エンドポイントが
     # `from app.db.repository import insert_low_confidence` と書いていたらここは効かない。
     monkeypatch.setattr(feedback.repository, "insert_low_confidence", _fake)
+    monkeypatch.setattr(feedback.repository, "low_confidence_exists", _exists)
     return calls
 
 
@@ -238,6 +250,10 @@ def test_returns_503_when_the_pool_cannot_be_written(monkeypatch):
         raise OperationalError("INSERT INTO low_confidence_questions", {},
                                Exception("root:secret@10.0.0.1:3306"))
 
+    async def _exists(conversation_id, raw_question):
+        return False
+
+    monkeypatch.setattr(feedback.repository, "low_confidence_exists", _exists)
     monkeypatch.setattr(feedback.repository, "insert_low_confidence", _boom)
     _stub_snapshot(monkeypatch, _Q, [])
 
@@ -246,6 +262,67 @@ def test_returns_503_when_the_pool_cannot_be_written(monkeypatch):
     detail = res.json()["detail"]
     # 接続文字列や SQL が画面まで届かないこと
     assert "secret" not in detail and "3306" not in detail
+
+
+def test_a_question_already_in_the_pool_is_not_added_twice(monkeypatch):
+    """**断ったターンの吹き出しに付いた 👎 でプールを 2 行にしない。**
+
+    agent が自分で断ったターンは fallback_reply(または query_faq の拒否)が既に
+    1 行積んでいる。同じ質問をもう 1 行積むと、flywheel が 2 行を同じ穴へまとめて
+    occurrence_count が 1 ターンで 2 になる。この列は査読キューの並び順=優先度
+    そのものなので、断ったターンだけが二重に重み付けされる。
+    """
+    calls = _spy_insert(monkeypatch, already_pooled=True)
+    _stub_snapshot(monkeypatch, _Q, _SNAPSHOT)
+
+    res = client.post(_URL, json=_body())
+
+    assert res.status_code == 200, "押した人には成功として返す(押せたこと自体は正常)"
+    # pooled は「積んだかどうか」を正直に返す。押した事実と行が増えたことは別
+    assert res.json() == {"ok": True, "pooled": False}
+    assert calls == []
+
+
+def test_the_duplicate_check_is_scoped_to_this_conversation_and_question(monkeypatch):
+    """判定に渡すのは押された会話と押された質問。どちらかを取り違えると、
+
+    別の会話の同じ質問(= 別のナレッジの穴の証拠)まで捨てることになる。
+    """
+    seen = {}
+
+    async def _exists(conversation_id, raw_question):
+        seen.update(cid=conversation_id, q=raw_question)
+        return False
+
+    _spy_insert(monkeypatch)
+    monkeypatch.setattr(feedback.repository, "low_confidence_exists", _exists)
+    _stub_snapshot(monkeypatch, _Q, _SNAPSHOT)
+
+    assert client.post(_URL, json=_body()).status_code == 200
+    assert seen == {"cid": 5, "q": _Q}
+
+
+def test_up_does_not_even_ask_whether_the_question_is_pooled(monkeypatch):
+    """👍 は DB を読みもしない(保存しないので、重複を気にする相手がいない)。"""
+    async def _boom(*a, **k):
+        raise AssertionError("👍 で DB を読んではいけない")
+
+    monkeypatch.setattr(feedback.repository, "low_confidence_exists", _boom)
+    assert client.post(_URL, json=_body(rating="up")).json() == {"ok": True, "pooled": False}
+
+
+def test_a_database_outage_in_the_duplicate_check_is_a_503(monkeypatch):
+    """重複判定が落ちたときの返し方は投入が落ちたときと同じ(同じ 1 操作なので)。"""
+    async def _boom(*a, **k):
+        raise OperationalError("SELECT id FROM low_confidence_questions", {},
+                               Exception("root:secret@10.0.0.1:3306"))
+
+    monkeypatch.setattr(feedback.repository, "low_confidence_exists", _boom)
+    _stub_snapshot(monkeypatch, _Q, [])
+
+    res = client.post(_URL, json=_body())
+    assert res.status_code == 503
+    assert "secret" not in res.json()["detail"]
 
 
 def test_endpoint_is_published_in_the_openapi_schema():

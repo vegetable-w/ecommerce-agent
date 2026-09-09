@@ -74,6 +74,18 @@ async def _turn_snapshot_for(conversation_id: int, question: str) -> list | None
 async def feedback(req: FeedbackRequest) -> FeedbackResponse:
     """👍 / 👎 を受け取る。👎 のときだけ質問を低信頼プールへ積む。
 
+    **同じ会話の同じ質問が既にプールに居たら積まない。** agent が自分で断ったターン
+    (retrieval_low_conf / self_check)は fallback_reply が既に 1 行積んでいて、その
+    断りの吹き出しにも満足度バーが出る。そこへ 👎 が付くと同じ質問が 2 行になり、
+    flywheel は 2 行を同じ穴へまとめるので、**1 ターンで occurrence_count が 2 になる。**
+    この列は査読キューの並び順=優先度そのものなので、断ったターンだけが二重に
+    重み付けされることになる(正規化のためのモデル呼び出しも 1 ターンで 2 回になる)。
+    そもそも user_feedback が意味するのは「答えたが外していた」失敗であって、
+    断りに付いた 👎 はこの source の定義に当たらない。
+
+    **pooled は実際に積んだかどうかを返す。** 押した事実(200)と、プールが 1 行
+    増えたことは別。
+
     runtime と repository は属性経由で呼ぶこと(from ... import しない)。テストの
     monkeypatch.setattr が効かなくなり、本番相当の DB と本物の checkpointer へ
     流れ落ちる。
@@ -85,6 +97,12 @@ async def feedback(req: FeedbackRequest) -> FeedbackResponse:
 
     chunks = await _turn_snapshot_for(req.conversation_id, req.question)
     try:
+        # 重複の判定も同じ try の中で行う。DB が落ちていれば投入も同じく落ちるので、
+        # 押した人へ返す答え(503)は同じでなければならない。
+        if await repository.low_confidence_exists(req.conversation_id, req.question):
+            logger.info("同じ質問が既にプールにあるため積まない conv=%s",
+                        req.conversation_id)
+            return FeedbackResponse(ok=True, pooled=False)
         await repository.insert_low_confidence(
             req.conversation_id, req.question, "user_feedback", _REASON,
             retrieved_chunks=chunks,

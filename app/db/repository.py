@@ -139,13 +139,25 @@ async def insert_knowledge_chunk(
         return row.id
 
 
-async def list_pending_chunks() -> list[KnowledgeChunk]:
+async def list_pending_chunks(chunk_ids: list[int] | None = None) -> list[KnowledgeChunk]:
+    """ベクトル化待ちの chunk。既定は DB 全体の pending。
+
+    chunk_ids を渡すと、その id に限って pending を返す(09 章)。査読の承認は
+    自分が書いた 1 件だけをベクトル化したいが、取り込み(make kb-vectorize)は
+    全 pending を拾わなければならない。既定を None のままにしてあるのは、
+    後者の呼び出し元(03/04 章の script と job)の振る舞いを変えないため。
+    空の list は「対象なし」であって全件ではない(id で絞る側が 0 件になったときに
+    黙って全件へ広がると、承認 1 件で数百件の埋め込みが走る)。
+    """
     async with db.async_session() as s:
-        result = await s.execute(
+        stmt = (
             select(KnowledgeChunk)
             .where(KnowledgeChunk.vectorize_status == "pending")
             .order_by(KnowledgeChunk.id)
         )
+        if chunk_ids is not None:
+            stmt = stmt.where(KnowledgeChunk.id.in_(chunk_ids))
+        result = await s.execute(stmt)
         return list(result.scalars())
 
 
@@ -359,6 +371,27 @@ async def list_chunk_fingerprints() -> set[str]:
         return {chunk_fingerprint(q, a) for q, a in rows}
 
 
+async def find_chunk_id_by_fingerprint(questions: str, answer: str) -> int | None:
+    """同じ指紋の chunk が既にあればその id。無ければ None(09 章)。
+
+    判定そのものは chunk_fingerprint に任せる(03 章の取り込みと同じ規則)。
+    id まで返すのは、査読の承認をやり直したときに「書かない」だけでは足りないため。
+    一度目で MySQL への書き込みが済んでベクトル化だけが落ちた行は pending のまま
+    残っており、二度目の承認はその**既にある行**をベクトル化しなければ、承認済みなのに
+    検索へ出てこない知識ができる。集合(list_chunk_fingerprints)では拾えない。
+    """
+    target = chunk_fingerprint(questions, answer)
+    async with db.async_session() as s:
+        rows = await s.execute(
+            select(KnowledgeChunk.id, KnowledgeChunk.questions, KnowledgeChunk.answer)
+            .order_by(KnowledgeChunk.id)
+        )
+        for cid, q, a in rows:
+            if chunk_fingerprint(q, a) == target:
+                return cid
+    return None
+
+
 async def staging_stats() -> dict:
     """qa_extraction_staging のステータス別件数 + バッチ数。"""
     async with db.async_session() as s:
@@ -459,6 +492,24 @@ async def insert_low_confidence(
         return await _insert_low_confidence(
             None, raw_question, source, reason, retrieved_chunks
         )
+
+
+async def low_confidence_exists(conversation_id: int, raw_question: str) -> bool:
+    """その会話で同じ質問が既にプールへ入っているか(09 章)。
+
+    source は見ない。プールの 1 行は「直すべき質問」1 件であって「起きた出来事」の
+    記録ではないので、同じ会話の同じ質問が別の source で 2 行になると、
+    flywheel がそれを 1 つの穴へまとめて occurrence_count を 2 にする
+    = 査読の優先度が 1 ターンで二重に重み付けされる。
+    """
+    async with db.async_session() as s:
+        found = await s.execute(
+            select(LowConfidenceQuestion.id)
+            .where(LowConfidenceQuestion.conversation_id == conversation_id,
+                   LowConfidenceQuestion.raw_question == raw_question)
+            .limit(1)
+        )
+        return found.first() is not None
 
 
 # ---------------------------------------------------------------------------
@@ -964,9 +1015,15 @@ async def list_review_queue(status: str | None) -> list[ReviewQueue]:
     """レビュー待ちの一覧。occurrence_count 降順(よく来る穴が上)。
 
     status=None は絞り込みなしの全件。
+
+    第 2 キーに id を足すのは list_eval_runs と同じ理由。穴のほとんどは 1 件のままなので
+    同点が普通で、第 1 キーだけでは並びが実行ごとに変わり、査読キューを開き直すたびに
+    順番が入れ替わる(どこまで見たかが分からなくなる)。
     """
     async with db.async_session() as s:
-        stmt = select(ReviewQueue).order_by(ReviewQueue.occurrence_count.desc())
+        stmt = select(ReviewQueue).order_by(
+            ReviewQueue.occurrence_count.desc(), ReviewQueue.id.desc()
+        )
         if status:
             stmt = stmt.where(ReviewQueue.review_status == status)
         return list((await s.execute(stmt)).scalars())

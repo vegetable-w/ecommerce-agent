@@ -15,12 +15,14 @@ from app.api.feedback import router as feedback_router
 from app.api.jobs import router as jobs_router
 from app.api.kb import router as kb_router
 from app.api.rageval import router as rageval_router
+from app.api.review import router as review_router
 from app.core import logging_setup
 from app.graph import runtime
 
 # 画面のパス → static 配下のファイル名。middleware がこれを見るので、
 # ルート登録より前に定義しておく。
-_PAGES = {"/kb": "kb.html", "/admin": "admin.html", "/rag-eval": "rageval.html"}
+_PAGES = {"/kb": "kb.html", "/admin": "admin.html", "/rag-eval": "rageval.html",
+          "/review": "review.html"}
 
 
 @asynccontextmanager
@@ -91,6 +93,7 @@ app.include_router(rageval_router)
 app.include_router(actions_router)
 app.include_router(conversations_router)
 app.include_router(feedback_router)
+app.include_router(review_router)
 
 # チャット画面。API と同一オリジンで配信するので CORS 設定は不要。
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"

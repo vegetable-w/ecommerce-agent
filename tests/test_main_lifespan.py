@@ -112,3 +112,26 @@ def test_pages_still_carry_the_no_cache_header_after_the_lifespan_was_added(path
     res = TestClient(app).get(path)
     assert res.status_code == 200
     assert res.headers.get("cache-control") == "no-cache"
+
+
+def test_review_router_is_registered_on_the_real_app():
+    """査読画面が叩く先。登録が漏れると、承認を押しても 404 が返るだけで
+    データフライホイールがナレッジベースまで繋がらない(09 章の受け入れ検証 3)。"""
+    paths = app.openapi()["paths"]
+    assert "/api/review/queue" in paths
+    assert "/api/review/{review_id}" in paths
+    assert "/api/review/{review_id}/approve" in paths
+    assert "/api/review/{review_id}/reject" in paths
+
+
+def test_the_review_page_route_exists_before_the_html_does():
+    """画面ファイル(static/review.html)を置く前でも経路は登録しておく。
+
+    「ファイルがあるときだけ @app.get する」形にすると、OpenAPI にも経路が現れず、
+    画面を書く側から見て「まだ実装されていない」のか「名前を間違えた」のか
+    区別が付かない(app/main.py のコメント)。ファイルを置けば 200 に変わるが、
+    どちらでも _PAGES に載っている = no-cache が付くことは変わらない。
+    """
+    res = TestClient(app).get("/review")
+    assert res.status_code in (200, 404)
+    assert res.headers.get("cache-control") == "no-cache"

@@ -1,4 +1,4 @@
-.PHONY: dev test eval seed seed-conv kb-preview kb-build kb-repatch kb-vectorize kb-mine kb-reset eval-retrieval eval-mining eval-rag eval-check judge-check eval-05 eval-06 smoke-interrupt calibrate-confidence eval-07 eval-08 mcp-up mcp-down langfuse-up langfuse-down flywheel flywheel-samples
+.PHONY: dev test eval seed seed-conv kb-preview kb-build kb-repatch kb-vectorize kb-mine kb-reset eval-retrieval eval-mining eval-rag eval-check judge-check eval-05 eval-06 smoke-interrupt calibrate-confidence eval-07 eval-08 mcp-up mcp-down langfuse-up langfuse-down flywheel flywheel-samples eval-flywheel
 
 # --reload は付けない。この環境では watchfiles が入っていても変更を検知せず
 # (実測: 起動後の app/tools/business.py の更新で reload されなかった)、
@@ -148,3 +148,11 @@ flywheel:
 # 上流を 12 回呼ぶ。DB も Milvus も使わず、1 行も書き込まない。
 flywheel-samples:
 	PYTHONUTF8=1 uv run --env-file .env python scripts/validate_flywheel_samples.py
+
+# 09 評価の定期実行。04 章の評価セットを hybrid_rerank だけで回し、1 回分を
+# eval_runs へ 1 行残してトレンドにする(**本番相当の support DB へ書き込む**)。
+# LIMIT を付けないと評価セット全量で回答の生成と judge を回すので**課金が大きい**。
+# 試すときは LIMIT=10 のように小さく取ること(bucket ごとに均等に取る)。
+# Milvus の起動とナレッジベースの構築が要る。定期実行の例は script の docstring を参照。
+eval-flywheel:
+	PYTHONUTF8=1 uv run --env-file .env python scripts/eval_flywheel.py --triggered-by $(or $(TRIGGER),manual) --limit $(or $(LIMIT),0)

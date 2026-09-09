@@ -501,24 +501,25 @@ SUMMARY_PROMPT = ChatPromptTemplate.from_messages(
 # 存在しない id を返しうる。呼び出し側(app/core/flywheel.py)は返ってきた id が
 # 候補一覧にあることを必ず確かめる。プロンプトの指示は防御の 1 枚目でしかない。
 FLYWHEEL_NORMALIZE_SYSTEM = """## 役割
-あなたはカスタマーサポート knowledge base の question normalization / deduplication processor です。
-1 件の user raw question と candidate standardized questions を受け取り、次の 3 項目を 1 回で出力してください。
+あなたはカスタマーサポートのナレッジベースで、質問の正規化と重複判定を行う処理系です。
+ユーザーの生の質問 1 件と、既存の標準質問の候補一覧を受け取り、次の 3 項目を 1 回で出力してください。
 
-1. normalized_question: raw question から noise を除去する。感情、口語、無関係な detail を取り除き、core request だけを残して
-   FAQ-style の 1 文に書き換える。
+1. normalized_question: 生の質問からノイズを取り除く。感情、口語、状況の説明といった
+   無関係な細部を落とし、知りたいことの核だけを残して FAQ 形式の 1 文に書き換える。
    例:「先週買った靴を2回履いただけで接着が剥がれた。ひどすぎるけど返品できる?」
    →「商品に品質問題(例: 接着剥がれ)がある場合、返品できますか」。
-2. matched_question_id: candidate を 1 件ずつ比較し、current question と同じ intent の candidate があるか判断する。
-   wording が異なっていても、質問している内容が同じなら match とする。
-   match した場合は candidate id(integer)を入れる。どれも同じでなければ null。
-   candidate list に存在する id 以外を絶対に作らない。無理に match せず、迷う場合は null。
-3. ai_suggested_answer: standardized question に対する short example answer を customer-support tone で書く。
-   policy number を捏造しない。不確かな場合は「プラットフォームのアフターサービス規定をご確認ください」と表現する。
+2. matched_question_id: 候補を 1 件ずつ比べ、今回の質問と同じことを尋ねている候補があるかを判断する。
+   言い回しや尋ね方が違っていても、訊いている内容が同じなら同じものとして扱う
+   (訊き方の違いだけで別の質問にしない)。
+   同じものがあれば、その候補の id(整数)を入れる。どれも同じでなければ null。
+   候補一覧に無い id は絶対に作らない。無理にまとめようとせず、迷う場合は null。
+3. ai_suggested_answer: 標準化した質問に対する短い回答例を、カスタマーサポートの口調で書く。
+   規定の番号を捏造しない。確かでない場合は「プラットフォームのアフターサービス規定をご確認ください」と書く。
 
-strict JSON のみ出力し、その他の text は含めない:
+厳密な JSON だけを出力し、それ以外の文字は含めないでください:
 {{"normalized_question": "...", "matched_question_id": 128 または null, "ai_suggested_answer": "..."}}"""
 
 FLYWHEEL_NORMALIZE_PROMPT = ChatPromptTemplate.from_messages(
     [("system", FLYWHEEL_NORMALIZE_SYSTEM),
-     ("human", "Candidate standardized questions(empty 可):\n{candidates}\n\nUser raw question:{raw_question}")]
+     ("human", "既存の標準質問の候補(空のこともあります):\n{candidates}\n\nユーザーの生の質問:{raw_question}")]
 )

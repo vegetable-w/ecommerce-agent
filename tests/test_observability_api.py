@@ -246,6 +246,41 @@ async def test_trend_metric_metadata_matches_the_script():
     assert obs.TREND_LIMIT == fw.TREND_LIMIT
 
 
+async def test_cost_fixture_matches_what_the_script_writes():
+    """このモジュールの手書きの成果物を、**producer と結び付ける。**
+
+    _COST は手で書いた辞書で、script が書く形と何のテストでも結ばれていなかった。
+    share_label や avg_tokens が script 側で変われば、両方緑のまま画面だけ壊れる
+    (09 章で実際に起きた「tag_intent が効いていないのにテストは緑」と同じ形)。
+
+    上流にも Langfuse にも触らない純関数だけを呼ぶ。
+    """
+    from scripts import cost_by_intent as cost
+
+    produced = cost.report({"配送": {"count": 3, "tokens": 15548}}, 11, 4, 7)
+
+    assert set(produced) == set(_COST), "成果物の項目が script と食い違っている"
+    assert set(produced["rows"][0]) == set(_COST["rows"][0])
+    # 行の中身の作り方(平均と割合はここで確定させる)も同じであること
+    assert cost.build_rows({"配送": {"count": 3, "tokens": 15548}})[0]["avg_tokens"] == 5182
+    assert cost.build_rows({"配送": {"count": 3, "tokens": 15548}})[0]["share_label"] == "100%"
+
+
+async def test_calibration_fixture_matches_what_the_script_writes():
+    """校正の成果物も producer と結び付ける(scan / recommended_threshold / weak_separation)。"""
+    from scripts import calibrate_confidence as cal
+
+    dists = [d for d in (cal.build_distribution("答えられる(ABC)", [0.7, 0.8]),
+                         cal.build_distribution("断るべき(D)", [0.1])) if d]
+    produced = cal.build_report(dists, cal.build_scan([0.7, 0.8], [0.1]))
+
+    assert set(produced) == set(_CALIBRATION)
+    assert set(produced["distributions"][0]) == set(_CALIBRATION["distributions"][0])
+    assert set(produced["scan"][0]) == set(_CALIBRATION["scan"][0])
+    assert produced["strategy"] == _CALIBRATION["strategy"]
+    assert isinstance(produced["weak_separation"], bool)
+
+
 # ---------------------------------------------------------------------------
 # 5. 推奨しきい値と実際の設定
 # ---------------------------------------------------------------------------

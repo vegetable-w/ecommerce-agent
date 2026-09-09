@@ -11,6 +11,7 @@
     { key: 'admin', href: '/admin', label: 'ホーム' },
     { key: 'kb', href: '/kb', label: 'ナレッジベース' },
     { key: 'rageval', href: '/rag-eval', label: 'RAG 評価' },
+    { key: 'review', href: '/review', label: '査読キュー' },
     { key: 'chat', href: '/', label: 'チャット画面' },
   ];
 

@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>査読キュー · STORE 管理画面</title>
+<script src="/static/admin.js"></script>
+<style>
+  /* このページ固有のものだけ。共通の見た目は admin.js が注入する */
+  .rv-bar{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px}
+  .rv-bar .grow{flex:1}
+  .rv-sel{font:inherit; font-size:13.5px; color:var(--ink); background:#fff;
+          border:1px solid var(--line); border-radius:999px; padding:7px 13px}
+
+  /* 3 つの門。査読の前に必ず読む静的な案内で、操作要素ではない */
+  .rv-gates{border:1px dashed #e3d7e8; background:#fdfafc; border-radius:16px;
+            padding:12px 15px; margin-bottom:16px; font-size:12.5px; line-height:1.85; color:#5d5470}
+  .rv-gates b{color:var(--accent-d)}
+
+  .rv-row{border:1px solid var(--line); border-radius:16px; background:#fff;
+          padding:11px 14px; margin-bottom:9px; transition:border-color .15s}
+  .rv-row.open{border-color:#ffc7d8; background:#fffdfe}
+  .rv-head{display:flex; align-items:center; gap:10px; cursor:pointer}
+  .rv-head .q{flex:1; font-size:14px; font-weight:600; word-break:break-word}
+  .rv-head .cnt{font-size:11.5px; color:var(--muted); white-space:nowrap}
+  /* 頻度が高いものほど先に直す価値がある。3 件以上を目立たせる */
+  .rv-head .cnt.hot{color:#b4700f; background:#fff6e6; border:1px solid #ffd9a0;
+                    border-radius:999px; padding:2px 9px; font-weight:600}
+  .rv-sum{font-size:12.5px; color:var(--muted); margin:5px 0 0;
+          overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .rv-acts{display:flex; gap:7px; margin-top:9px}
+
+  .rv-detail{margin-top:11px; padding-top:11px; border-top:1px solid var(--line)}
+  .rv-note{font-size:12px; color:var(--muted); line-height:1.8; margin:0 0 10px}
+  .rv-raw{border:1px solid var(--line); border-radius:14px; padding:9px 12px;
+          margin-bottom:8px; background:#fffdfe}
+  .rv-raw .meta{display:flex; align-items:center; gap:7px; font-size:11px;
+                color:var(--muted); margin-bottom:5px; flex-wrap:wrap}
+  .rv-raw .txt{font-size:13px; word-break:break-word}
+  .rv-raw .reason{font-size:11.5px; color:var(--muted); margin-top:4px}
+
+  /* 検索の写し。ここを読んで「ナレッジに無い」のか「有るのに引けていない」のかを見分ける */
+  .rv-snap{margin-top:8px; padding-left:11px; border-left:2px solid #ffd9e5}
+  .rv-snap .chunk{margin-bottom:7px}
+  .rv-snap .cq{font-size:12.5px; font-weight:600; word-break:break-word}
+  .rv-snap .ca{font-size:12px; color:#5d5470; line-height:1.7; word-break:break-word}
+  .rv-snap .path{font-size:10.5px; color:var(--muted)}
+  .rv-bar-wrap{display:flex; align-items:center; gap:7px; margin:3px 0}
+  .rv-bar-wrap .track{flex:1; max-width:180px; height:5px; background:var(--line); border-radius:99px}
+  .rv-bar-wrap .fill{height:100%; border-radius:99px; background:var(--accent)}
+  .rv-bar-wrap .num{font-family:ui-monospace,Consolas,monospace; font-size:11px; color:var(--accent-d)}
+  .rv-empty{font-size:12px; color:var(--muted); padding:14px 2px; text-align:center; line-height:1.8}
+
+  .rv-mask{position:fixed; inset:0; background:rgba(61,53,80,.32); display:grid;
+           place-items:center; z-index:50; padding:16px}
+  .rv-sheet{background:#fff; border-radius:22px; padding:20px 22px; width:min(620px,100%);
+            box-shadow:0 24px 60px rgba(160,120,170,.28)}
+  .rv-sheet h3{margin:0 0 6px; font-size:16px}
+  .rv-sheet .lead{margin:0 0 12px; font-size:12.5px; color:var(--muted); line-height:1.8}
+  .rv-sheet textarea{width:100%; min-height:150px; font:inherit; font-size:13.5px; line-height:1.8;
+                     color:var(--ink); border:1px solid var(--line); border-radius:14px;
+                     padding:10px 12px; resize:vertical}
+  .rv-sheet .foot{display:flex; justify-content:flex-end; gap:8px; margin-top:13px}
+</style>
+</head>
+<body>
+<div class="adm-wrap">
+  <div class="adm-card">
+    <h2><span class="adm-num">R</span>査読キュー</h2>
+
+    <div class="rv-bar">
+      <select class="rv-sel" id="filter">
+        <option value="pending">未対応</option>
+        <option value="approved">承認済み</option>
+        <option value="rejected">却下</option>
+        <option value="">すべて</option>
+      </select>
+      <span class="grow"></span>
+      <button class="adm-btn" id="reload">再読み込み</button>
+    </div>
+
+    <div class="rv-gates">
+      承認の前に <b>3 つの門</b>を通すこと。<br>
+      ① <b>ごみを落とす</b> — 意味のない入力、動作確認の書き込み、不適切な発言はそのまま却下する。<br>
+      ② <b>時限性を見る</b> — 「今週のセールはいつまで」のように時期でしか答えが決まらない質問は、
+      ナレッジにすると次の月には嘘になる。却下する。<br>
+      ③ <b>頻度を見る</b> — 1 回しか来ていない極端に細かい質問は、ナレッジの枠を埋める価値が薄い。
+    </div>
+
+    <div id="list"></div>
+  </div>
+</div>
+
+<script>
+const { mountAdminNav, getJSON, postJSON, pill, esc, toast } = window.Admin;
+mountAdminNav('/review');
+
+const listEl = document.getElementById('list');
+const filterEl = document.getElementById('filter');
+let openId = null;          // 展開している 1 件。同時に 1 つだけ開く
+let items = [];
+
+/* プールの出所。3 つの入口を色で見分けられるようにする(どこから来た穴かで読み方が変わる) */
+const SOURCE = {
+  retrieval_low_conf: ['warn', '根拠が弱い'],
+  self_check:         ['none', '自己点検で不十分'],
+  user_feedback:      ['bad',  'ユーザーが指摘'],
+};
+
+const STATUS_PILL = { pending: 'warn', approved: 'ok', rejected: 'none' };
+
+function fmt(ts){
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (isNaN(d)) return String(ts);
+  const p = n => String(n).padStart(2, '0');
+  return p(d.getMonth() + 1) + '/' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+
+function snapshotHtml(chunks){
+  if (chunks === null || chunks === undefined){
+    return '<div class="rv-snap"><div class="path">この質問は検索を通っていないため、写しはありません</div></div>';
+  }
+  if (!chunks.length){
+    return '<div class="rv-snap"><div class="path">検索は走ったが 1 件も返らなかった</div></div>';
+  }
+  const rows = chunks.map(function(c){
+    const s = Number(c.rerank_score) || 0;
+    const w = Math.max(0, Math.min(1, s)) * 100;
+    return '<div class="chunk">' +
+             '<div class="cq">' + esc(c.question) + '</div>' +
+             '<div class="rv-bar-wrap">' +
+               '<span class="track"><span class="fill" style="width:' + w + '%"></span></span>' +
+               '<span class="num">' + s.toFixed(3) + '</span>' +
+             '</div>' +
+             '<div class="ca">' + esc(c.answer) + '</div>' +
+             '<div class="path">' + esc(c.section_path) + '</div>' +
+           '</div>';
+  }).join('');
+  return '<div class="rv-snap">' + rows + '</div>';
+}
+
+function detailHtml(d){
+  const raws = (d.raws || []).map(function(r){
+    const kind = (SOURCE[r.source] || ['none', r.source])[0];
+    const label = (SOURCE[r.source] || ['none', r.source])[1];
+    return '<div class="rv-raw">' +
+             '<div class="meta">' + pill(kind, esc(label)) + '<span>' + esc(fmt(r.created_at)) + '</span></div>' +
+             '<div class="txt">' + esc(r.raw_question) + '</div>' +
+             (r.reason ? '<div class="reason">' + esc(r.reason) + '</div>' : '') +
+             snapshotHtml(r.retrieved_chunks) +
+           '</div>';
+  }).join('') || '<div class="rv-empty">まとめられた元の質問がありません</div>';
+
+  return '<div class="rv-detail">' +
+           '<p class="rv-note">写しを読んで、<b>ナレッジに本当に無い</b>のか、' +
+           '<b>有るのに引けていない</b>のかを見分けること。後者ならナレッジを足しても直らない。</p>' +
+           raws +
+         '</div>';
+}
+
+function rowHtml(it){
+  const open = it.id === openId;
+  const hot = it.occurrence_count >= 3 ? ' hot' : '';
+  const acts = it.review_status === 'pending'
+    ? '<div class="rv-acts">' +
+        '<button class="adm-btn pri" data-approve="' + it.id + '">承認してナレッジへ</button>' +
+        '<button class="adm-btn heavy" data-reject="' + it.id + '">却下</button>' +
+      '</div>'
+    : '';
+  return '<div class="rv-row' + (open ? ' open' : '') + '" data-row="' + it.id + '">' +
+           '<div class="rv-head" data-toggle="' + it.id + '">' +
+             '<span class="q">' + esc(it.normalized_question) + '</span>' +
+             '<span class="cnt' + hot + '">' + it.occurrence_count + ' 件</span>' +
+             pill(STATUS_PILL[it.review_status] || 'none', esc(it.status_label || it.review_status)) +
+           '</div>' +
+           (it.ai_suggested_answer ? '<p class="rv-sum">参考回答: ' + esc(it.ai_suggested_answer) + '</p>' : '') +
+           acts +
+           (open ? '<div data-detail="' + it.id + '"><div class="rv-empty">読み込み中…</div></div>' : '') +
+         '</div>';
+}
+
+function render(){
+  listEl.innerHTML = items.map(rowHtml).join('');
+  if (openId !== null) loadDetail(openId);
+}
+
+async function load(){
+  const q = filterEl.value ? '?status=' + encodeURIComponent(filterEl.value) : '';
+  try {
+    items = (await getJSON('/api/review/queue' + q)).items || [];
+  } catch (e) {
+    listEl.innerHTML = '<div class="rv-empty">一覧を取得できませんでした: ' + esc(e.message) + '</div>';
+    return;
+  }
+  if (!items.length){
+    listEl.innerHTML = '<div class="rv-empty">この状態の項目はありません</div>';
+    return;
+  }
+  render();
+}
+
+async function loadDetail(id){
+  const box = listEl.querySelector('[data-detail="' + id + '"]');
+  if (!box) return;
+  try {
+    box.innerHTML = detailHtml(await getJSON('/api/review/' + id));
+  } catch (e) {
+    box.innerHTML = '<div class="rv-empty">詳細を取得できませんでした: ' + esc(e.message) + '</div>';
+  }
+}
+
+/* 承認は必ず一度モーダルを挟む。参考回答をそのまま流すのではなく、
+   人が読んで直したものがナレッジに入る、という順序をここで作る。 */
+function openApprove(it){
+  const mask = document.createElement('div');
+  mask.className = 'rv-mask';
+  mask.innerHTML =
+    '<div class="rv-sheet" role="dialog" aria-modal="true" aria-label="承認">' +
+      '<h3>ナレッジへ書き戻す</h3>' +
+      '<p class="lead">' + esc(it.normalized_question) + '<br>' +
+        'この文面がそのままナレッジベースに入り、次回から検索で引かれます。' +
+        '参考回答は下書きです。<b>必ず読んで直してください。</b></p>' +
+      '<textarea id="ans"></textarea>' +
+      '<div class="foot">' +
+        '<button class="adm-btn" id="cancel">キャンセル</button>' +
+        '<button class="adm-btn pri" id="ok">承認する</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(mask);
+  const ta = mask.querySelector('#ans');
+  ta.value = it.ai_suggested_answer || '';
+  ta.focus();
+
+  const onKey = function(e){ if (e.key === 'Escape') close(); };
+  function close(){ mask.remove(); document.removeEventListener('keydown', onKey); }
+  document.addEventListener('keydown', onKey);
+  mask.addEventListener('click', function(e){ if (e.target === mask) close(); });
+  mask.querySelector('#cancel').addEventListener('click', close);
+
+  mask.querySelector('#ok').addEventListener('click', async function(){
+    const answer = ta.value.trim();
+    if (!answer){ toast('回答が空です。書き戻す内容を入れてください'); return; }
+    const btn = mask.querySelector('#ok');
+    btn.disabled = true;
+    try {
+      await postJSON('/api/review/' + it.id + '/approve', { approved_answer: answer });
+      close();
+      toast('ナレッジベースへ書き戻しました。次回から同じ質問は検索で引けます');
+      await load();
+    } catch (e) {
+      btn.disabled = false;
+      // 502 は書き込みかベクトル化の失敗。状態は未対応のままなのでやり直せる
+      toast('書き戻せませんでした: ' + e.message);
+    }
+  });
+}
+
+listEl.addEventListener('click', async function(ev){
+  const t = ev.target.closest('[data-approve],[data-reject],[data-toggle]');
+  if (!t) return;
+
+  if (t.dataset.approve){
+    const it = items.find(function(x){ return String(x.id) === t.dataset.approve; });
+    if (it) openApprove(it);
+    return;
+  }
+  if (t.dataset.reject){
+    t.disabled = true;
+    try {
+      await postJSON('/api/review/' + t.dataset.reject + '/reject', {});
+      toast('却下しました');
+      await load();
+    } catch (e) {
+      t.disabled = false;
+      toast('却下できませんでした: ' + e.message);
+    }
+    return;
+  }
+  // 見出しのクリックで開閉。同時に開くのは 1 件だけ
+  const id = Number(t.dataset.toggle);
+  openId = openId === id ? null : id;
+  render();
+});
+
+filterEl.addEventListener('change', function(){ openId = null; load(); });
+document.getElementById('reload').addEventListener('click', function(){ load(); });
+load();
+</script>
+</body>
+</html>

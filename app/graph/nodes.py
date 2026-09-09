@@ -34,7 +34,6 @@ from app.core import labels
 from app.core import memory
 from app.core import confidence, query_understanding, retrieval, selfcheck
 from app.core.llm import get_chat_model
-from app.core.observability import tag_intent
 from app.core.prompts import (
     AGENT_SYSTEM,
     COMPLAINT_REPLY_TEXT,
@@ -232,9 +231,6 @@ async def classify_intent(state) -> dict:
     # 分岐先を返すだけで State を書けないので、ここで持たないと ConversationState の
     # route field を誰も埋めないまま残る(log node と trace が読めなくなる)。
     route = routing.route_by_intent({"intent": intent})
-    # 09: intent を Langfuse 側にも残す。どの種類の質問にコストがかかっているかを
-    # 後から intent 単位で集計するための入口(未設定なら何もしない no-op)。
-    tag_intent(intent, conf)
     return {"intent": intent, "intent_confidence": conf, "route": route,
             "trace": {"intent": intent, "intent_confidence": conf, "route": route}}
 

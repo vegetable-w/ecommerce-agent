@@ -51,9 +51,14 @@ def main() -> int:
 --- まとめ（この版で成り立つ形）---
   session:  invoke の config に metadata={"langfuse_session_id": str(cid)} を入れる。
             CallbackHandler が langfuse_ 接頭辞の key を trace 根へ引き上げる。
-  intent:   node の中から get_current_trace_id() を取り、ingestion.batch へ
-            TraceCreate(id=その trace id, tags=[...], metadata={...}) を送って上書きする。
-            **update_current_trace は v4 に無い。**
+  intent:   **node の中から Langfuse へ書く道は無い。**
+            update_current_trace は v4 に無く、ingestion の TraceCreate upsert は
+            server が events_only モードのため 400。propagate_attributes は残って
+            いるが「今の span」に載せるもので、LangChain の CallbackHandler が作る
+            observation は OTEL の current span にならないため、node からは
+            get_current_trace_id() が None を返して黙って捨てられる。
+            したがって intent は **trace 根の output(graph の最終 State)** から取る。
+            scripts/cost_by_intent.py がそれを GENERATION の usage と突き合わせる。
 """)
     return 0
 

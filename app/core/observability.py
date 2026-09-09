@@ -15,9 +15,8 @@ trace の中身の対応：
     trace 根        = graph 1 回の実行（attach_observability が付けた CallbackHandler）
     session_id      = conversation_id（runtime が invoke config の metadata で渡す。
                       CallbackHandler が `langfuse_` 接頭辞の key を trace 根へ引き上げる）
-    tags / metadata = intent と confidence（tag_intent。Task 3 が classify_intent から呼ぶ。
-                      **載るのは呼んだ時点の span** で、trace 根ではない。tag_intent の
-                      docstring に理由と Task 11 への影響を書いてある）
+    intent は trace 根の output（graph の最終 State）から取る。理由は下の長い
+    コメントを読むこと。node の中から Langfuse へ書く道は塞がっている。
 """
 
 import logging
@@ -82,38 +81,25 @@ def attach_observability(graph):
     return graph.with_config({"callbacks": [_make_handler()]})
 
 
-def tag_intent(intent: str, confidence: float) -> None:
-    """intent を今の span の tag と metadata に書く（Cost Control の intent grouping の入口）。
-
-    **plan の `get_client().update_current_trace(...)` は使えない。** 実装版の langfuse
-    4.15.1 にそのメソッドは無く、代わりに示唆された ingestion の TraceCreate upsert も
-    v4 の server に 400 で弾かれる（実測: `Event type "trace-create" is not accepted by
-    /api/public/ingestion when LANGFUSE_MIGRATION_V4_WRITE_MODE is events_only`）。
-    v4 で trace 属性を書く公式の口はこの propagate_attributes だけ。
-
-    **どこに載るか（Task 11 への申し送り）**：v4 の trace 属性は span の属性で、
-    trace 全体の tag は **app root span**（LangChain の CallbackHandler が開く "LangGraph"）
-    のものが使われる。tag_intent はその子（classify_intent）の中から呼ばれるので、
-    intent が載るのは**その 1 observation** であって trace 根ではない。
-    root は callback が所有していて後から書き換える術が無いため、これが v4 で届く上限。
-    intent 別に token cost を集計するときは、同じ trace_id の中で
-    「intent tag を持つ observation」と「GENERATION の cost」を突き合わせること。
-
-    例外は握って握り潰す。observability の失敗が業務の流れに影響してはいけない。
-    """
-    if not langfuse_enabled():
-        return
-    try:
-        _init_client()
-        from langfuse import propagate_attributes
-
-        # context manager だが、属性は **enter した時点で現在の span に載る**。
-        # tag_intent は値を 1 つ書くだけで context を持ち回らないので即座に閉じる
-        # (開いたままにすると、以降の node がすべてこの context の中に入ってしまう)。
-        with propagate_attributes(
-            tags=[f"{_INTENT_TAG_PREFIX}{intent}"],
-            metadata={"intent": intent, "intent_confidence": confidence},
-        ):
-            pass
-    except Exception:  # noqa: BLE001 — observability の失敗で turn を落とさない
-        logger.debug("Langfuse への intent tagging に失敗した", exc_info=True)
+# intent を Langfuse 側へ書く関数はここに置かない。**実測の結果、置けないため。**
+#
+# 09 章の狙いは「intent 別に token cost を集計する」ことで、plan は
+# `get_client().update_current_trace(tags=...)` を classify_intent の中から呼ぶ設計だった。
+# 実装版で成り立たないことが 3 段階で分かった:
+#
+#   1. langfuse 4.15.1 に `update_current_trace` が無い。
+#   2. 代替として示唆された ingestion の TraceCreate upsert は、v4 の server が
+#      events_only モードのため 400 で弾く(実測: `Event type "trace-create" is not
+#      accepted ... when LANGFUSE_MIGRATION_V4_WRITE_MODE is events_only`)。
+#   3. v4 に残る `propagate_attributes` は「今の span」に載せるものだが、
+#      **node の中に「今の span」が無い**。LangChain の CallbackHandler が作る
+#      observation は OTEL の current span にならないため、node から
+#      `get_current_trace_id()` を呼ぶと None が返り、属性は黙って捨てられる。
+#      (実測: `No active span in current context` + `current_span=NonRecordingSpan`)
+#
+# したがって intent は **trace 根の output** から取る。root span("LangGraph")の output は
+# graph の最終 State で、そこに `intent` が入っている。scripts/cost_by_intent.py が
+# 同じ trace_id の GENERATION の usage と突き合わせて集計する。
+#
+# この方が質的にも正しい: 根の output の intent は `INTENTS` への丸めと上流障害時の
+# フォールバックを通った後の値で、**routing が実際に使った intent と必ず一致する**。

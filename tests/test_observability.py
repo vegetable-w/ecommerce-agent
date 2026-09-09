@@ -11,8 +11,9 @@ observability は本番で外部サービスに依存する唯一の任意機能
    外へ送る。揃っていなければ off、が唯一安全な既定。
 2. **disabled のとき graph に一切触らない。** with_config は新しい Runnable を返すので、
    同一性(`is`)で見れば「本当に素通ししたか」が分かる。
-3. **disabled のとき tag_intent が langfuse を要求しない。** node から毎ターン呼ばれる
-   関数なので、ここが import や通信を試みると Langfuse 無しの環境で毎ターン失敗する。
+3. **intent の tagging はここに無い。** node の中から Langfuse へ書く道は塞がって
+   いることが実測で分かっている(app/core/observability.py の長いコメントを読むこと)。
+   intent は trace 根の output から取り、scripts/cost_by_intent.py が突き合わせる。
 
 enabled 側は _init_client / _make_handler を差し替えて、**callback の付け方**だけを見る。
 本物の Langfuse server も上流も呼ばない。
@@ -78,28 +79,6 @@ def test_無効なら_langfuse_を初期化しない(disabled, monkeypatch):
     assert observability.get_langfuse() is None
 
 
-# --- 3. disabled のとき tag_intent は完全な no-op ---
-
-def test_無効なら_tag_intent_は何もしない(disabled, monkeypatch):
-    def _boom(*args, **kwargs):
-        raise AssertionError("無効なのに Langfuse を触った")
-
-    monkeypatch.setattr(observability, "_init_client", _boom)
-
-    # 例外を投げないこと自体が assertion。node は戻り値を見ない
-    assert observability.tag_intent("配送", 0.9) is None
-
-
-def test_有効でも_tag_intent_の失敗は外へ出さない(enabled, monkeypatch):
-    # Langfuse server が落ちている / key が古い、はこの機能の通常の故障で、
-    # そのたびに turn が落ちては本末転倒。client の生成から握れていることを見る
-    def _boom():
-        raise RuntimeError("Langfuse に繋がらない")
-
-    monkeypatch.setattr(observability, "_init_client", _boom)
-    assert observability.tag_intent("配送", 0.9) is None
-
-
 # --- 4. enabled のときは with_config で callback を 1 つ付ける ---
 
 class _FakeGraph:
@@ -136,56 +115,6 @@ def test_有効なら_get_langfuse_は_client_を返す(enabled, monkeypatch):
 
 
 # --- 5. tag_intent が書く属性 ---
-
-def test_tag_intent_は現在の_span_へ_tag_と_metadata_を書く(enabled, monkeypatch):
-    """plan の update_current_trace は 4.15.1 に無く、代替案の ingestion upsert も
-    v4 server に 400 で弾かれる。残る公式の口が propagate_attributes。
-
-    確かめるのは 2 点。**intent が tag と metadata の両方に入ること**
-    (tag は Langfuse 上での絞り込み、metadata は Task 11 の集計に使うので片方では足りない)と、
-    **context を開きっぱなしにしないこと**(閉じ忘れると以降の node がすべてこの
-    context の中に入り、intent が後続の全 span へ漏れる)。
-    """
-    calls = []
-    exits = []
-
-    class _Ctx:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *exc):
-            exits.append(True)
-            return False
-
-    def _fake_propagate(**kwargs):
-        calls.append(kwargs)
-        return _Ctx()
-
-    import langfuse
-    monkeypatch.setattr(observability, "_init_client", lambda: object())
-    monkeypatch.setattr(langfuse, "propagate_attributes", _fake_propagate)
-
-    observability.tag_intent("配送", 0.87)
-
-    assert calls == [{
-        "tags": ["intent:配送"],
-        "metadata": {"intent": "配送", "intent_confidence": 0.87},
-    }]
-    assert exits == [True]
-
-
-def test_tag_intent_は_propagate_の失敗を外へ出さない(enabled, monkeypatch):
-    """Langfuse が落ちている / SDK の API が変わった、で turn を落とさない。"""
-    import langfuse
-
-    def _boom(**kwargs):
-        raise RuntimeError("SDK が変わった")
-
-    monkeypatch.setattr(observability, "_init_client", lambda: object())
-    monkeypatch.setattr(langfuse, "propagate_attributes", _boom)
-
-    assert observability.tag_intent("配送", 0.87) is None
-
 
 # --- 6. runtime の配線 ---
 

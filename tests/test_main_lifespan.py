@@ -115,7 +115,7 @@ def test_pages_still_carry_the_no_cache_header_after_the_lifespan_was_added(path
 
 
 def test_review_router_is_registered_on_the_real_app():
-    """査読画面が叩く先。登録が漏れると、承認を押しても 404 が返るだけで
+    """レビュー画面が叩く先。登録が漏れると、承認を押しても 404 が返るだけで
     データフライホイールがナレッジベースまで繋がらない(09 章の受け入れ検証 3)。"""
     paths = app.openapi()["paths"]
     assert "/api/review/queue" in paths

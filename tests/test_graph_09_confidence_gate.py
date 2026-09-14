@@ -3,7 +3,7 @@
 05 章から入っていた「リランク Top1 が閾値を越えたか」という単一スコアのゲートを、
 app/core/confidence.py の総合点へ置き換える。合わせて、断ったターンを
 **なぜ断ったか(fallback_source)**と**そのとき何を引いていたか(retrieved_snapshot)**
-の 2 つ付きで低信頼プールへ残す。写しは査読画面で「ナレッジに本当に無いのか、
+の 2 つ付きで低信頼プールへ残す。写しはレビュー画面で「ナレッジに本当に無いのか、
 有るのに引けていないのか」を見分ける材料になる。
 
 このファイルは検索 / セルフチェック / プール投入をすべて差し替える。
@@ -95,7 +95,7 @@ async def test_single_borderline_hit_is_refused_by_the_total_score(monkeypatch):
     assert out["evidence_strong"] is False
     assert out["fallback_source"] == "retrieval_low_conf"
     assert out["evidence_confidence"] < 0.5
-    # 足切りは越えているので写しは 1 件残る(「惜しかった」ことが査読で分かる)
+    # 足切りは越えているので写しは 1 件残る(「惜しかった」ことがレビューで分かる)
     assert len(out["retrieved_snapshot"]) == 1
     assert out["trace"]["evidence_top"] == pytest.approx(0.35)
 
@@ -104,7 +104,7 @@ async def test_selfcheck_fail_labels_self_check(monkeypatch):
     """根拠は取れたが答えきれなかったターン。source を分け、写しは残す。
 
     プールでの直し方が違う。retrieval_low_conf はナレッジに書き足す話、
-    self_check は書き方か索き方を直す話で、同じ札にすると査読で混ざる。
+    self_check は書き方か索き方を直す話で、同じ札にするとレビューで混ざる。
     """
     monkeypatch.setattr(settings, "evidence_confidence_threshold", 0.3)
     _stub(monkeypatch, [_hit(1, 0.9, "返品の期限", "7日以内は返品可能"),
@@ -213,7 +213,7 @@ async def test_fallback_uses_the_source_and_snapshot_from_state(monkeypatch):
 
 
 async def test_fallback_reason_carries_the_confidence_signals(monkeypatch):
-    """理由から確信度の信号が読めること。査読画面で開く前の一次情報になる。"""
+    """理由から確信度の信号が読めること。レビュー画面で開く前の一次情報になる。"""
     calls = _capture(monkeypatch)
     await nodes.fallback_reply({
         "messages": [HumanMessage("質問")],

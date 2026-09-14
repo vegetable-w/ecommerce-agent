@@ -70,7 +70,7 @@ async def test_vectorize_resumes_after_crash(db_session_factory, milvus, monkeyp
 async def test_vectorize_can_be_narrowed_to_the_chunks_just_written(
     db_session_factory, milvus, monkeypatch
 ):
-    """chunk_ids を渡したら、その chunk だけを流すこと(09 章の査読の承認)。
+    """chunk_ids を渡したら、その chunk だけを流すこと(09 章のレビューでの承認)。
 
     絞れないと、kb-build の直後(kb-vectorize をまだ回していない状態)に承認を 1 件
     押しただけで、DB 全体の pending が 1 リクエストの中で埋め込みへ流れる。

@@ -1,4 +1,4 @@
-"""/api/review(査読画面の API)のテスト。09 章のデータフライホイールの最後の一段。
+"""/api/review(レビュー画面の API)のテスト。09 章のデータフライホイールの最後の一段。
 
 **本物の DB(support_test)を使い、ナレッジベースへの書き込みだけ差し替える。**
 DB を本物にするのは、ここで確かめたいことのほとんどが「行がどう変わったか」
@@ -17,8 +17,8 @@ TestClient を使わないのは tests/test_kb_api.py と同じ理由: あれは
 1. **書き戻しが済んでから status を動かす。** 逆順にすると、書き戻しが落ちた行が
    「承認済みなのにナレッジベースには無い」まま固定される。update_review_status は
    pending の行しか動かせないので、その行は二度と承認できない。
-2. **ナレッジベースへ入るのは査読者が確定させた答え。** モデルの参考回答をそのまま
-   書くなら、人の査読を挟む意味が無い。
+2. **ナレッジベースへ入るのはレビュー担当者が確定させた答え。** モデルの参考回答をそのまま
+   書くなら、レビューを挟む意味が無い。
 3. **判定は一度きり。** pending 以外への操作は 409。承認と却下が後勝ちで
    上書きされると、消えた方の判断には誰も気づけない。
 """
@@ -139,7 +139,7 @@ async def _status_of(rid: int) -> str:
 
 
 async def test_queue_lists_pending_by_occurrence_count_descending(db_session_factory):
-    """よく来る穴が上。この並びがそのまま査読の優先順位になる。
+    """よく来る穴が上。この並びがそのままレビューの優先順位になる。
 
     `/api/review/queue` が `/api/review/{id}` に食われていない
     (経路の宣言順を入れ替えると "queue" が id として解釈され 422 になる)ことも
@@ -275,7 +275,7 @@ async def test_approve_writes_the_knowledge_base_then_flips_the_status(
 
     chunk = stub_kb["chunks"][0]
     assert chunk.questions == _Q_NORM
-    # **査読者が確定させた答え**。モデルの参考回答をそのまま書くなら査読の意味が無い
+    # **レビュー担当者が確定させた答え**。モデルの参考回答をそのまま書くならレビューの意味が無い
     assert chunk.answer == _HUMAN_ANSWER
     assert chunk.answer != _AI_ANSWER
     assert chunk.content_type == "faq"
@@ -510,7 +510,7 @@ async def test_approve_keeps_the_item_pending_when_only_the_vectorization_fails(
 
 async def test_approve_reports_409_when_someone_else_decided_first(
         db_session_factory, stub_kb, monkeypatch):
-    """詳細を読んでから書き込むまでの間に、別の査読者が判定を確定させた場合。
+    """詳細を読んでから書き込むまでの間に、別のレビュー担当者が判定を確定させた場合。
 
     update_review_status は pending の行しか動かせないので rowcount が 0 になる。
     黙って 200 を返すと、画面には自分の答えが入ったように見えるのに、保存されて

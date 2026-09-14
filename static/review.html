@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>査読キュー · STORE 管理画面</title>
+<title>レビューキュー · STORE 管理画面</title>
 <script src="/static/admin.js"></script>
 <style>
   /* このページ固有のものだけ。共通の見た目は admin.js が注入する */
@@ -12,7 +12,7 @@
   .rv-sel{font:inherit; font-size:13.5px; color:var(--ink); background:#fff;
           border:1px solid var(--line); border-radius:999px; padding:7px 13px}
 
-  /* 3 つの門。査読の前に必ず読む静的な案内で、操作要素ではない */
+  /* 3 つの門。レビューの前に必ず読む静的な案内で、操作要素ではない */
   .rv-gates{border:1px dashed var(--line); background:#fafbfc; border-radius:var(--radius);
             padding:12px 15px; margin-bottom:16px; font-size:12.5px; line-height:1.85; color:var(--ink-2)}
   .rv-gates b{color:var(--accent-d)}
@@ -66,7 +66,7 @@
 <body>
 <div class="adm-wrap">
   <div class="adm-card">
-    <h2><span class="adm-num">R</span>査読キュー</h2>
+    <h2><span class="adm-num">R</span>レビューキュー</h2>
 
     <div class="rv-bar">
       <select class="rv-sel" id="filter">

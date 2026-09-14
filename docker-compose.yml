@@ -6,7 +6,7 @@ services:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: support
     ports:
-      - "3306:3306"
+      - "127.0.0.1:3306:3306"
     volumes:
       - support-mysql-data:/var/lib/mysql
       - ./sql:/docker-entrypoint-initdb.d:ro
@@ -44,8 +44,8 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
     ports:
-      - "9001:9001"
-      - "9000:9000"
+      - "127.0.0.1:9001:9001"
+      - "127.0.0.1:9000:9000"
     volumes:
       - milvus-minio-data:/minio_data
     command: minio server /minio_data --console-address ":9001"
@@ -74,11 +74,30 @@ services:
       timeout: 20s
       retries: 3
     ports:
-      - "19530:19530"
-      - "9091:9091"
+      - "127.0.0.1:19530:19530"
+      - "127.0.0.1:9091:9091"
     depends_on:
       - etcd
       - minio
+
+  app:
+    build: .
+    container_name: support-app
+    env_file: .env
+    environment:
+      DATABASE_URL: mysql+asyncmy://root:root@mysql:3306/support
+      MILVUS_URI: http://milvus:19530
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./log:/app/log
+    depends_on:
+      mysql:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   support-mysql-data:

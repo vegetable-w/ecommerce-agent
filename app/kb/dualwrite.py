@@ -39,7 +39,7 @@ async def vectorize_pending(client, batch_size: int = 64,
     """冪等・再実行可能: pending を取得 → category+questions+answer を連結して埋め込み
     → Milvus upsert(PK=id) → vector_id 反映・status=done。
 
-    chunk_ids を渡すと、その id の pending だけを処理する(09 章の査読の承認)。
+    chunk_ids を渡すと、その id の pending だけを処理する(09 章のレビューでの承認)。
     既定の None は今までどおり DB 全体の pending で、取り込み(make kb-vectorize)の
     振る舞いは変わらない。絞っても冪等性は変わらない: 落ちたバッチは pending のまま
     残り、次の実行(押し直しでも kb-vectorize でも)が拾う。

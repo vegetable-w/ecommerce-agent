@@ -419,7 +419,7 @@ async def test_a_refused_faq_carries_the_retrieval_snapshot_into_the_pool(monkey
     """**この経路も検索とリランクを通っている。** 写しを付けずに積んではいけない。
 
     DDL はこの列の NULL を「検索を通っていない」の意味で使う(app/db/models.py)ので、
-    付け忘れると `retrieved_chunks IS NULL` で数える側が誤分類し、査読画面は
+    付け忘れると `retrieved_chunks IS NULL` で数える側が誤分類し、レビュー画面は
     この行にだけ「検索を通っていないため写しはありません」と嘘の説明を出す。
     """
     saved = {}
@@ -447,7 +447,7 @@ async def test_a_refused_faq_carries_the_retrieval_snapshot_into_the_pool(monkey
 
 
 async def test_an_empty_snapshot_is_kept_as_an_empty_list(monkeypatch):
-    """「検索は通ったが 0 件」を None へ丸めない。査読画面は 2 つを別の文言で出す。"""
+    """「検索は通ったが 0 件」を None へ丸めない。レビュー画面は 2 つを別の文言で出す。"""
     saved = {}
 
     async def _fake(cid, raw, source, reason, retrieved_chunks=None):

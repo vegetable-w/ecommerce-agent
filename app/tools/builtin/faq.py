@@ -57,7 +57,7 @@ def _insufficient(source: str, reason: str, snapshot: list | None = None) -> dic
 
     snapshot は低信頼プールへ持ち回る検索の写し(09 章)。**None と [] は別の意味**で、
     None は「検索を通っていない」、[] は「検索は通ったが 1 件も返らなかった」。
-    査読画面はこの 2 つを別の文言で出し分ける(static/review.html の snapshotHtml)。
+    レビュー画面はこの 2 つを別の文言で出し分ける(static/review.html の snapshotHtml)。
     """
     return {
         "sufficient": False,
@@ -100,7 +100,7 @@ async def query_faq(keyword: str, category: str | None = None) -> dict:
 
     if not hits:
         # 写しは [] を渡す。検索は通っているので、None(検索を通っていない)にすると
-        # 査読画面が「この質問は検索を通っていない」と嘘の説明を出す。
+        # レビュー画面が「この質問は検索を通っていない」と嘘の説明を出す。
         return _insufficient("retrieval_low_conf", "検索で根拠が 1 件も得られなかった",
                              snapshot=[])
 
@@ -112,7 +112,7 @@ async def query_faq(keyword: str, category: str | None = None) -> dict:
         kept = [h for h in hits if h["rerank_score"] >= settings.rerank_min_score]
         if not kept:
             # 写しは**足切り前**の hits から取る。足切り後は空なので、そちらから取ると
-            # 「何を引いていたのか」が残らない(査読で最も知りたいのがそこ)。
+            # 「何を引いていたのか」が残らない(レビューで最も知りたいのがそこ)。
             return _insufficient(
                 "retrieval_low_conf", f"リランクの最高スコアが閾値未満(top={top:.3f})",
                 snapshot=confidence.snapshot_from_hits(hits),

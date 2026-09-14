@@ -67,7 +67,7 @@ def compute_evidence_confidence(hits: list[dict]) -> EvidenceConfidence:
 def snapshot_from_hits(hits: list[dict], top_n: int = 3) -> list[dict]:
     """プールへ残す検索の写し。Top N の本文とスコアだけを取る。
 
-    後で人が査読画面で読み、「ナレッジに本当に無いのか、有るのに引けていないのか」を
+    後で人がレビュー画面で読み、「ナレッジに本当に無いのか、有るのに引けていないのか」を
     見分けるための材料。全文ではなく件数を絞るのは、1 件の質問に対して検索結果を
     丸ごと持つと、プールが検索ログの置き場所になってしまうため。
     """

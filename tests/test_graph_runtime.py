@@ -1202,7 +1202,7 @@ async def test_get_turn_snapshotは未初期化なら例外を出す():
 async def test_get_turn_snapshotは会話ごとに切り分けて読む(monkeypatch, tmp_path):
     """thread_id を取り違えると、👎 に別の会話の質問と写しが付く。
 
-    プールに残るのは「押されていない質問」で、査読する人にはそれが分からない。
+    プールに残るのは「押されていない質問」で、レビュー担当者にはそれが分からない。
     """
     _fake_repo(monkeypatch, known=(7, 8))
     async with _running(monkeypatch, tmp_path, _snapshot_builder()):

@@ -142,7 +142,7 @@ async def insert_knowledge_chunk(
 async def list_pending_chunks(chunk_ids: list[int] | None = None) -> list[KnowledgeChunk]:
     """ベクトル化待ちの chunk。既定は DB 全体の pending。
 
-    chunk_ids を渡すと、その id に限って pending を返す(09 章)。査読の承認は
+    chunk_ids を渡すと、その id に限って pending を返す(09 章)。レビューでの承認は
     自分が書いた 1 件だけをベクトル化したいが、取り込み(make kb-vectorize)は
     全 pending を拾わなければならない。既定を None のままにしてあるのは、
     後者の呼び出し元(03/04 章の script と job)の振る舞いを変えないため。
@@ -375,7 +375,7 @@ async def find_chunk_id_by_fingerprint(questions: str, answer: str) -> int | Non
     """同じ指紋の chunk が既にあればその id。無ければ None(09 章)。
 
     判定そのものは chunk_fingerprint に任せる(03 章の取り込みと同じ規則)。
-    id まで返すのは、査読の承認をやり直したときに「書かない」だけでは足りないため。
+    id まで返すのは、レビューでの承認をやり直したときに「書かない」だけでは足りないため。
     一度目で MySQL への書き込みが済んでベクトル化だけが落ちた行は pending のまま
     残っており、二度目の承認はその**既にある行**をベクトル化しなければ、承認済みなのに
     検索へ出てこない知識ができる。集合(list_chunk_fingerprints)では拾えない。
@@ -500,7 +500,7 @@ async def low_confidence_exists(conversation_id: int, raw_question: str) -> bool
     source は見ない。プールの 1 行は「直すべき質問」1 件であって「起きた出来事」の
     記録ではないので、同じ会話の同じ質問が別の source で 2 行になると、
     flywheel がそれを 1 つの穴へまとめて occurrence_count を 2 にする
-    = 査読の優先度が 1 ターンで二重に重み付けされる。
+    = レビューの優先度が 1 ターンで二重に重み付けされる。
     """
     async with db.async_session() as s:
         found = await s.execute(
@@ -1017,7 +1017,7 @@ async def list_review_queue(status: str | None) -> list[ReviewQueue]:
     status=None は絞り込みなしの全件。
 
     第 2 キーに id を足すのは list_eval_runs と同じ理由。穴のほとんどは 1 件のままなので
-    同点が普通で、第 1 キーだけでは並びが実行ごとに変わり、査読キューを開き直すたびに
+    同点が普通で、第 1 キーだけでは並びが実行ごとに変わり、レビューキューを開き直すたびに
     順番が入れ替わる(どこまで見たかが分からなくなる)。
     """
     async with db.async_session() as s:

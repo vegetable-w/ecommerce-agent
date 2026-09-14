@@ -214,13 +214,13 @@ async def test_insufficient_result_carries_the_refusal_instruction_as_text(
     assert "時間をおいての再試行は案内しない" in wire
 
 
-# --- 断ったときの検索の写し(09 章。低信頼プールと査読画面が読む)---------------
+# --- 断ったときの検索の写し(09 章。低信頼プールとレビュー画面が読む)---------------
 
 
 async def test_a_score_refusal_carries_the_snapshot_taken_before_the_cutoff(monkeypatch):
     """足切りで断ったときの写しは**足切り前**の Top3。
 
-    足切り後は空なので、そちらから取ると「何を引いていたのか」が残らない。査読で
+    足切り後は空なので、そちらから取ると「何を引いていたのか」が残らない。レビューで
     いちばん知りたいのは、ナレッジに無いのか、有るのに引けていないのかの区別。
     """
     monkeypatch.setattr(settings, "rerank_min_score", 0.5)
@@ -236,7 +236,7 @@ async def test_a_score_refusal_carries_the_snapshot_taken_before_the_cutoff(monk
     assert [c["question"] for c in snap] == ["置き配はできますか", "宅配ボックス", "q3"]
     assert snap[0]["rerank_score"] == 0.21
     assert snap[1]["section_path"] == "配送/受け取り"
-    # 形は app/core/confidence.py の snapshot_from_hits と同じ(査読画面がこの形を読む)
+    # 形は app/core/confidence.py の snapshot_from_hits と同じ(レビュー画面がこの形を読む)
     assert set(snap[0]) == {"question", "answer", "rerank_score", "section_path"}
 
 
@@ -251,7 +251,7 @@ async def test_a_self_check_refusal_carries_the_snapshot(monkeypatch):
 
 
 async def test_zero_hits_is_an_empty_snapshot_not_none(monkeypatch):
-    """**検索を通ったのに写しが None** になると、査読画面が嘘の説明を出す。
+    """**検索を通ったのに写しが None** になると、レビュー画面が嘘の説明を出す。
 
     None は「検索を通っていない」の意味で、DDL もそう使っている(app/db/models.py)。
     1 件も返らなかったことは [] で表す(static/review.html は別の文言で出し分ける)。

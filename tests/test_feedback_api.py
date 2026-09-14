@@ -3,16 +3,16 @@
 09 章のデータフライホイールの 3 つ目の入口(spec §4)。確かめる中心は 3 つ:
 
 1. **👎 だけがプールへ入る。** 👍 を保存しないのは spec の明示的な非目標で、
-   「貯めておけば後で使える」と気を利かせた瞬間に、査読する人は選り分けから
+   「貯めておけば後で使える」と気を利かせた瞬間に、レビュー担当者は選り分けから
    始めることになる。
 2. **写しは best effort だが、嘘は付けない。** checkpointer の最新 State が
    押された質問のものでなければ、検索結果は付けない(None)。別の質問の検索結果を
-   添えると、査読画面は「この質問でこれを引いていた」という嘘の材料を読む。
+   添えると、レビュー画面は「この質問でこれを引いていた」という嘘の材料を読む。
 3. **写しの失敗でプールへの投入を落とさない。** いちばん拾いたい「答えたが
    外していた」質問が、いちばん壊れているときに限って失われる形になる。
 4. **同じ会話の同じ質問を二度積まない。** agent が自分で断ったターンの吹き出しにも
    満足度バーは出る。そこへ 👎 が付いて 2 行になると、flywheel が両方を同じ穴へ
-   まとめ、1 ターンで occurrence_count が 2 になる(= 査読の優先度が二重に付く)。
+   まとめ、1 ターンで occurrence_count が 2 になる(= レビューの優先度が二重に付く)。
 
 **本番相当の support DB にも checkpointer にも上流にも触らない。**
 repository.insert_low_confidence と runtime.get_turn_snapshot は各テストで
@@ -138,7 +138,7 @@ def test_down_pools_with_snapshot_when_question_matches(monkeypatch):
     assert len(calls) == 1
     assert calls[0]["conversation_id"] == 5
     assert calls[0]["raw_question"] == _Q
-    # source を取り違えると、査読画面で「agent が自分で断った質問」と
+    # source を取り違えると、レビュー画面で「agent が自分で断った質問」と
     # 「人が否と言った質問」が同じ山に混ざる。直し方が違うので分けている
     assert calls[0]["source"] == "user_feedback"
     assert calls[0]["retrieved_chunks"] == _SNAPSHOT
@@ -148,7 +148,7 @@ def test_down_pools_without_snapshot_when_question_differs(monkeypatch):
     """質問が一致しなければ写しは付けない。**None であって [] ではない。**
 
     押すのが遅れて次のターンが始まっていると、最新 State の写しは別の質問のもの。
-    添えると査読画面が嘘の材料を読むので、付けないより悪い。
+    添えるとレビュー画面が嘘の材料を読むので、付けないより悪い。
 
     [] を渡すと JSON の [] として保存され、DDL が「検索を通っていない」の意味で
     使う NULL から漏れる(app/db/models.py の none_as_null と同じ話)。
@@ -269,7 +269,7 @@ def test_a_question_already_in_the_pool_is_not_added_twice(monkeypatch):
 
     agent が自分で断ったターンは fallback_reply(または query_faq の拒否)が既に
     1 行積んでいる。同じ質問をもう 1 行積むと、flywheel が 2 行を同じ穴へまとめて
-    occurrence_count が 1 ターンで 2 になる。この列は査読キューの並び順=優先度
+    occurrence_count が 1 ターンで 2 になる。この列はレビューキューの並び順=優先度
     そのものなので、断ったターンだけが二重に重み付けされる。
     """
     calls = _spy_insert(monkeypatch, already_pooled=True)

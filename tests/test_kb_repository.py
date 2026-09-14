@@ -22,7 +22,7 @@ async def test_insert_and_list_pending(db_session_factory):
 
 
 async def test_list_pending_can_be_narrowed_to_specific_ids(db_session_factory):
-    """id を渡したときは、その pending だけを返すこと(09 章の査読の承認が使う)。
+    """id を渡したときは、その pending だけを返すこと(09 章のレビューでの承認が使う)。
 
     **空の list は「対象なし」であって全件ではない。** ここで全件へ広がると、
     承認 1 件で DB 全体の pending が埋め込みへ流れる(課金と長時間のブロック)。

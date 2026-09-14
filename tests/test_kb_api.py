@@ -359,7 +359,7 @@ async def test_ingest_then_vectorize_marks_rows_done(db_session_factory, monkeyp
     assert body["inserted"] == n
     assert body["vectorized"] == n
     assert seen["called"] >= 1, "vectorize_pending を経由していない"
-    # 取り込みの経路は今までどおり全 pending を拾う(id で絞るのは査読の承認だけ)
+    # 取り込みの経路は今までどおり全 pending を拾う(id で絞るのはレビューでの承認だけ)
     assert seen["chunk_ids"] is None
     assert (await repository.knowledge_stats())["done"] == n
 

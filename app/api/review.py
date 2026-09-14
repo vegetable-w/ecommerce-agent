@@ -1,4 +1,4 @@
-"""査読画面の API。データフライホイールの最後の一段(09 章 spec §8.1)。
+"""レビュー画面の API。データフライホイールの最後の一段(09 章 spec §8.1)。
 
 低信頼プール → 正規化と重複排除 → **人の判断** → ナレッジベースへ書き戻し、の
 「人の判断」から先を受け持つ。承認された答えは 03 章の取り込み経路
@@ -40,7 +40,7 @@ from app.schemas.review import (
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# 査読を通ったナレッジの出所を示す固定値。app/kb/mining.py が会話由来の chunk に
+# レビューを通ったナレッジの出所を示す固定値。app/kb/mining.py が会話由来の chunk に
 # category="過去の会話" / section_path="mined" を付けるのと同じ扱いで、
 # 「どの経路で入った知識か」を後から見分けられるようにする。
 # section_path に質問文を入れない: あの列は文書内の位置(VARCHAR(512))であって
@@ -74,7 +74,7 @@ async def _vectorize(chunk_ids: list[int]) -> int:
     server process から呼ぶと event loop を塞ぐが、それは /api/kb/vectorize と
     retrieval.search_knowledge が既にやっていることで、この経路が持ち込む問題では
     ない(しかも承認 1 件で流れる chunk は 1 件)。塞ぐのを本当に直すなら
-    Milvus を触る全経路をまとめて直す話になるので、査読 API の都合で
+    Milvus を触る全経路をまとめて直す話になるので、レビュー API の都合で
     片方だけ別の作法へ寄せない。
     """
     client = await asyncio.to_thread(milvus_client.get_client)
@@ -111,11 +111,11 @@ async def _detail_or_404(review_id: int):
 # 解釈され、一覧の取得が 422 になる(経路の宣言順がそのまま照合順になる)。
 @router.get("/api/review/queue", response_model=ReviewListResponse)
 async def review_queue(status: str | None = None) -> dict:
-    """査読待ちの一覧。occurrence_count 降順(よく来る穴が上)。status 省略で全件。"""
+    """レビュー待ちの一覧。occurrence_count 降順(よく来る穴が上)。status 省略で全件。"""
     try:
         rows = await repository.list_review_queue(status)
     except SQLAlchemyError as exc:
-        logger.exception("査読キューを読めなかった status=%s", status)
+        logger.exception("レビューキューを読めなかった status=%s", status)
         raise HTTPException(status_code=503, detail=_DB_DOWN) from exc
     return {"items": [_item_out(r) for r in rows]}
 
@@ -126,7 +126,7 @@ async def review_detail(review_id: int) -> dict:
 
     正規化後の 1 行だけを見て承認すると、正規化が意味を削っていた場合
     (注文番号や条件が落ちた場合)に気づけない。写しは「ナレッジが無いのか、
-    有るのに引けていないのか」を査読者が見分けるための材料。
+    有るのに引けていないのか」をレビュー担当者が見分けるための材料。
     """
     item, raws = await _detail_or_404(review_id)
     out = _item_out(item)
@@ -148,9 +148,9 @@ async def review_detail(review_id: int) -> dict:
 async def approve(review_id: int, req: ApproveRequest) -> dict:
     """承認して、答えをナレッジベースへ書き戻す。
 
-    ナレッジベースへ入るのは **査読者が確定させた答え**(req.approved_answer)。
+    ナレッジベースへ入るのは **レビュー担当者が確定させた答え**(req.approved_answer)。
     モデルの参考回答(ai_suggested_answer)ではない。参考回答をそのまま書くなら
-    人の査読を挟む意味が無い。
+    レビューを挟む意味が無い。
     """
     item, _ = await _detail_or_404(review_id)
     if item.review_status != "pending":
@@ -199,10 +199,10 @@ async def approve(review_id: int, req: ApproveRequest) -> dict:
         logger.exception("承認の記録に失敗 review=%s", review_id)
         raise HTTPException(status_code=503, detail=_DB_DOWN) from exc
     if not moved:
-        # 詳細を読んでからここへ来るまでの間に、別の査読者が判定を確定させた。
+        # 詳細を読んでからここへ来るまでの間に、別のレビュー担当者が判定を確定させた。
         # 書き戻し自体は済んでいるので、それを隠さずに伝える(黙って 200 を返すと、
         # 画面には自分の答えが入ったように見えるが、保存されているのは相手の判定)。
-        logger.warning("承認を記録できなかった review=%s(別の査読者が先に確定させた)", review_id)
+        logger.warning("承認を記録できなかった review=%s(別のレビュー担当者が先に確定させた)", review_id)
         raise HTTPException(
             status_code=409,
             detail="別の担当者が先に判定したため、この承認は記録されませんでした(ナレッジベースへの書き戻しは完了しています)",

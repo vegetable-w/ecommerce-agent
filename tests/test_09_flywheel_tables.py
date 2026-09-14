@@ -157,7 +157,7 @@ async def test_list_review_queue_filters_by_status_and_sorts_by_count(db_session
 async def test_review_queue_ties_are_broken_by_id(db_session_factory):
     """同点の並びを固定する。**穴のほとんどは 1 件のまま**なので同点が普通。
 
-    第 1 キーだけだと並びが実行ごとに変わり、査読キューを開き直すたびに順番が
+    第 1 キーだけだと並びが実行ごとに変わり、レビューキューを開き直すたびに順番が
     入れ替わる(どこまで見たかが分からなくなる)。list_eval_runs と同じ作法。
     """
     a = await repository.insert_review_item("同点の穴 A", None)

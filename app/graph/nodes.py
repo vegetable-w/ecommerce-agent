@@ -149,7 +149,7 @@ async def fallback_reply(state) -> dict:
 
     09: source を確信度ゲート(forced_rag)が付けた fallback_source から取り、
     そのときの検索結果の写しも一緒に積む。「根拠そのものが弱かった」のか
-    「根拠は取れたが答えきれなかった」のかは、査読画面でナレッジの穴を直すときに
+    「根拠は取れたが答えきれなかった」のかは、レビュー画面でナレッジの穴を直すときに
     やることが違う(前者は書き足す、後者は書き方か索き方を直す)。
 
     **State の key はどれも無いことがありうる。** gate を通らずここへ倒れてきた
@@ -265,7 +265,7 @@ async def forced_rag(state) -> dict:
                 "trace": {"forced_rag": True, "evidence_top": 0.0}}
 
     # 確信度と写しは**足切りの手前**の hits から取る。足切り後から取ると、断った
-    # ターンほど写しが空になり、査読画面で「ナレッジに本当に無いのか、有るのに
+    # ターンほど写しが空になり、レビュー画面で「ナレッジに本当に無いのか、有るのに
     # 引けていないのか」を見分けるという写しの目的がそのまま潰れる。
     conf = confidence.compute_evidence_confidence(hits)
     snapshot = confidence.snapshot_from_hits(hits)
@@ -832,7 +832,7 @@ async def _record_faq_refusal(state, run) -> None:
 
     **この経路も検索とリランクを通っている**ので、写しも一緒に積む(09 章)。
     渡さないと `retrieved_chunks IS NULL` で「検索を通っていない行」を数える側が
-    誤分類し、査読画面はこの行にだけ「検索を通っていないため写しはありません」と
+    誤分類し、レビュー画面はこの行にだけ「検索を通っていないため写しはありません」と
     嘘の説明を出す。
     """
     faq = _faq_payload(run)

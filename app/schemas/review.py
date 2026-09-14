@@ -1,4 +1,4 @@
-"""査読(データフライホイールの人の判断)の入出力スキーマ。
+"""レビュー(データフライホイールの人の判断)の入出力スキーマ。
 
 09 章の閉ループの最後の一段。ここで承認された答えは 03 章の取り込み経路を通って
 ナレッジベースへ戻り、次に同じ質問が来たときは検索で当たるようになる。
@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class ApproveRequest(BaseModel):
-    """承認ボタンが送る内容。**モデルの参考回答ではなく、査読者が確定させた答え。**"""
+    """承認ボタンが送る内容。**モデルの参考回答ではなく、レビュー担当者が確定させた答え。**"""
 
     # min_length は OpenAPI の minLength として表出させるために残し、空白のみの値
     # (min_length を通過してしまう)はこの validator で拒否する
@@ -24,7 +24,7 @@ class ApproveRequest(BaseModel):
     # bare な .strip() であることが要点で、.strip(" ") へ「明示化」すると
     # U+3000(全角スペース)が抜ける。日本語 IME がそのまま出す空入力なので実際に届く。
     approved_answer: str = Field(
-        min_length=1, description="査読者が承認した回答。この文面がナレッジベースへ入る"
+        min_length=1, description="レビュー担当者が承認した回答。この文面がナレッジベースへ入る"
     )
 
     @field_validator("approved_answer")
@@ -40,7 +40,7 @@ class ReviewItemOut(BaseModel):
 
     id: int = Field(description="review_queue の id")
     normalized_question: str = Field(description="正規化済みの質問。承認するとこれが chunk の questions になる")
-    ai_suggested_answer: str | None = Field(description="モデルの参考回答。査読者はこれを直してから承認する")
+    ai_suggested_answer: str | None = Field(description="モデルの参考回答。レビュー担当者はこれを直してから承認する")
     occurrence_count: int = Field(description="この穴に何件の生の質問がまとまったか。そのまま優先度になる")
     review_status: str = Field(description="pending / approved / rejected(DDL の ENUM と同じ英語の識別子)")
     status_label: str = Field(description="review_status の日本語表示名(app/core/labels.py が出所)")

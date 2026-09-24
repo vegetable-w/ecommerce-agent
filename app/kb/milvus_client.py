@@ -25,7 +25,9 @@ from pymilvus import (
 from app.config import settings
 
 COLLECTION = "knowledge"
-DIM = 1024
+# 次元は設定から引く。モデルを差し替えた評価用 collection を
+# 別の次元で並行して持てるようにするため(既定は bge-m3 の 1024)。
+DIM = settings.embed_dim
 
 # 日本語向けの analyzer。built-in の japanese は存在せず(実測: unknown build-in
 # analyzer type: japanese)、standard/english は助詞ごと巨大な 1 token になり BM25 が
@@ -67,7 +69,22 @@ def _check_schema(client: MilvusClient, collection: str) -> None:
     そこさえ合っていれば search は通るため。ここで止めておかないと、
     `field section_path not exist` のような search 内部の例外として遅れて現れる。
     """
-    names = {f["name"] for f in client.describe_collection(collection)["fields"]}
+    fields = client.describe_collection(collection)["fields"]
+    names = {f["name"] for f in fields}
+
+    # **次元も見る。** 名前だけ合わせて通すと、モデルを差し替えたときに
+    # 「互換」と判断されてロードされ、search や upsert の奥で
+    # dim mismatch として遅れて現れる(どの collection が古いのか読み取れない)。
+    dense = next((f for f in fields if f["name"] == "dense"), None)
+    actual = (dense or {}).get("params", {}).get("dim")
+    if actual is not None and int(actual) != int(settings.embed_dim):
+        raise RuntimeError(
+            f"Milvus collection「{collection}」の dense は {actual} 次元ですが、"
+            f"設定は {settings.embed_dim} 次元です。埋め込みモデルを変えた場合は "
+            f"別の collection を作るか、作り直してください"
+            f"(make kb-reset の後に make kb-build / make kb-vectorize)。"
+        )
+
     missing = _REQUIRED_FIELDS - names
     if missing:
         raise RuntimeError(
@@ -99,7 +116,7 @@ def ensure_collection(client: MilvusClient, collection: str = COLLECTION) -> Non
     else:
         schema = client.create_schema(auto_id=False)
         schema.add_field("id", DataType.INT64, is_primary=True)
-        schema.add_field("dense", DataType.FLOAT_VECTOR, dim=DIM)
+        schema.add_field("dense", DataType.FLOAT_VECTOR, dim=settings.embed_dim)
         # max_length は文字数ではなく UTF-8 の**バイト数**(実測: "あ"×5 が length 15 と
         # 判定される)。日本語は 1 文字 3 バイトなので、400 文字の answer で約 1,200 バイト。
         # 実データの最大は text 1,199 / answer 1,116 / section_path 127 バイトで、

@@ -27,6 +27,14 @@ class Settings(BaseSettings):
     embed_base_url: str = "https://api.siliconflow.cn/v1"
     embed_api_key: SecretStr                # アカウント依存なので既定値を持たせない
     embed_model: str = "BAAI/bge-m3"        # 上流の実名。別名レイヤーは設けない
+    # 埋め込みの次元。**collection の schema と一致していなければならない。**
+    # モデルを差し替えるときはここと Milvus の collection を必ず一緒に変える
+    # (bge-m3=1024 / ruri-v3-310m=768 / gemini-embedding-001=3072)。
+    embed_dim: int = Field(default=1024, gt=0)
+    # 非対称なモデル用の接頭辞。空なら何も足さない(bge-m3 は対称なので空でよい)。
+    # ruri v3 系は「検索文書: 」「検索クエリ: 」を付けないと精度だけが静かに落ちる。
+    embed_doc_prefix: str = ""
+    embed_query_prefix: str = ""
     # Milvus は docker-compose の standalone(ポート 19530)へ接続する。
     # Milvus Lite(埋め込みファイル DB)は sys_platform != 'win32' の marker で
     # Windows を除外しているため、このマシンでは使えない(実測で確認済み)。

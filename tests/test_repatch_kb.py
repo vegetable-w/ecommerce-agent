@@ -106,3 +106,31 @@ def test_an_empty_source_would_remove_everything():
     plan = rp._plan(rows, [])
     assert len(plan["removed"]) == 4
     assert len(plan["removed"]) / len(rows) > rp._MAX_DELETE_RATIO
+
+
+def test_chunks_that_did_not_come_from_a_document_are_never_removed():
+    """フライホイールと会話マイニングで入った chunk は、資料に無くても消さない。
+
+    ここが壊れると被害が大きい: data/kb を 1 文字直して repatch しただけで、
+    レビューを通って書き戻されたナレッジが MySQL からも Milvus からも消える。
+    件数が少ないので _MAX_DELETE_RATIO の歯止めにも掛からず、黙って通る。
+    """
+    rows = [_Row(1, "FAQ / 送料", "送料は", "3,000円以上で無料"),
+            _Row(48, "flywheel", "ドローンの耐荷重は", "5kg までです"),
+            _Row(49, "mined", "返品の期限は", "7 日以内です")]
+    fresh = [_chunk("FAQ / 送料", "送料は", "3,000円以上で無料")]
+    assert _names(rp._plan(rows, fresh)) == {
+        "same": ["FAQ / 送料"], "changed": [], "added": [], "removed": []}
+
+
+def test_the_delete_ratio_is_measured_against_document_chunks_only():
+    """歯止めの分母に書き戻し由来を混ぜない。
+
+    混ぜると分母が膨らみ、「資料由来が全滅しているのに割合は小さい」という
+    見落としが起きる。
+    """
+    rows = [_Row(1, "FAQ / 送料", "送料は", "無料"),
+            _Row(2, "FAQ / 返品", "返品は", "7 日以内")]
+    rows += [_Row(10 + i, "flywheel", f"q{i}", f"a{i}") for i in range(20)]
+    plan = rp._plan(rows, [])
+    assert rp._exceeds_delete_guard(plan, rows) is True

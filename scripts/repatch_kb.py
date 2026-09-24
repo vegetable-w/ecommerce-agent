@@ -32,6 +32,21 @@ from app.kb import documents, dualwrite, milvus_client, sources
 _MAX_DELETE_RATIO = 0.5
 
 
+# **資料から来ていない chunk の section_path。** この突き合わせは
+# 「knowledge_chunks にある行は全部 data/kb のどこかの節から来ている」という前提で
+# 書かれていたが、09 章でフライホイールが、03 章で会話マイニングが、資料に無い
+# ナレッジを直接書き戻すようになってその前提は崩れた。除外しないと、資料側に
+# 対応する節が無い以上これらは必ず「削除」と判定される。しかも件数が少ないので
+# _MAX_DELETE_RATIO の歯止めにも掛からず、data/kb の誤字を 1 つ直しただけで
+# レビューを通ったナレッジが MySQL からも Milvus からも黙って消える。
+_NON_DOCUMENT_SECTION_PATHS = frozenset({"flywheel", "mined"})
+
+
+def _from_document(row) -> bool:
+    """この行が data/kb の資料に由来するか。差分の対象はこれだけ。"""
+    return (row.section_path or "") not in _NON_DOCUMENT_SECTION_PATHS
+
+
 def _key(content_type: str | None, section_path: str | None) -> tuple[str, str]:
     return (content_type or "", section_path or "")
 
@@ -40,6 +55,8 @@ def _plan(existing: list, fresh: list[tuple[str, documents.Chunk]]) -> dict:
     """既存行と新しい chunk を突き合わせて、更新 / 追加 / 削除 / 据え置きに分ける。"""
     old_by_key: dict[tuple[str, str], list] = defaultdict(list)
     for row in existing:
+        if not _from_document(row):
+            continue          # 書き戻し由来は差分の外。据え置きにも削除にも入れない
         old_by_key[_key(row.content_type, row.section_path)].append(row)
 
     new_by_key: dict[tuple[str, str], list] = defaultdict(list)
@@ -64,6 +81,19 @@ def _plan(existing: list, fresh: list[tuple[str, documents.Chunk]]) -> dict:
         keep = len(new_by_key.get(key, []))
         removed.extend(rows[keep:])
     return {"same": same, "changed": changed, "added": added, "removed": removed}
+
+
+def _exceeds_delete_guard(plan: dict, existing: list) -> bool:
+    """歯止めの判定。**分母は資料由来の行だけ。**
+
+    書き戻し由来を分母に混ぜると、資料由来が全滅していても総数で薄まって
+    割合が小さく出る。歯止めが守りたいのは「data/kb の指し先を取り違えた」場合
+    なので、見るべきは資料由来の行が何割消えるかになる。
+    """
+    n_doc = sum(1 for row in existing if _from_document(row))
+    if not n_doc:
+        return False
+    return len(plan["removed"]) / n_doc > _MAX_DELETE_RATIO
 
 
 async def main(argv: list[str] | None = None) -> int:
@@ -95,8 +125,9 @@ async def main(argv: list[str] | None = None) -> int:
     for row in plan["removed"]:
         print(f"  [削除] {row.section_path}")
 
-    if existing and n_del / len(existing) > _MAX_DELETE_RATIO:
-        print(f"\n中止: 既存の {n_del}/{len(existing)} 件が消える判定になった。"
+    if _exceeds_delete_guard(plan, existing):
+        n_doc = sum(1 for row in existing if _from_document(row))
+        print(f"\n中止: 資料由来の {n_del}/{n_doc} 件が消える判定になった。"
               "data/kb の指し先を確かめること。"
               "本当に作り直すなら kb-reset を明示的に使う")
         return 1

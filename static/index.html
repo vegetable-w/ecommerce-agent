@@ -747,7 +747,7 @@ function renderActions(bub, items){
       // 本章では実際の有人窓口には繋がない。画面上の切り替えだけ(spec §6.2)
       b.addEventListener('click', () => {
         b.disabled = true;
-        addHint('有人サポートへ切り替えました');
+        addHint('有人対応へ切り替えました');
         addRow('bot').textContent =
           'こんにちは。カスタマーサポート担当です。どのようなご用件でしょうか。';
       });
